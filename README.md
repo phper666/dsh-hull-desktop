@@ -1,46 +1,48 @@
-# Hull Desktop (`dsh-hull-desktop`)
+中文 | [English](README.en.md)
 
-**The developer tool that wraps DeepSeek Harness — without ever touching it.**
+# Hull Desktop（`dsh-hull-desktop`）
 
-Hull is an open-source Electron desktop shell around the official [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh). It launches and supervises dsh as a child process, upgrades it in place through npm overlays, and renders the official web UI — so every official upgrade shows up automatically, with nothing forked, patched, or replaced.
+**围绕 DeepSeek Harness 的桌面开发工具——永远不碰它本身。**
 
-Built for developers, Hull adds its own layer on top: a task kanban for planning work, native tray and notification integration, and plugin extensions through dsh's official extension points — all additive, all removable, none of it in dsh's way.
+Hull 是一个开源的 Electron 桌面壳，包住官方的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）。它作为子进程启动并守护 dsh，通过 npm overlay 原位升级，渲染官方 Web UI——官方每次升级都会自动生效，没有任何 fork、patch 或替换。
 
-> **Status:** early scaffolding. The shell, upgrade orchestration, and kanban are under active design.
+Hull 面向程序员，在官方之上叠加自己的层：任务看板、原生托盘与通知集成、以及通过 dsh 官方扩展点提供的插件扩展——全部是增量的、可摘除的，绝不挡 dsh 的路。
 
-## Design principles
+> **状态：** 早期脚手架阶段。壳、升级编排与看板均在设计中。
 
-- **Pure shell.** Hull never forks, patches, or replaces dsh or its web UI. Every official dsh release works in Hull the day it ships.
-- **Two independent upgrade channels.** dsh upgrades via an in-app npm overlay (manual, atomic, rollback on failure); Hull itself ships as its own app update. Neither blocks the other.
-- **Features are additive layers.** Shell-native features live in the Electron main process; anything that must run inside dsh goes through dsh's official plugin extension points (`--patch` overlays / bundles). A broken feature layer can always be disabled without touching dsh.
-- **User data stays official.** Sessions, settings, and credentials live in `DSH_HOME` and are never re-implemented or rewritten by Hull.
+## 设计原则
 
-## Planned features
+- **纯壳。** Hull 永不 fork、patch 或替换 dsh 及其 Web UI。官方每个版本发布当天即可在 Hull 中使用。
+- **两条独立的升级通道。** dsh 通过壳内 npm overlay 升级（手动触发、原子替换、失败回滚）；Hull 本身作为独立应用自更新。互不阻塞。
+- **功能都是增量层。** 壳原生功能住在 Electron 主进程；任何需要跑在 dsh 内部的功能走 dsh 官方插件扩展点（`--patch` overlay / bundle）。坏掉的特性层可随时禁用，不影响 dsh。
+- **用户数据保持官方。** 会话、设置、凭据都在 `DSH_HOME` 里，Hull 绝不重新实现或改写。
 
-- [ ] Desktop shell: launch / supervise / restart the dsh child process
-- [ ] In-app dsh upgrade: npm overlay, atomic swap, one-click rollback
-- [ ] Task kanban: plan and track development work, optionally with the agent
-- [ ] Native integration: tray, notifications, autostart, shortcuts
-- [ ] Plugin extensions through dsh's official extension points (host-side and UI-side)
+## 规划中的功能
 
-## Architecture
+- [ ] 桌面壳：启动 / 守护 / 重启 dsh 子进程
+- [ ] 壳内 dsh 升级：npm overlay、原子替换、一键回滚
+- [ ] 任务看板：规划与跟踪开发工作，可交给 agent 执行
+- [ ] 原生集成：托盘、通知、开机自启、快捷键
+- [ ] 通过 dsh 官方扩展点的插件扩展（宿主侧 + UI 侧）
+
+## 架构
 
 ```
-┌─ Hull (Electron main process) ────────────────────┐
-│  tray · window · autostart · upgrade manager      │
-│  spawn dsh child → loadURL → restart orchestration│
+┌─ Hull（Electron 主进程）─────────────────────────┐
+│  托盘 · 窗口 · 自启 · 升级管理器                   │
+│  spawn dsh 子进程 → loadURL → 重启编排             │
 └──────────────────────┬────────────────────────────┘
-                       │ child process (Node)
-┌─ dsh (official npm packages, untouched) ──────────┐
-│  host plugins · API gateway · official web UI     │
-│  └─ Hull's additive layer (optional plugins) ──┐  │
-└─────────────────────────────────────────────────┘─┘
+                       │ 子进程（Node）
+┌─ dsh（官方 npm 包，不修改）───────────────────────┐
+│  宿主插件 · API 网关 · 官方 Web UI                 │
+│  └─ Hull 的增量层（可选插件）──────────────────┐   │
+└──────────────────────────────────────────────────┘
 ```
 
-## Development
+## 开发
 
-See [AGENTS.md](AGENTS.md) for repository rules. Team workflow and the 5-skills pipeline are being set up; this section will grow with the project.
+仓库规则见 [AGENTS.md](AGENTS.md)。团队工作流与 5-skill 流水线正在搭建中，本节随项目成长。
 
-## License
+## 许可证
 
 [MIT](LICENSE)
