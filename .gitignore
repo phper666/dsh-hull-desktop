@@ -27,3 +27,4 @@ coverage/
 
 # 内部文档（本地工作流文档，不进 GitHub）
 docs/
+AGENTS.md
