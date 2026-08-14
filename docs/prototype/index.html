@@ -24,6 +24,7 @@
   nav .status { margin-top: auto; border-top: 1px solid var(--border); padding: 10px 14px; font-size: 11.5px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
   nav .status .row { display: flex; align-items: center; gap: 7px; }
   .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 1.6s infinite; flex-shrink: 0; }
+  .busy { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 0.9s infinite; flex-shrink: 0; }
   @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
   main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 28px 32px; }
   .stage { width: 100%; max-width: 900px; }
@@ -120,6 +121,7 @@
 
   <div class="status">
     <div class="row"><span class="pulse"></span>dsh 运行中</div>
+    <div class="row"><span class="pulse" id="session-dot"></span><span id="session-text">会话：空闲</span></div>
     <div class="row">v0.1.0-rc.6 · 127.0.0.1:56841</div>
   </div>
 </nav>
@@ -186,12 +188,22 @@ function showUpgradeProgress() {
   }, 350);
 }
 function cancelUpgrade() { clearInterval(window._prog); closeOvl('ovl-progress'); setBar(0); }
+function toggleSwitch(el) { el.classList.toggle('on'); }
+function openUpgrade() { document.getElementById('ovl-upgrade').classList.add('show'); }
+function openRollback() { document.getElementById('ovl-rollback').classList.add('show'); }
+function setSession(busy) {
+  var dot = document.getElementById('session-dot');
+  var txt = document.getElementById('session-text');
+  if (busy) { dot.className = 'busy'; txt.textContent = '会话：忙碌中'; }
+  else { dot.className = 'pulse'; txt.textContent = '会话：空闲'; }
+}
 function showQueue() {
   document.getElementById('ovl-upgrade').classList.remove('show');
   var q = document.createElement('div');
   q.className = 'queuebar';
-  q.innerHTML = '<span>&#128368;</span> <b>升级已排队</b>：agent 正在执行任务，会话结束后将自动升级（<a href="javascript:void(0)" onclick="this.parentElement.remove()" style="color:var(--accent)">取消排队</a>）';
+  q.innerHTML = '<span>&#128368;</span> <b>升级已排队</b>：agent 正在执行任务，会话结束后将自动升级（<a href="javascript:void(0)" onclick="this.parentElement.remove(); setSession(false)" style="color:var(--accent)">取消排队</a>）';
   document.getElementById('stage').appendChild(q);
+  setSession(true);
 }
 
 function render(id) {
@@ -211,10 +223,10 @@ function render(id) {
     h = meta('Hull 设置', '壳自己的独立窗口，与官方 UI 隔离');
     h += '<div class="win"><div class="titlebar"><div class="traffic"><i></i><i></i><i></i></div><span class="title">Hull 设置</span></div><div class="body">' +
       '<div class="row"><div><div class="label">dsh 运行时</div><div class="sub">overlay 目录：~/Library/Application Support/dsh-hull-desktop/dsh</div></div><span class="kv"><span class="badge ok">运行中</span><span class="badge">0.1.0-rc.6</span></span></div>' +
-      '<div class="row"><div><div class="label">自动检查更新</div><div class="sub">启动时静默检查 npm registry，发现新版才提示</div></div><span class="switch on" onclick="this.classList.toggle('on')"></span></div>' +
-      '<div class="row"><div><div class="label">关闭窗口时退出应用</div><div class="sub">默认关闭 = 隐藏到托盘，dsh 继续运行</div></div><span class="switch" onclick="this.classList.toggle('on')"></span></div>' +
+      '<div class="row"><div><div class="label">自动检查更新</div><div class="sub">启动时静默检查 npm registry，发现新版才提示</div></div><span class="switch on" onclick="toggleSwitch(this)"></span></div>' +
+      '<div class="row"><div><div class="label">关闭窗口时退出应用</div><div class="sub">默认关闭 = 隐藏到托盘，dsh 继续运行</div></div><span class="switch" onclick="toggleSwitch(this)"></span></div>' +
       '<div class="row"><div><div class="label">npm registry</div><div class="sub">国内用户可填镜像，如 https://registry.npmmirror.com</div></div><input style="width:240px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px" value="https://registry.npmjs.org"></div>' +
-      '<div class="row"><div><div class="label">升级操作</div></div><span class="kv"><button class="btn" onclick="document.getElementById('ovl-upgrade').classList.add('show')">检查更新</button><button class="btn" title="需存在上一版本">回滚到上一版本</button></span></div>' +
+      '<div class="row"><div><div class="label">升级操作</div></div><span class="kv"><button class="btn" onclick="openUpgrade()">检查更新</button><button class="btn" title="需存在上一版本">回滚到上一版本</button></span></div>' +
       '<div class="row"><div><div class="label">诊断</div><div class="sub">hull.log 与 dsh 子进程日志</div></div><span class="kv"><button class="btn">打开日志目录</button><button class="btn">打开数据目录</button></span></div>' +
       '</div></div><div class="footnote">交互：点「检查更新」→ 弹出升级确认框（含变更说明）；「自动检查」「关闭即退出」开关可点。</div>';
   } else if (id === 'kanban') {
@@ -245,7 +257,7 @@ function render(id) {
     h += '<div class="win"><div class="titlebar"><div class="traffic"><i></i><i></i><i></i></div><span class="title">Hull Desktop</span></div><div class="body" style="min-height:auto">' +
       '<p style="font-size:13px;margin-bottom:10px">完整交互见右上角弹出的确认框（本页已触发）。要点：</p>' +
       '<ul style="font-size:13px;line-height:2;padding-left:20px;color:var(--muted)"><li>版本对比两列展示（当前 → 最新）</li><li>变更说明从 npm registry 获取，缺失时降级为纯版本对比</li><li>明确告知：agent 忙碌时升级会排队</li></ul>' +
-      '<div class="actions"><button class="btn primary" onclick="document.getElementById('ovl-upgrade').classList.add('show')">再弹一次确认框</button></div>' +
+      '<div class="actions"><button class="btn primary" onclick="openUpgrade()">再弹一次确认框</button></div>' +
       '</div></div>';
   } else if (id === 'upd-progress') {
     h = meta('升级进度', '下载 → 安装 → 替换 → 重启验证（FR-4）');
@@ -258,14 +270,14 @@ function render(id) {
     h = meta('会话忙碌排队', '等当前会话结束再升（FR-4 决策）');
     h += '<div class="win"><div class="titlebar"><div class="traffic"><i></i><i></i><i></i></div><span class="title">Hull Desktop</span></div><div class="body" style="min-height:auto">' +
       '<p style="font-size:13px;margin-bottom:10px">演示：确认升级时 agent 正在执行任务 → 排队等待：</p>' +
-      '<div class="actions"><button class="btn primary" onclick="showQueue()">模拟：确认升级（agent 忙碌）</button></div>' +
+      '<div class="actions"><button class="btn primary" onclick="showQueue()">模拟：确认升级（agent 忙碌）</button><button class="btn" onclick="setSession(false)">模拟：会话结束（恢复空闲）</button></div>' +
       '<p class="muted" style="margin-top:12px">排队条出现在页面下方：升级已排队，会话结束后自动升级，可取消。会话忙碌状态来自 Hull 宿主插件（FR-9，loopback 只读桥）。</p>' +
       '</div></div>';
   } else if (id === 'rollback') {
     h = meta('失败自动回滚', '新版本不就绪 → 恢复上一版本（FR-5）');
     h += '<div class="win"><div class="titlebar"><div class="traffic"><i></i><i></i><i></i></div><span class="title">Hull Desktop</span></div><div class="body" style="min-height:auto">' +
       '<p style="font-size:13px;margin-bottom:10px">回滚弹窗完整演示：</p>' +
-      '<div class="actions"><button class="btn danger" onclick="document.getElementById('ovl-rollback').classList.add('show')">显示回滚提示</button></div>' +
+      '<div class="actions"><button class="btn danger" onclick="openRollback()">显示回滚提示</button></div>' +
       '<p class="muted" style="margin-top:12px">自动回滚：换回 dsh-previous 重启。手动回滚：设置页「回滚到上一版本」按钮。两者都不碰 DSH_HOME 数据（CON-R002）。</p>' +
       '</div></div>';
   } else if (id === 'tray') {
