@@ -267,7 +267,7 @@ function render(id) {
       '<div class="row"><div><div class="label">dsh 运行时</div><div class="sub">overlay 目录：~/Library/Application Support/dsh-hull-desktop/dsh</div></div><span class="kv"><span class="badge ok">运行中</span><span class="badge">0.1.0-rc.6</span></span></div>' +
       '<div class="row"><div><div class="label">自动检查更新</div><div class="sub">启动时静默检查 npm registry，发现新版才提示</div></div><span class="switch on" onclick="toggleSwitch(this)"></span></div>' +
       '<div class="row"><div><div class="label">关闭窗口时退出应用</div><div class="sub">默认关闭 = 隐藏到托盘，dsh 继续运行</div></div><span class="switch" onclick="toggleSwitch(this)"></span></div>' +
-      '<div class="row"><div><div class="label">npm registry</div><div class="sub">国内用户可填镜像，如 https://registry.npmmirror.com</div></div><input style="width:240px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px" value="https://registry.npmjs.org"></div>' +
+      '<div class="row"><div><div class="label">npm registry</div><div class="sub">默认官方 registry；可填任意源：国内镜像（如 https://registry.npmmirror.com）、企业私有源等</div></div><input style="width:240px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px" value="https://registry.npmjs.org"></div>' +
       '<div class="sec">dsh 运行时升级</div>' +
       '<div class="row"><div><div class="label">dsh 版本</div><div class="sub">npm overlay · 升级需重启 dsh（会话结束后自动进行）</div></div><span class="kv"><span class="badge">0.1.0-rc.6</span><button class="btn" onclick="openUpgrade()">检查更新</button><button class="btn" title="需存在上一版本">回滚</button></span></div>' +
       '<div class="sec">Hull 应用升级</div>' +
