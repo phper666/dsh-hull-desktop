@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hull Desktop · 交互原型（M1）</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --panel: #ffffff; --border: #e3e3df; --text: #1f2328; --muted: #6b7280;
+    --accent: #4c6ef5; --accent-weak: #edf1fe; --green: #2f9e44; --red: #e03131; --amber: #f08c00;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  body { background: var(--bg); color: var(--text); display: flex; min-height: 100vh; }
+  /* 左侧导航 */
+  nav { width: 210px; background: #f1f1ee; border-right: 1px solid var(--border); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; }
+  nav .logo { font-weight: 700; font-size: 15px; padding: 6px 10px 14px; display: flex; align-items: center; gap: 8px; }
+  nav .logo .dot { width: 12px; height: 12px; border-radius: 4px; background: var(--accent); }
+  nav .group { font-size: 11px; color: var(--muted); padding: 10px 10px 4px; letter-spacing: .05em; }
+  nav button { text-align: left; padding: 8px 10px; border: none; background: transparent; border-radius: 8px; font-size: 13px; color: var(--text); cursor: pointer; }
+  nav button:hover { background: #e6e6e2; }
+  nav button.active { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.08); font-weight: 600; }
+  /* 主区 */
+  main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 32px; }
+  .stage { width: 100%; max-width: 860px; }
+  .stage .meta { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; }
+  .stage .meta h2 { font-size: 15px; }
+  .stage .meta .hint { font-size: 12px; color: var(--muted); }
+  /* macOS 窗口 */
+  .win { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.10); overflow: hidden; }
+  .win .titlebar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: #fbfbf9; }
+  .traffic { display: flex; gap: 7px; }
+  .traffic i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+  .traffic i:nth-child(1) { background: #ff5f57; } .traffic i:nth-child(2) { background: #febc2e; } .traffic i:nth-child(3) { background: #28c840; }
+  .titlebar .title { font-size: 12.5px; color: var(--muted); margin-left: 8px; flex: 1; }
+  .win .body { padding: 20px 22px; min-height: 300px; }
+  /* 通用控件 */
+  .btn { border: 1px solid var(--border); background: #fff; border-radius: 8px; padding: 7px 14px; font-size: 13px; cursor: pointer; }
+  .btn:hover { background: #f7f7f5; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: #3b5bdb; }
+  .btn.danger { color: var(--red); border-color: #f1c0c0; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); gap: 12px; }
+  .row:last-child { border-bottom: none; }
+  .row .label { font-size: 13px; }
+  .row .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .kv { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--accent-weak); color: var(--accent); }
+  .badge.ok { background: #e6f7ec; color: var(--green); }
+  .badge.warn { background: #fff3e0; color: var(--amber); }
+  .badge.err { background: #fdeaea; color: var(--red); }
+  /* 开关 */
+  .switch { position: relative; width: 40px; height: 22px; background: #d1d1cd; border-radius: 999px; cursor: pointer; transition: background .15s; flex-shrink: 0; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: #fff; border-radius: 50%; transition: left .15s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+  .switch.on { background: var(--accent); }
+  .switch.on::after { left: 20px; }
+  /* 进度条 */
+  .bar { height: 6px; background: #ececea; border-radius: 999px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0%; background: var(--accent); border-radius: 999px; transition: width .4s; }
+  /* 弹窗 */
+  .overlay { position: fixed; inset: 0; background: rgba(20,20,25,.45); display: none; align-items: center; justify-content: center; z-index: 50; }
+  .overlay.show { display: flex; }
+  .modal { background: #fff; border-radius: 12px; width: 400px; padding: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+  .modal h3 { font-size: 14px; margin-bottom: 10px; }
+  .modal p { font-size: 13px; color: var(--muted); line-height: 1.6; }
+  .modal .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+  .ver { display: flex; gap: 10px; align-items: center; margin: 12px 0; }
+  .ver .box { flex: 1; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .ver .box .v { font-size: 15px; font-weight: 700; }
+  .ver .box .k { font-size: 11px; color: var(--muted); }
+  .ver .arrow { font-size: 16px; color: var(--muted); }
+  /* 主窗口 mock（官方 UI 占位） */
+  .mockui { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: #fbfbf9; }
+  .mockui .side { display: flex; }
+  .mockui .sidebar { width: 180px; background: #f3f3f0; padding: 12px 10px; }
+  .mockui .sidebar .item { font-size: 12px; padding: 7px 10px; border-radius: 7px; color: var(--muted); }
+  .mockui .sidebar .item.active { background: #fff; color: var(--text); font-weight: 600; }
+  .mockui .chat { flex: 1; padding: 18px; }
+  .bubble { font-size: 13px; border-radius: 10px; padding: 10px 14px; margin-bottom: 10px; max-width: 82%; line-height: 1.6; }
+  .bubble.user { background: var(--accent); color: #fff; margin-left: auto; }
+  .bubble.agent { background: #fff; border: 1px solid var(--border); }
+  .mockui .inputbar { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); }
+  .mockui .inputbar input { flex: 1; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+  /* 托盘菜单 mock */
+  .traypop { width: 220px; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.15); padding: 6px; }
+  .traypop .ti { font-size: 13px; padding: 8px 10px; border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; }
+  .traypop .ti:hover { background: #f4f4f2; }
+  .traypop hr { border: none; border-top: 1px solid var(--border); margin: 4px 8px; }
+  .traypop .status { display: flex; align-items: center; gap: 8px; padding: 8px 10px; font-size: 12px; color: var(--muted); }
+  .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 1.6s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+  .muted { color: var(--muted); font-size: 12px; }
+  .footnote { margin-top: 12px; font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo"><span class="dot"></span>Hull Desktop</div>
+  <div class="group">流程</div>
+  <button data-s="s1" class="active">① 首次启动安装</button>
+  <button data-s="s2">② 主窗口（官方 UI）</button>
+  <button data-s="s3">③ 壳设置页</button>
+  <button data-s="s4">④ 升级确认</button>
+  <button data-s="s5">⑤ 升级进度</button>
+  <button data-s="s6">⑥ 升级失败回滚</button>
+  <button data-s="s7">⑦ 托盘菜单</button>
+  <div class="group">说明</div>
+  <button data-s="s8">交互说明</button>
+</nav>
+
+<main>
+<div class="stage" id="stage"></div>
+</main>
+
+<div class="overlay" id="ovl-upgrade">
+  <div class="modal">
+    <h3>发现 dsh 新版本</h3>
+    <div class="ver">
+      <div class="box"><div class="k">当前版本</div><div class="v">0.1.0-rc.6</div></div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:var(--accent)"><div class="k">最新版本</div><div class="v">0.1.0-rc.7</div></div>
+    </div>
+    <p>升级需要短暂重启 dsh（正在进行的会话会被中断，历史记录不受影响）。升级前请确认没有正在执行的重要任务。</p>
+    <div class="actions">
+      <button class="btn" onclick="closeOvl('ovl-upgrade')">稍后再说</button>
+      <button class="btn primary" onclick="closeOvl('ovl-upgrade'); showUpgradeProgress()">立即升级</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="ovl-progress">
+  <div class="modal">
+    <h3>正在升级 dsh</h3>
+    <p class="muted" id="prog-label">下载并安装 @deepseek-ai/dsh@0.1.0-rc.7 …</p>
+    <div class="bar" style="margin:14px 0 8px"><i id="prog-bar" style="width:0%"></i></div>
+    <p class="muted" id="prog-pct">0%</p>
+    <div class="actions"><button class="btn" id="prog-cancel" onclick="cancelUpgrade()">取消</button></div>
+  </div>
+</div>
+
+<div class="overlay" id="ovl-rollback">
+  <div class="modal">
+    <h3 style="color:var(--red)">升级失败，已自动回滚</h3>
+    <p>新版本启动未通过就绪验证，已自动恢复到 <b>0.1.0-rc.6</b>。你的会话与设置未受影响。</p>
+    <p class="muted" style="margin-top:8px">详情见日志：~/Library/Application Support/dsh-hull-desktop/logs/hull.log</p>
+    <div class="actions">
+      <button class="btn" onclick="closeOvl('ovl-rollback')">知道了</button>
+      <button class="btn" onclick="closeOvl('ovl-rollback'); go('s3')">查看设置页</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const navs = document.querySelectorAll('nav button[data-s]');
+function go(id) { navs.forEach(b => b.classList.toggle('active', b.dataset.s === id)); render(id); }
+function closeOvl(id) { document.getElementById(id).classList.remove('show'); }
+function setBar(p) { document.getElementById('prog-bar').style.width = p + '%'; document.getElementById('prog-pct').textContent = p + '%'; }
+function showUpgradeProgress() {
+  document.getElementById('ovl-progress').classList.add('show');
+  let p = 0;
+  window._prog = setInterval(() => {
+    p = Math.min(p + 7 + Math.random() * 18, 100);
+    setBar(Math.round(p));
+    if (p >= 100) { clearInterval(window._prog); setTimeout(() => { closeOvl('ovl-progress'); document.getElementById('ovl-rollback').classList.add('show'); }, 400); }
+  }, 350);
+}
+function cancelUpgrade() { clearInterval(window._prog); closeOvl('ovl-progress'); setBar(0); }
+
+function render(id) {
+  const stage = document.getElementById('stage');
+  const meta = (t, hint) => `<div class="meta"><h2>${t}</h2><span class="hint">${hint}</span></div>`;
+  let h = '';
+  if (id === 's1') {
+    h = meta('① 首次启动：自动安装 dsh', '全新机器路径 · 无 Node 也能装');
+    h += `<div class="win"><div class="titlebar"><div class="traffic"><i></i><i></i><i></i></div><span class="title">Hull Desktop — 首次启动</span></div>
+    <div class="body">
+      <p style="font-size:13px;margin-bottom:14px">正在准备 DeepSeek Harness 运行环境…</p>
+      <div class="bar" style="margin-bottom:8px"><i id="b1" style="width:0%"></i></div>
+      <p class="muted" id="l1">0% · 下载捆绑运行时</p>
+      <p class="muted" style="margin-top:16px">首次安装需要下载 dsh 及全部插件（约几十 MB），之后启动无需联网。可随时最小化等待。</p>
+    </div></div>
+    <div class="footnote">交互：进度条自动推进，装完后自动进入主窗口（第 ② 屏）。</div>`;
+    const t1 = setTimeout(() => { const b = document.getElementById('b1'); if (b) b.style.width = '34%'; document.getElementById('l1').textContent = '34% · 安装 dsh@latest 到 staging'; }, 500);
+    const t2 = setTimeout(() => { const b = document.getElementById('b1'); if (b) b.style.width = '72%'; document.getElementById('l1').textContent = '72% · 原子替换 overlay'; }, 1600);
+    const t3 = setTimeout(() => { const b = document.getElementById('b1'); if (b) b.style.width = '100%'; document.getElementById('l1').textContent = '100% · 启动 dsh…'; }, 3000);
+    setTimeout(() => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); go('s2'); }, 4200);
+  } else if (id === 's2') {
+    h = meta('② 主窗口：官方 dsh Web UI（壳只做容器）', '壳不注入、不修改页面');
+    h += `<div class="win"><div class="titlebar"><div class="traffic"><i></i><i></i><i></i></div><span class="title">DeepSeek Harness — 127.0.0.1:56841</span></div>
+    <div class="mockui"><div class="side">
+      <div class="sidebar">
+        <div class="item active">会话</div><div class="item">工作区</div><div class="item">插件</div><div class="item">设置</div>
+      </div>
+      <div class="chat">
+        <div class="bubble agent">你好，我是运行在 Hull 里的 DeepSeek Harness。官方界面原样渲染，任何官方新功能都会自动出现。</div>
+        <div class="bubble user">帮我看看这个仓库的 README</div>
+        <div class="bubble agent">好的，我来读取 <b>dsh-hull-desktop</b> 的 README…</div>
+      </div>
+    </div>
+    <div class="inputbar"><input placeholder="输入消息，@ 引用文件，/ 查看命令…"><button class="btn primary">发送</button></div></div></div>
+    <div class="footnote">这个窗口 100% 是官方 UI。壳的界面（设置/升级）在独立的壳窗口，见第 ③ 屏。</div>`;
+  } else if (id === 's3') {
+    h = meta('③ 壳设置页（Hull 自己的窗口）', '菜单「Hull 设置…」或托盘进入');
+    h += `<div class="win"><div class="titlebar"><div class="traffic"><i></i><i></i><i></i></div><span class="title">Hull 设置</span></div>
+    <div class="body">
+      <div class="row"><div><div class="label">dsh 运行时</div><div class="sub">overlay 目录：~/Library/Application Support/dsh-hull-desktop/dsh</div></div>
+        <span class="kv"><span class="badge ok">运行中</span><span class="badge">0.1.0-rc.6</span></span></div>
+      <div class="row"><div><div class="label">版本检查</div><div class="sub">启动时静默检查 npm registry，发现新版才提示</div></div>
+        <span class="switch on" onclick="this.classList.toggle('on')"></span></div>
+      <div class="row"><div><div class="label">npm registry</div><div class="sub">国内用户可填镜像，如 https://registry.npmmirror.com</div></div>
+        <input style="width:240px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px" value="https://registry.npmjs.org"></div>
+      <div class="row"><div><div class="label">操作</div></div>
+        <span class="kv"><button class="btn" onclick="document.getElementById('ovl-upgrade').classList.add('show')">检查更新</button>
+        <button class="btn" title="需存在上一版本">回滚到上一版本</button></span></div>
+      <div class="row"><div><div class="label">诊断</div><div class="sub">hull.log 与 dsh 子进程日志</div></div>
+        <span class="kv"><button class="btn">打开日志目录</button><button class="btn">打开数据目录</button></span></div>
+    </div></div>
+    <div class="footnote">交互：点「检查更新」→ 弹出第 ④ 屏确认框；顶部开关可点击切换。</div>`;
+  } else if (id === 's4') {
+    h = meta('④ 升级确认弹窗', '手动检查 / 自动检查发现新版 → 同一弹窗');
+    h += `<div class="win"><div class="titlebar"><div class="traffic"><i></i><i></i><i></i></div><span class="title">Hull Desktop</span></div>
+    <div class="body" style="min-height:auto">
+      <p style="font-size:13px;margin-bottom:10px">完整交互见上方弹出的真实弹窗（本页已触发）。要点：</p>
+      <ul style="font-size:13px;line-height:2;padding-left:20px;color:var(--muted)">
+        <li>当前版本 → 最新版本对比展示</li>
+        <li>升级会重启 dsh，明确告知会话中断影响</li>
+        <li>「稍后再说」关闭，下次检查再提示</li>
+        <li>「立即升级」→ 进入第 ⑤ 屏进度</li>
+      </ul>
+      <div class="actions"><button class="btn primary" onclick="document.getElementById('ovl-upgrade').classList.add('show')">再弹一次确认框</button></div>
+    </div></div>`;
+  } else if (id === 's5') {
+    h = meta('⑤ 升级进度（弹窗）', '下载 → 安装 → 替换 → 重启验证');
+    h += `<div class="win"><div class="titlebar"><div class="traffic"><i></i><i></i><i></i></div><span class="title">Hull Desktop</span></div>
+    <div class="body" style="min-height:auto">
+      <p style="font-size:13px;margin-bottom:10px">点击下方按钮触发完整进度演示（含自动回滚）：</p>
+      <div class="actions"><button class="btn primary" onclick="showUpgradeProgress()">开始演示升级</button></div>
+      <p class="muted" style="margin-top:12px">流程：npm install 到 staging（可取消）→ 停子进程 → 原子替换 → 用新版本重启 → 就绪验证。验证失败自动回滚（第 ⑥ 屏）。</p>
+    </div></div>`;
+  } else if (id === 's6') {
+    h = meta('⑥ 升级失败：自动回滚', '新版本启动不就绪 → 自动恢复上一版本');
+    h += `<div class="win"><div class="titlebar"><div class="traffic"><i></i><i></i><i></i></div><span class="title">Hull Desktop</span></div>
+    <div class="body" style="min-height:auto">
+      <p style="font-size:13px;margin-bottom:10px">回滚弹窗完整演示：</p>
+      <div class="actions"><button class="btn danger" onclick="document.getElementById('ovl-rollback').classList.add('show')">显示回滚提示</button></div>
+      <p class="muted" style="margin-top:12px">自动回滚：换回 dsh-previous 重启。手动回滚：设置页「回滚到上一版本」按钮（有 previous 时可用）。两者都不碰 DSH_HOME 数据。</p>
+    </div></div>`;
+  } else if (id === 's7') {
+    h = meta('⑦ 托盘菜单', '关闭主窗口默认隐藏到托盘');
+    h += `<div style="display:flex;justify-content:center;padding:30px 0">
+      <div class="traypop">
+        <div class="status"><span class="pulse"></span>dsh 运行中 · 0.1.0-rc.6</div>
+        <hr>
+        <div class="ti">打开 Hull 主窗口</div>
+        <div class="ti">Hull 设置…</div>
+        <div class="ti">检查 dsh 更新 <span class="muted">有新版</span></div>
+        <hr>
+        <div class="ti" style="color:var(--red)">退出 Hull（同时停止 dsh）</div>
+      </div>
+    </div>
+    <div class="footnote">关闭窗口 = 隐藏；托盘退出才是真退出，退出前停掉 dsh 子进程，保证零残留。</div>`;
+  } else {
+    h = meta('交互说明', '如何把玩这份原型');
+    h += `<div class="win"><div class="body">
+      <ul style="font-size:13px;line-height:2.2;padding-left:20px">
+        <li><b>① 首启安装</b>：进度条自动推进 → 4 秒后跳到主窗口。</li>
+        <li><b>③ 设置页</b>：开关可点；「检查更新」弹出真实确认框（④）。</li>
+        <li><b>④/⑤</b>：确认 → 进度演示 → 完成后自动弹「回滚」提示（模拟失败路径）。</li>
+        <li><b>⑥</b>：回滚弹窗可反复弹出。</li>
+        <li><b>⑦</b>：托盘菜单静态示意。</li>
+      </ul>
+      <p class="muted" style="margin-top:14px">原型仅覆盖"壳自己的界面"；主窗口内容为官方 UI 占位示意，实际渲染官方真实页面。</p>
+    </div></div>`;
+  }
+  stage.innerHTML = h;
+}
+go('s1');
+</script>
+</body>
+</html>
