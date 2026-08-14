@@ -99,6 +99,10 @@
   .muted { color: var(--muted); font-size: 12px; }
   .footnote { margin-top: 12px; font-size: 11.5px; color: var(--muted); line-height: 1.7; }
   .queuebar { display: flex; align-items: center; gap: 10px; background: #fff8e6; border: 1px solid #f5d68a; border-radius: 10px; padding: 10px 14px; font-size: 12.5px; margin-top: 12px; }
+  .demobar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; padding: 8px 12px; border: 1px dashed #c9c9c4; border-radius: 10px; background: #fafaf7; font-size: 12px; color: var(--muted); }
+  .demobar .db-label { font-weight: 600; color: var(--amber); }
+  .demobar button { border: 1px solid var(--border); background: #fff; border-radius: 6px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+  .demobar button:hover { background: #f0f0ec; }
 </style>
 </head>
 <body>
@@ -111,14 +115,6 @@
   <button data-s="settings"><span class="ic">&#9881;</span>Hull 设置</button>
   <button data-s="kanban"><span class="ic">&#128203;</span>任务看板<span class="tag new">M2</span></button>
 
-  <div class="group">流程演示</div>
-  <button data-s="first"><span class="ic">&#128640;</span>首次启动安装</button>
-  <button data-s="upd-confirm"><span class="ic">&#128276;</span>升级确认</button>
-  <button data-s="upd-progress"><span class="ic">&#9203;</span>升级进度</button>
-  <button data-s="upd-queue"><span class="ic">&#128368;</span>会话忙碌排队</button>
-  <button data-s="rollback"><span class="ic">&#8617;</span>失败自动回滚</button>
-  <button data-s="tray"><span class="ic">&#129421;</span>托盘菜单</button>
-
   <div class="status">
     <div class="row"><span class="pulse"></span>dsh 运行中</div>
     <div class="row"><span class="pulse" id="session-dot"></span><span id="session-text">会话：空闲</span></div>
@@ -126,7 +122,7 @@
   </div>
 </nav>
 
-<main><div class="stage" id="stage"></div></main>
+<main><div class="demobar"><span class="db-label">原型演示台</span><button onclick="go('first')">&#128640; 模拟首次启动</button><button onclick="go('tray')">&#129421; 托盘菜单演示</button><button onclick="showQueue()">&#128368; 模拟忙碌升级排队</button></div><div class="stage" id="stage"></div></main>
 
 <div class="overlay" id="ovl-upgrade">
   <div class="modal">
@@ -247,10 +243,10 @@ function render(id) {
       '<div class="bar" style="margin-bottom:8px"><i id="b1" style="width:0%"></i></div>' +
       '<p class="muted" id="l1">0% · 下载捆绑运行时</p>' +
       '<p class="muted" style="margin-top:16px">首次安装需要下载 dsh 及全部插件（约几十 MB），之后启动无需联网。可随时最小化等待。</p>' +
-      '</div></div><div class="footnote">交互：进度条自动推进，装完后自动进入主窗口。</div>';
-    setTimeout(function () { var b = document.getElementById('b1'); if (b) b.style.width = '34%'; document.getElementById('l1').textContent = '34% · 安装 dsh@latest 到 staging'; }, 500);
-    setTimeout(function () { var b = document.getElementById('b1'); if (b) b.style.width = '72%'; document.getElementById('l1').textContent = '72% · 原子替换 overlay'; }, 1600);
-    setTimeout(function () { var b = document.getElementById('b1'); if (b) b.style.width = '100%'; document.getElementById('l1').textContent = '100% · 启动 dsh…'; }, 3000);
+      '</div></div><div class="footnote">演示台触发 · 进度条自动推进，装完后自动进入主窗口。真实产品中仅首次启动出现。</div>';
+    setTimeout(function () { var b = document.getElementById('b1'); var l = document.getElementById('l1'); if (b) b.style.width = '34%'; if (l) l.textContent = '34% · 安装 dsh@latest 到 staging'; }, 500);
+    setTimeout(function () { var b = document.getElementById('b1'); var l = document.getElementById('l1'); if (b) b.style.width = '72%'; if (l) l.textContent = '72% · 原子替换 overlay'; }, 1600);
+    setTimeout(function () { var b = document.getElementById('b1'); var l = document.getElementById('l1'); if (b) b.style.width = '100%'; if (l) l.textContent = '100% · 启动 dsh…'; }, 3000);
     setTimeout(function () { go('main'); }, 4200);
   } else if (id === 'upd-confirm') {
     h = meta('升级确认', '版本对比 + 变更说明（FR-3）');
@@ -271,7 +267,7 @@ function render(id) {
     h += '<div class="win"><div class="titlebar"><div class="traffic"><i></i><i></i><i></i></div><span class="title">Hull Desktop</span></div><div class="body" style="min-height:auto">' +
       '<p style="font-size:13px;margin-bottom:10px">演示：确认升级时 agent 正在执行任务 → 排队等待：</p>' +
       '<div class="actions"><button class="btn primary" onclick="showQueue()">模拟：确认升级（agent 忙碌）</button><button class="btn" onclick="setSession(false)">模拟：会话结束（恢复空闲）</button></div>' +
-      '<p class="muted" style="margin-top:12px">排队条出现在页面下方：升级已排队，会话结束后自动升级，可取消。会话忙碌状态来自 Hull 宿主插件（FR-9，loopback 只读桥）。</p>' +
+      '<p class="muted" style="margin-top:12px">演示台触发 · 排队条出现在页面下方：升级已排队，会话结束后自动升级，可取消。会话忙碌状态来自 Hull 宿主插件（FR-9，loopback 只读桥）。</p>' +
       '</div></div>';
   } else if (id === 'rollback') {
     h = meta('失败自动回滚', '新版本不就绪 → 恢复上一版本（FR-5）');
@@ -286,7 +282,7 @@ function render(id) {
       '<div class="traypop"><div class="status"><span class="pulse"></span>dsh 运行中 · 0.1.0-rc.6</div><hr>' +
       '<div class="ti">打开 Hull 主窗口</div><div class="ti">Hull 设置…</div><div class="ti">检查 dsh 更新 <span class="muted">有新版</span></div><hr>' +
       '<div class="ti" style="color:var(--red)">退出 Hull（同时停止 dsh）</div></div></div>' +
-      '<div class="footnote">关闭窗口 = 隐藏；托盘退出才是真退出，退出前停掉 dsh 子进程，保证零残留。设置页可改为「关闭即退出」。</div>';
+      '<div class="footnote">演示台触发 · 关闭窗口 = 隐藏；托盘退出才是真退出，退出前停掉 dsh 子进程，保证零残留。设置页可改为「关闭即退出」。</div>';
   }
   stage.innerHTML = h;
 }
