@@ -39,10 +39,6 @@ Built for developers, Hull adds its own layer on top: a task kanban for planning
 └─────────────────────────────────────────────────┘─┘
 ```
 
-## Development
-
-See [AGENTS.md](AGENTS.md) for repository rules. Team workflow and the 5-skills pipeline are being set up; this section will grow with the project.
-
 ## License
 
 [MIT](LICENSE)
