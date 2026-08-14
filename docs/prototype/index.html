@@ -99,6 +99,7 @@
   .muted { color: var(--muted); font-size: 12px; }
   .footnote { margin-top: 12px; font-size: 11.5px; color: var(--muted); line-height: 1.7; }
   .queuebar { display: flex; align-items: center; gap: 10px; background: #fff8e6; border: 1px solid #f5d68a; border-radius: 10px; padding: 10px 14px; font-size: 12.5px; margin-top: 12px; }
+  .sec { font-size: 12px; font-weight: 600; color: var(--muted); padding: 14px 0 4px; }
   .demobar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; padding: 8px 12px; border: 1px dashed #c9c9c4; border-radius: 10px; background: #fafaf7; font-size: 12px; color: var(--muted); }
   .demobar .db-label { font-weight: 600; color: var(--amber); }
   .demobar button { border: 1px solid var(--border); background: #fff; border-radius: 6px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
@@ -156,6 +157,40 @@
   </div>
 </div>
 
+<!-- Hull 升级确认弹窗 -->
+<div class="overlay" id="ovl-hull-upgrade">
+  <div class="modal">
+    <h3>发现 Hull 新版本</h3>
+    <div class="ver">
+      <div class="box"><div class="k">当前版本</div><div class="v">0.1.0</div></div>
+      <div class="arrow">&#8594;</div>
+      <div class="box" style="border-color:var(--accent)"><div class="k">最新版本</div><div class="v">0.2.0</div></div>
+    </div>
+    <div class="notes">
+      <b>变更说明</b>（来自 GitHub Releases）<br>
+      · 新增 Hull 应用自动更新<br>
+      · 修复托盘图标异常
+    </div>
+    <p style="margin-top:10px">安装完成后需要重启 Hull 应用（dsh 会随之短暂重启，数据不受影响）。</p>
+    <div class="actions">
+      <button class="btn" onclick="closeOvl('ovl-hull-upgrade')">稍后再说</button>
+      <button class="btn primary" onclick="closeOvl('ovl-hull-upgrade'); showHullProgress()">立即更新</button>
+    </div>
+  </div>
+</div>
+
+<!-- 重启安装弹窗 -->
+<div class="overlay" id="ovl-restart">
+  <div class="modal">
+    <h3>更新已就绪，重启安装</h3>
+    <p>Hull 0.2.0 已下载完成。重启应用完成安装（dsh 会随之重启，会话历史保留）。</p>
+    <div class="actions">
+      <button class="btn" onclick="closeOvl('ovl-restart')">稍后重启</button>
+      <button class="btn primary" onclick="closeOvl('ovl-restart')">重启并安装</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="ovl-rollback">
   <div class="modal">
     <h3 style="color:var(--red)">升级失败，已自动回滚</h3>
@@ -186,6 +221,17 @@ function showUpgradeProgress() {
 function cancelUpgrade() { clearInterval(window._prog); closeOvl('ovl-progress'); setBar(0); }
 function toggleSwitch(el) { el.classList.toggle('on'); }
 function openUpgrade() { document.getElementById('ovl-upgrade').classList.add('show'); }
+function openHullUpgrade() { document.getElementById('ovl-hull-upgrade').classList.add('show'); }
+function showHullProgress() {
+  document.getElementById('ovl-progress').classList.add('show');
+  document.getElementById('prog-label').textContent = '下载 Hull 0.2.0 …';
+  var p = 0;
+  window._prog = setInterval(function () {
+    p = Math.min(p + 10 + Math.random() * 20, 100);
+    setBar(Math.round(p));
+    if (p >= 100) { clearInterval(window._prog); setTimeout(function () { closeOvl('ovl-progress'); document.getElementById('ovl-restart').classList.add('show'); }, 400); }
+  }, 300);
+}
 function openRollback() { document.getElementById('ovl-rollback').classList.add('show'); }
 function setSession(busy) {
   var dot = document.getElementById('session-dot');
@@ -222,7 +268,11 @@ function render(id) {
       '<div class="row"><div><div class="label">自动检查更新</div><div class="sub">启动时静默检查 npm registry，发现新版才提示</div></div><span class="switch on" onclick="toggleSwitch(this)"></span></div>' +
       '<div class="row"><div><div class="label">关闭窗口时退出应用</div><div class="sub">默认关闭 = 隐藏到托盘，dsh 继续运行</div></div><span class="switch" onclick="toggleSwitch(this)"></span></div>' +
       '<div class="row"><div><div class="label">npm registry</div><div class="sub">国内用户可填镜像，如 https://registry.npmmirror.com</div></div><input style="width:240px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px" value="https://registry.npmjs.org"></div>' +
-      '<div class="row"><div><div class="label">升级操作</div></div><span class="kv"><button class="btn" onclick="openUpgrade()">检查更新</button><button class="btn" title="需存在上一版本">回滚到上一版本</button></span></div>' +
+      '<div class="sec">dsh 运行时升级</div>' +
+      '<div class="row"><div><div class="label">dsh 版本</div><div class="sub">npm overlay · 升级需重启 dsh（会话结束后自动进行）</div></div><span class="kv"><span class="badge">0.1.0-rc.6</span><button class="btn" onclick="openUpgrade()">检查更新</button><button class="btn" title="需存在上一版本">回滚</button></span></div>' +
+      '<div class="sec">Hull 应用升级</div>' +
+      '<div class="row"><div><div class="label">Hull 版本</div><div class="sub">GitHub Releases · 升级需重启应用</div></div><span class="kv"><span class="badge">0.1.0</span><button class="btn" onclick="openHullUpgrade()">检查更新</button></span></div>' +
+      '<div class="row"><div><div class="label">Hull 自动检查更新</div><div class="sub">启动时检查 GitHub Releases，发现新版才提示</div></div><span class="switch on" onclick="toggleSwitch(this)"></span></div>' +
       '<div class="row"><div><div class="label">诊断</div><div class="sub">hull.log 与 dsh 子进程日志</div></div><span class="kv"><button class="btn">打开日志目录</button><button class="btn">打开数据目录</button></span></div>' +
       '</div></div><div class="footnote">交互：点「检查更新」→ 弹出升级确认框（含变更说明）；「自动检查」「关闭即退出」开关可点。</div>';
   } else if (id === 'kanban') {
