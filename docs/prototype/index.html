@@ -173,6 +173,7 @@
 <script>
 var navs = document.querySelectorAll('nav button[data-s]');
 function go(id) { for (var i = 0; i < navs.length; i++) navs[i].classList.toggle('active', navs[i].dataset.s === id); render(id); }
+for (var i = 0; i < navs.length; i++) { (function (btn) { btn.addEventListener('click', function () { go(btn.dataset.s); }); })(navs[i]); }
 function closeOvl(id) { document.getElementById(id).classList.remove('show'); }
 function setBar(p) { document.getElementById('prog-bar').style.width = p + '%'; document.getElementById('prog-pct').textContent = p + '%'; }
 function showUpgradeProgress() {
