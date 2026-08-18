@@ -11,6 +11,11 @@ import type { RuntimeManager } from '../runtime/RuntimeManager';
 const PLACEHOLDER_HTML = join(__dirname, '..', '..', 'src', 'renderer', 'placeholder.html');
 /** preload 编译产物：dist/preload/index.js */
 const PRELOAD_PATH = join(__dirname, '..', 'preload', 'index.js');
+/**
+ * session 级 frame preload 固定 id（registerPreloadScript 语义：无 URL pattern 参数，
+ * session 内所有 frame 导航都执行；重复注册同 id 会 throw）
+ */
+const PRELOAD_SCRIPT_ID = 'hull-placeholder';
 
 export interface WindowManagerOptions {
   runtime: RuntimeManager;
@@ -29,7 +34,10 @@ export type PlaceholderMode = 'starting' | 'installing' | 'failed' | 'not-instal
  * - 安全基线：contextIsolation + sandbox + nodeIntegration=false（PRD §6）
  * - preload 仅随占位页挂载；官方 UI loadURL 不挂（零注入 CON-R001）
  *   ⚠️ 偏离 D6 实现形态：electron loadURL 无 preload 选项（LoadURLOptions 无此字段，
- *   已核对 electron 43 d.ts），用 session.setPreloads 实现同语义：占位页加载前挂载、官方加载前清空。
+ *   已核对 electron 43 d.ts），用 session.registerPreloadScript 实现同语义（2026-08-18
+ *   迁移自已弃用 setPreloads）：占位页加载前注册 frame preload（session 级，所有 frame
+ *   导航执行，无 URL pattern 参数）、官方加载前 unregister（零注入只能靠显式 unregister）。
+ *   比 setPreloads 更贴合 CON-R001：只管理自家 id，无"清空第三方 preload"副作用。
  * - close：closeToQuit=false → preventDefault+hide（T1-06）；true → 放行并通知 main
  * - 状态订阅：ready → loadURL 官方地址；failed → 占位页 failed 态
  */
@@ -58,7 +66,7 @@ export class WindowManager {
         contextIsolation: true,
         sandbox: true,
         nodeIntegration: false,
-        // 注意：webPreferences 不挂 preload（preload 挂载由 session.setPreloads 按加载目标控制）
+        // 注意：webPreferences 不挂 preload（preload 挂载由 session.registerPreloadScript 按加载目标控制）
       },
     });
     this.win = win;
@@ -99,11 +107,15 @@ export class WindowManager {
     }
   }
 
-  /** 官方 UI（零注入）：清空 session preload 后 loadURL 就绪行 URL（语义固化） */
+  /** 官方 UI（零注入）：unregister 占位 preload 后 loadURL 就绪行 URL（语义固化） */
   loadOfficialUrl(url: string): void {
     const win = this.win;
     if (!win || win.isDestroyed()) return;
-    win.webContents.session.setPreloads([]); // CON-R001：官方 UI 不挂 preload
+    const session = win.webContents.session;
+    // CON-R001：官方 UI 零注入 — unregister 自家 preload（unregister 不存在的 id 会 throw，先查存在性）
+    if (session.getPreloadScripts().some((s) => s.id === PRELOAD_SCRIPT_ID)) {
+      session.unregisterPreloadScript(PRELOAD_SCRIPT_ID);
+    }
     this.officialLoading = true;
     void win.loadURL(url).catch((err) => {
       this.logger.warn(`官方 UI 加载失败: ${(err as Error).message}`);
@@ -118,7 +130,11 @@ export class WindowManager {
   private loadPlaceholder(mode: PlaceholderMode, message: string): void {
     const win = this.win;
     if (!win || win.isDestroyed()) return;
-    win.webContents.session.setPreloads([PRELOAD_PATH]);
+    const session = win.webContents.session;
+    // 注册 frame preload（固定 id；重复注册同 id 会 throw → 先查重，已注册则跳过）
+    if (!session.getPreloadScripts().some((s) => s.id === PRELOAD_SCRIPT_ID)) {
+      session.registerPreloadScript({ type: 'frame', id: PRELOAD_SCRIPT_ID, filePath: PRELOAD_PATH });
+    }
     const qs = new URLSearchParams({ mode, message });
     void win.loadURL(`file://${PLACEHOLDER_HTML}?${qs}`).catch(() => {
       /* 占位页加载失败无更好降级，忽略 */

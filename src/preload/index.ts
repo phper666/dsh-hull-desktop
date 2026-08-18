@@ -6,8 +6,8 @@ import { contextBridge, ipcRenderer } from 'electron';
  * 不透传回调、不暴露任意通道、无事件订阅（进度走 installStatus 轮询，B6）。
  * sandbox 兼容：只 require electron 内置模块。
  *
- * ⚠️ 仅随壳自有占位页挂载（session.setPreloads 由 WindowManager 控制）；
- * 官方 UI 加载时清空 preload（零注入，CON-R001）。
+ * ⚠️ 仅随壳自有占位页挂载（session.registerPreloadScript 由 WindowManager 控制）；
+ * 官方 UI 加载前 unregister（零注入，CON-R001）。
  */
 contextBridge.exposeInMainWorld('hull', {
   /** 失败态重试（等价 RuntimeManager.start()） */
