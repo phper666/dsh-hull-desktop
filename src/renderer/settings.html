@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Hull 设置</title>
+<style>
+  :root {
+    --bg: #f6f6f4;
+    --panel: #ffffff;
+    --border: #e3e3df;
+    --text: #1f2328;
+    --muted: #5a6370;
+    --accent: #4c6ef5;
+    --accent-weak: #edf1fe;
+    --green: #2f9e44;
+    --red: #e03131;
+    --amber: #f08c00;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.5;
+    overflow: hidden;
+  }
+  .page { display: flex; flex-direction: column; height: 100vh; }
+  header {
+    padding: 16px 20px 10px;
+    border-bottom: 1px solid var(--border);
+    background: #fff;
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 15px; font-weight: 700; }
+  main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px 24px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .card h2 {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 12px 16px 8px;
+    border-bottom: 1px solid var(--border);
+    background: #fbfbf9;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .row:last-child { border-bottom: none; }
+  .row .info { min-width: 0; }
+  .row .label { font-size: 13px; font-weight: 500; }
+  .row .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .row .control { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 180px; }
+  .input {
+    width: 240px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: var(--text);
+    background: #fff;
+    outline: none;
+  }
+  .input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-weak); }
+  .input.error { border-color: var(--red); background: #fef6f6; }
+  .error-text { font-size: 11px; color: var(--red); max-width: 240px; text-align: right; }
+  .channel-wrap { display: flex; gap: 8px; align-items: center; }
+  .select {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-size: 13px;
+    background: #fff;
+    outline: none;
+  }
+  .select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-weak); }
+  .version-input { width: 140px; }
+  .btn {
+    border: 1px solid var(--border);
+    background: #fff;
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--text);
+  }
+  .btn:hover { background: #f7f7f5; }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: #3b5bdb; }
+  .btn.danger { color: var(--red); border-color: #f1c0c0; }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .switch {
+    position: relative;
+    width: 40px;
+    height: 22px;
+    background: #d1d1cd;
+    border-radius: 999px;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s;
+    flex-shrink: 0;
+  }
+  .switch::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    background: #fff;
+    border-radius: 50%;
+    transition: left 0.15s;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  }
+  .switch[aria-checked="true"] { background: var(--accent); }
+  .switch[aria-checked="true"]::after { left: 20px; }
+  .switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  .badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--accent-weak);
+    color: var(--accent);
+    white-space: nowrap;
+  }
+  .badge.ok { background: #e6f7ec; color: var(--green); }
+  .badge.warn { background: #fff3e0; color: var(--amber); }
+  .badge.err { background: #fdeaea; color: var(--red); }
+  .badge.muted { background: #f1f1ee; color: var(--muted); }
+  .hint {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+    text-align: right;
+  }
+  .status-alert {
+    margin: 8px 16px 12px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    background: #fdeaea;
+    color: var(--red);
+    border: 1px solid #f1c0c0;
+    display: none;
+  }
+  .status-alert.show { display: block; }
+  .toast {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    background: var(--text);
+    color: #fff;
+    font-size: 12px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.25s, transform 0.25s;
+    pointer-events: none;
+    z-index: 100;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 20, 25, 0.45);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    padding: 20px;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: #fff;
+    border-radius: 12px;
+    width: 420px;
+    max-width: 100%;
+    padding: 18px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+  }
+  .modal h3 { font-size: 14px; margin-bottom: 12px; }
+  .modal-body { font-size: 13px; color: var(--text); }
+  .modal-body p.muted { color: var(--muted); margin-top: 6px; }
+  .ver { display: flex; gap: 10px; align-items: center; margin: 12px 0; }
+  .ver .box { flex: 1; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .ver .box.target { border-color: var(--accent); background: var(--accent-weak); }
+  .ver .box .v { font-size: 15px; font-weight: 700; }
+  .ver .box .k { font-size: 11px; color: var(--muted); }
+  .ver .arrow { font-size: 16px; color: var(--muted); }
+  .bar { height: 6px; background: #ececea; border-radius: 999px; overflow: hidden; margin: 14px 0 8px; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 999px; transition: width 0.3s; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+  .notes { font-size: 12px; color: var(--text); background: #fafaf8; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-top: 10px; line-height: 1.6; max-height: 140px; overflow-y: auto; }
+  .notes b { color: var(--text); }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header><h1>Hull 设置</h1></header>
+  <main>
+    <section class="card" aria-labelledby="sec-general">
+      <h2 id="sec-general">通用设置</h2>
+      <div class="row">
+        <div class="info">
+          <div class="label">npm registry</div>
+          <div class="sub">默认官方 registry；可填任意源（镜像 / 私有源）</div>
+        </div>
+        <div class="control">
+          <input id="registry" class="input" type="url" placeholder="https://registry.npmjs.org" />
+          <div id="registry-error" class="error-text" role="alert"></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="info">
+          <div class="label">关闭窗口时退出应用</div>
+          <div class="sub">默认关闭 = 隐藏到托盘，dsh 继续运行</div>
+        </div>
+        <button id="closeToQuit" class="switch" role="switch" aria-checked="false" aria-label="关闭窗口时退出应用">
+          <span class="sr-only">关闭窗口时退出应用</span>
+        </button>
+      </div>
+      <div class="row">
+        <div class="info">
+          <div class="label">dsh 自动检查更新</div>
+          <div class="sub">启动时静默检查 npm registry，发现新版才提示</div>
+        </div>
+        <button id="autoCheckDsh" class="switch" role="switch" aria-checked="true" aria-label="dsh 自动检查更新">
+          <span class="sr-only">dsh 自动检查更新</span>
+        </button>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="sec-dsh">
+      <h2 id="sec-dsh">dsh 运行时</h2>
+      <div class="row">
+        <div class="info"><div class="label">运行状态</div></div>
+        <div class="badges" id="dsh-status-wrap">
+          <span class="badge muted">未知</span>
+        </div>
+      </div>
+      <div class="row">
+        <div class="info"><div class="label">当前版本</div></div>
+        <div class="badges" id="dsh-version-wrap"><span class="badge muted">—</span></div>
+      </div>
+      <div class="row">
+        <div class="info">
+          <div class="label">版本通道</div>
+          <div class="sub">默认跟随官方 latest；出问题可锁定指定版本</div>
+        </div>
+        <div class="control">
+          <div class="channel-wrap">
+            <select id="channel" class="select" aria-label="版本通道">
+              <option value="latest">latest（默认）</option>
+              <option value="pinned">pinned（锁定）</option>
+            </select>
+            <input id="pinnedVersion" class="input version-input" type="text" placeholder="如 0.1.0-rc.5" list="version-list" aria-label="锁定版本号" />
+            <datalist id="version-list"></datalist>
+          </div>
+          <div id="channel-error" class="error-text" role="alert"></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="info">
+          <div class="label">升级与回滚</div>
+          <div class="sub">升级将立即重启 dsh；回滚需存在上一版本</div>
+        </div>
+        <div class="control">
+          <div>
+            <button id="check-dsh" class="btn primary">检查更新</button>
+            <button id="rollback-dsh" class="btn danger" title="无可用上一版本" disabled>回滚</button>
+          </div>
+          <div id="dsh-hint" class="hint"></div>
+        </div>
+      </div>
+      <div id="dsh-alert" class="status-alert" role="alert"></div>
+    </section>
+
+    <section class="card" aria-labelledby="sec-hull">
+      <h2 id="sec-hull">Hull 应用</h2>
+      <div class="row">
+        <div class="info"><div class="label">当前版本</div></div>
+        <div class="badges" id="hull-version-wrap"><span class="badge muted">—</span></div>
+      </div>
+      <div class="row">
+        <div class="info">
+          <div class="label">检查 Hull 更新</div>
+          <div class="sub">GitHub Releases · 升级需重启应用</div>
+        </div>
+        <button id="check-hull" class="btn primary">检查更新</button>
+      </div>
+      <div class="row">
+        <div class="info">
+          <div class="label">Hull 自动检查更新</div>
+          <div class="sub">启动时检查 GitHub Releases，发现新版才提示</div>
+        </div>
+        <button id="autoCheckHull" class="switch" role="switch" aria-checked="true" aria-label="Hull 自动检查更新">
+          <span class="sr-only">Hull 自动检查更新</span>
+        </button>
+      </div>
+      <div id="hull-alert" class="status-alert" role="alert"></div>
+    </section>
+
+    <section class="card" aria-labelledby="sec-diag">
+      <h2 id="sec-diag">诊断</h2>
+      <div class="row">
+        <div class="info"><div class="label">排查日志与数据目录</div></div>
+        <div>
+          <button id="open-logs" class="btn">打开日志目录</button>
+          <button id="open-data-dir" class="btn">打开数据目录</button>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<div id="modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="modal-desc">
+  <div class="modal">
+    <h3 id="modal-title"></h3>
+    <div id="modal-desc" class="modal-body"></div>
+    <div id="modal-actions" class="modal-actions"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const bridge = window.hull;
+  if (!bridge) return;
+
+  const state = {
+    settings: null,
+    dsh: null,
+    hull: null,
+    editing: { registry: false, pinned: false },
+    modal: { open: false, kind: null, context: null }
+  };
+
+  const els = {
+    registry: document.getElementById('registry'),
+    registryError: document.getElementById('registry-error'),
+    closeToQuit: document.getElementById('closeToQuit'),
+    autoCheckDsh: document.getElementById('autoCheckDsh'),
+    dshStatusWrap: document.getElementById('dsh-status-wrap'),
+    dshVersionWrap: document.getElementById('dsh-version-wrap'),
+    channel: document.getElementById('channel'),
+    pinnedVersion: document.getElementById('pinnedVersion'),
+    versionList: document.getElementById('version-list'),
+    channelError: document.getElementById('channel-error'),
+    checkDsh: document.getElementById('check-dsh'),
+    rollbackDsh: document.getElementById('rollback-dsh'),
+    dshHint: document.getElementById('dsh-hint'),
+    dshAlert: document.getElementById('dsh-alert'),
+    hullVersionWrap: document.getElementById('hull-version-wrap'),
+    checkHull: document.getElementById('check-hull'),
+    autoCheckHull: document.getElementById('autoCheckHull'),
+    hullAlert: document.getElementById('hull-alert'),
+    openLogs: document.getElementById('open-logs'),
+    openDataDir: document.getElementById('open-data-dir'),
+    toast: document.getElementById('toast'),
+    modal: document.getElementById('modal'),
+    modalTitle: document.getElementById('modal-title'),
+    modalDesc: document.getElementById('modal-desc'),
+    modalActions: document.getElementById('modal-actions'),
+  };
+
+  function badge(text, kind) {
+    return `<span class="badge ${kind}">${escapeHtml(text)}</span>`;
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function setError(el, msg) {
+    if (!el) return; // 开关类无错误提示元素（bindSwitch 传 null）
+    if (msg) {
+      el.textContent = msg;
+      el.style.display = 'block';
+      const input = el.previousElementSibling;
+      if (input && input.classList.contains('input')) input.classList.add('error');
+      if (input && input.classList.contains('channel-wrap')) {
+        input.querySelectorAll('.input, .select').forEach((n) => n.classList.add('error'));
+      }
+    } else {
+      el.textContent = '';
+      el.style.display = 'none';
+      const input = el.previousElementSibling;
+      if (input && input.classList.contains('input')) input.classList.remove('error');
+      if (input && input.classList.contains('channel-wrap')) {
+        input.querySelectorAll('.input, .select').forEach((n) => n.classList.remove('error'));
+      }
+    }
+  }
+
+  function toast(msg) {
+    els.toast.textContent = msg;
+    els.toast.classList.add('show');
+    setTimeout(() => els.toast.classList.remove('show'), 1800);
+  }
+
+  function showModal(title, bodyHtml, buttons) {
+    els.modalTitle.textContent = title;
+    els.modalDesc.innerHTML = bodyHtml;
+    els.modalActions.innerHTML = '';
+    buttons.forEach((b) => {
+      const btn = document.createElement('button');
+      btn.className = 'btn ' + (b.primary ? 'primary' : '');
+      btn.textContent = b.text;
+      if (b.disabled) btn.disabled = true;
+      btn.onclick = b.onClick;
+      els.modalActions.appendChild(btn);
+    });
+    els.modal.classList.add('show');
+    state.modal.open = true;
+  }
+  function closeModal() {
+    els.modal.classList.remove('show');
+    state.modal.open = false;
+    state.modal.kind = null;
+    state.modal.context = null;
+  }
+
+  async function setSetting(patch, errorEl) {
+    setError(errorEl, '');
+    try {
+      const res = await bridge.setSettings(patch);
+      if (res && res.ok === false) {
+        setError(errorEl, res.message || '保存失败');
+        return false;
+      }
+      toast('已保存');
+      return true;
+    } catch (err) {
+      setError(errorEl, err.message || '保存失败');
+      return false;
+    }
+  }
+
+  function bindSwitch(el, field, errorEl) {
+    el.addEventListener('click', async () => {
+      const current = el.getAttribute('aria-checked') === 'true';
+      const next = !current;
+      const patch = {}; patch[field] = next;
+      const ok = await setSetting(patch, errorEl);
+      if (ok) {
+        el.setAttribute('aria-checked', String(next));
+      }
+    });
+  }
+  bindSwitch(els.closeToQuit, 'closeToQuit', null);
+  bindSwitch(els.autoCheckDsh, 'autoCheckDsh', null);
+  bindSwitch(els.autoCheckHull, 'autoCheckHull', null);
+
+  els.registry.addEventListener('focus', () => { state.editing.registry = true; });
+  els.registry.addEventListener('blur', async () => {
+    state.editing.registry = false;
+    const value = els.registry.value.trim();
+    if (!value || value === (state.settings && state.settings.registry)) return;
+    const ok = await setSetting({ registry: value }, els.registryError);
+    if (!ok && state.settings) els.registry.value = state.settings.registry;
+  });
+  els.registry.addEventListener('keydown', (e) => { if (e.key === 'Enter') els.registry.blur(); });
+
+  async function applyChannel() {
+    const channel = els.channel.value;
+    const version = els.pinnedVersion.value.trim();
+    setError(els.channelError, '');
+    try {
+      const res = await bridge.setChannel(channel, channel === 'pinned' ? version : undefined);
+      if (res && res.ok === false) {
+        setError(els.channelError, res.message || '通道设置失败');
+        return false;
+      }
+      toast('已保存');
+      return true;
+    } catch (err) {
+      setError(els.channelError, err.message || '通道设置失败');
+      return false;
+    }
+  }
+  els.channel.addEventListener('change', applyChannel);
+  els.pinnedVersion.addEventListener('focus', () => { state.editing.pinned = true; });
+  els.pinnedVersion.addEventListener('blur', async () => {
+    state.editing.pinned = false;
+    if (els.channel.value !== 'pinned') return;
+    await applyChannel();
+  });
+  els.pinnedVersion.addEventListener('keydown', (e) => { if (e.key === 'Enter') els.pinnedVersion.blur(); });
+  els.pinnedVersion.addEventListener('focus', async () => {
+    try {
+      const res = await bridge.listVersions();
+      if (res && res.ok && res.versions) {
+        els.versionList.innerHTML = res.versions.slice(0, 30).map((v) => `<option value="${escapeHtml(v)}">`).join('');
+      }
+    } catch {}
+  });
+
+  function renderSettings(s) {
+    if (!s) return;
+    if (!state.editing.registry && els.registry.value !== s.registry) els.registry.value = s.registry;
+    els.closeToQuit.setAttribute('aria-checked', String(s.closeToQuit));
+    els.autoCheckDsh.setAttribute('aria-checked', String(s.autoCheckDsh));
+    els.autoCheckHull.setAttribute('aria-checked', String(s.autoCheckHull));
+    if (!state.editing.pinned) {
+      els.channel.value = s.channel;
+      els.pinnedVersion.value = s.pinnedVersion || '';
+      els.pinnedVersion.disabled = s.channel !== 'pinned';
+    }
+  }
+
+  function renderDsh(ds) {
+    if (!ds) return;
+    const runtime = ds.runtime || {};
+    const upgrade = ds.upgrade || {};
+    const phase = runtime.phase;
+    let statusHtml;
+    if (phase === 'ready') statusHtml = badge('运行中', 'ok') + (runtime.url ? badge(runtime.url.replace(/^https?:\/\//, ''), 'muted') : '');
+    else if (phase === 'starting') statusHtml = badge('启动中', 'warn');
+    else if (phase === 'failed') statusHtml = badge('失败', 'err');
+    else if (phase === 'idle') statusHtml = badge('已停止', 'muted');
+    else statusHtml = badge(phase || '未知', 'muted');
+    els.dshStatusWrap.innerHTML = statusHtml;
+    els.dshVersionWrap.innerHTML = ds.currentVersion ? badge('v' + ds.currentVersion, 'muted') : badge('—', 'muted');
+
+    const busy = upgrade.phase !== 'idle' || (state.hull && state.hull.phase !== 'idle');
+    els.checkDsh.disabled = busy;
+    els.rollbackDsh.disabled = busy || !ds.canRollback;
+    if (ds.canRollback) {
+      els.rollbackDsh.title = '回滚到上一版本';
+    } else {
+      els.rollbackDsh.title = '无可用上一版本';
+    }
+
+    let hint = '';
+    if (upgrade.phase !== 'idle') hint = upgrade.message || '';
+    els.dshHint.textContent = hint;
+
+    if (upgrade.error && upgrade.phase === 'idle') {
+      els.dshAlert.textContent = upgrade.message || upgrade.error;
+      els.dshAlert.classList.add('show');
+    } else {
+      els.dshAlert.classList.remove('show');
+    }
+
+    if (state.modal.open && state.modal.kind === 'dsh-progress') {
+      renderDshProgress(upgrade);
+    }
+  }
+
+  function renderHull(hs) {
+    if (!hs) return;
+    els.hullVersionWrap.innerHTML = hs.currentVersion ? badge('v' + hs.currentVersion, 'muted') : badge('—', 'muted');
+    const busy = hs.phase !== 'idle' || (state.dsh && state.dsh.upgrade && state.dsh.upgrade.phase !== 'idle');
+    els.checkHull.disabled = busy;
+
+    if (hs.error && hs.phase === 'idle') {
+      els.hullAlert.textContent = hs.message || hs.error;
+      els.hullAlert.classList.add('show');
+    } else {
+      els.hullAlert.classList.remove('show');
+    }
+
+    if (state.modal.open && state.modal.kind === 'hull-progress') {
+      renderHullProgress(hs);
+    }
+  }
+
+  function renderDshProgress(u) {
+    const body = els.modalDesc;
+    const isDone = u.phase === 'idle';
+    const pct = u.pct || 0;
+    const message = u.message || '';
+    let html = `<div class="bar"><i style="width:${pct}%"></i></div><p class="muted">${escapeHtml(message)}</p>`;
+    if (isDone) {
+      if (u.error) {
+        html += `<p style="color:var(--red);margin-top:8px">${escapeHtml(u.message || u.error)}</p>`;
+      } else {
+        html += `<p style="color:var(--green);margin-top:8px">${escapeHtml(u.message || '升级完成')}</p>`;
+      }
+    }
+    body.innerHTML = html;
+    const actions = els.modalActions;
+    if (u.phase === 'installing') {
+      if (!actions.querySelector('[data-cancel]')) {
+        actions.innerHTML = '<button class="btn" data-cancel>取消</button>';
+        actions.querySelector('[data-cancel]').onclick = async () => {
+          try { await bridge.cancelDshUpgrade(); } catch {}
+        };
+      }
+    } else if (isDone) {
+      actions.innerHTML = '<button class="btn primary" onclick="window.__closeModal()">关闭</button>';
+    } else {
+      actions.innerHTML = '';
+    }
+  }
+
+  function renderHullProgress(h) {
+    const body = els.modalDesc;
+    const isDone = h.phase === 'idle';
+    const pct = h.pct || 0;
+    const message = h.message || '';
+    let html = `<div class="bar"><i style="width:${pct}%"></i></div><p class="muted">${escapeHtml(message)}</p>`;
+    if (isDone) {
+      if (h.error) {
+        html += `<p style="color:var(--red);margin-top:8px">${escapeHtml(h.message || h.error)}</p>`;
+      } else {
+        html += `<p style="color:var(--green);margin-top:8px">下载完成，正在重启安装…</p>`;
+      }
+    }
+    body.innerHTML = html;
+    const actions = els.modalActions;
+    if (h.phase === 'downloading') {
+      if (!actions.querySelector('[data-cancel]')) {
+        actions.innerHTML = '<button class="btn" data-cancel>取消</button>';
+        actions.querySelector('[data-cancel]').onclick = async () => {
+          try { await bridge.cancelHullUpdate(); } catch {}
+        };
+      }
+    } else {
+      actions.innerHTML = '';
+    }
+  }
+
+  window.__closeModal = closeModal;
+
+  els.checkDsh.addEventListener('click', async () => {
+    try {
+      const res = await bridge.checkDshUpdate();
+      if (res.phase === 'confirm' && res.latest) {
+        const current = res.current || '未知';
+        const notes = res.changeNotes ? `<div class="notes"><b>变更说明</b><br>${escapeHtml(res.changeNotes).replace(/\n/g, '<br>')}</div>` : '';
+        const body = `
+          <div class="ver">
+            <div class="box"><div class="k">当前版本</div><div class="v">${escapeHtml(current)}</div></div>
+            <div class="arrow">→</div>
+            <div class="box target"><div class="k">目标版本</div><div class="v">${escapeHtml(res.latest)}</div></div>
+          </div>
+          <p class="muted">升级将立即重启 dsh，正在进行的会话会被中断。</p>
+          ${notes}
+        `;
+        showModal('发现 dsh 新版本', body, [
+          { text: '稍后再说', onClick: async () => { try { await bridge.dismissDshUpdate(); } catch {} closeModal(); } },
+          { text: '立即升级', primary: true, onClick: async () => {
+            closeModal();
+            state.modal.kind = 'dsh-progress';
+            state.modal.context = res.latest;
+            showModal('正在升级 dsh', '<div class="bar"><i style="width:0%"></i></div><p class="muted">准备…</p>', []);
+            try { await bridge.upgradeDsh(res.latest); } catch {}
+          }},
+        ]);
+      } else if (res.hasUpdate === false) {
+        toast('当前已是最新版本');
+      }
+    } catch (err) {
+      toast(err.message || '检查失败');
+    }
+  });
+
+  els.rollbackDsh.addEventListener('click', async () => {
+    state.modal.kind = 'dsh-progress';
+    showModal('正在回滚 dsh', '<div class="bar"><i style="width:0%"></i></div><p class="muted">准备…</p>', []);
+    try { await bridge.rollbackDsh(); } catch {}
+  });
+
+  els.checkHull.addEventListener('click', async () => {
+    try {
+      const res = await bridge.checkHullUpdate();
+      if (res.hasUpdate && res.targetVersion) {
+        const current = (state.hull && state.hull.currentVersion) || '未知';
+        const notes = res.changeNotes ? `<div class="notes"><b>变更说明</b><br>${escapeHtml(res.changeNotes).replace(/\n/g, '<br>')}</div>` : '';
+        const body = `
+          <div class="ver">
+            <div class="box"><div class="k">当前版本</div><div class="v">${escapeHtml(current)}</div></div>
+            <div class="arrow">→</div>
+            <div class="box target"><div class="k">目标版本</div><div class="v">${escapeHtml(res.targetVersion)}</div></div>
+          </div>
+          <p class="muted">下载完成后将自动重启 Hull 应用。</p>
+          ${notes}
+        `;
+        showModal('发现 Hull 新版本', body, [
+          { text: '稍后再说', onClick: async () => { try { await bridge.dismissHullUpdate(); } catch {} closeModal(); } },
+          { text: '立即下载', primary: true, onClick: async () => {
+            closeModal();
+            state.modal.kind = 'hull-progress';
+            showModal('正在下载 Hull 更新', '<div class="bar"><i style="width:0%"></i></div><p class="muted">准备…</p>', []);
+            try { await bridge.downloadHullUpdate(); } catch {}
+          }},
+        ]);
+      } else if (res.hasUpdate === false) {
+        toast('当前已是最新版本');
+      }
+    } catch (err) {
+      toast(err.message || '检查失败');
+    }
+  });
+
+  els.openLogs.addEventListener('click', () => bridge.openLogs());
+  els.openDataDir.addEventListener('click', () => bridge.openDataDir());
+
+  els.modal.addEventListener('click', (e) => {
+    if (e.target === els.modal && state.modal.open) closeModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && state.modal.open) closeModal();
+  });
+
+  async function tick() {
+    try {
+      const [settings, dsh, hullStatus] = await Promise.all([
+        bridge.getSettings(),
+        bridge.getDshStatus(),
+        bridge.getHullUpdateStatus(),
+      ]);
+      state.settings = settings;
+      state.dsh = dsh;
+      state.hull = hullStatus;
+      renderSettings(settings);
+      renderDsh(dsh);
+      renderHull(hullStatus);
+    } catch (err) {
+      // 轮询失败静默，避免弹窗轰炸
+    }
+    setTimeout(tick, 250);
+  }
+
+  tick();
+})();
+</script>
+</body>
+</html>

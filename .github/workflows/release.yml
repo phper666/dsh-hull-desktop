@@ -1,0 +1,38 @@
+# CI 发布链（S5 契约 #6）：tag push（v*）→ build → electron-builder → GitHub Releases
+# GH_TOKEN：仓库 Secrets（fine-grained PAT，Contents+Actions 写权限，契约协调事项已就绪）
+# permissions: contents: write（最小化，🟢-3）
+# Semgrep（CWE-1357）：actions pin 到完整 40 字符 commit SHA（防 mutable tag 供应链攻击）
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Fetch bundled Node (S2 fetch-node 产物，extraResources 内嵌)
+        run: node scripts/fetch-node.mjs
+
+      - name: Build
+        run: npm run build
+
+      - name: Package & publish
+        run: npx electron-builder --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}

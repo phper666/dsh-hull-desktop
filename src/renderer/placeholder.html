@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>Hull</title>
+<style>
+  body { margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #1e2430; color: #e8ecf3; display: flex; align-items: center; justify-content: center; height: 100vh; }
+  .card { text-align: center; max-width: 440px; padding: 24px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 12px; }
+  p { color: #9aa5b5; font-size: 13px; line-height: 1.6; margin: 0 0 20px; word-break: break-all; }
+  button { margin: 4px 8px; padding: 8px 22px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; }
+  .primary { background: #2e8bf5; color: #fff; }
+  .primary:hover { background: #3f97fb; }
+  .ghost { background: #2a3342; color: #c6d0dd; }
+  .ghost:hover { background: #33405a; }
+  .hidden { display: none; }
+  .spinner { width: 28px; height: 28px; border: 3px solid #2a3342; border-top-color: #2e8bf5; border-radius: 50%; margin: 0 auto 20px; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .bar { width: 280px; height: 8px; border-radius: 4px; background: #2a3342; margin: 0 auto 8px; overflow: hidden; }
+  .bar-fill { height: 100%; width: 0; background: #2e8bf5; border-radius: 4px; transition: width 0.25s ease; }
+  .muted { font-size: 12px; color: #6b7688; margin-top: 16px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div id="starting" class="hidden">
+      <div class="spinner"></div>
+      <h1>正在启动 dsh…</h1>
+      <p id="starting-msg"></p>
+    </div>
+    <div id="installing" class="hidden">
+      <h1>正在安装 dsh…</h1>
+      <p id="installing-phase"></p>
+      <div class="bar"><div id="installing-bar" class="bar-fill"></div></div>
+      <p id="installing-pct"></p>
+      <button id="cancel-install" class="ghost">取消安装</button>
+      <p class="muted">首次安装需要下载 dsh 及全部插件（约几十 MB），可随时取消，之后可在引导态重新安装。</p>
+    </div>
+    <div id="failed" class="hidden">
+      <h1>dsh 启动失败</h1>
+      <p id="failed-msg"></p>
+      <button id="retry" class="primary">重试</button>
+      <button id="open-logs" class="ghost">打开日志</button>
+    </div>
+    <div id="not-installed" class="hidden">
+      <h1>dsh 尚未安装</h1>
+      <p id="not-installed-msg"></p>
+      <p id="install-error" class="hidden" style="color:#e06565"></p>
+      <button id="install-btn" class="primary">安装 dsh</button>
+      <button id="open-logs-2" class="ghost">打开日志</button>
+      <p class="muted">首次安装可取消（本次），主窗口变为引导态；点击「安装 dsh」重新走安装流程。不提供永久跳过。</p>
+    </div>
+  </div>
+<script>
+  // 占位页四视图（Q-007 / S2 引导态 + 安装进度，照原型）：
+  // starting 加载中 / installing 安装进度（轮询 250ms）/ failed 重试+日志 / not-installed 引导态（安装按钮）
+  const params = new URLSearchParams(location.search);
+  const mode = params.get('mode') || 'starting';
+  document.getElementById(mode).classList.remove('hidden');
+  const message = params.get('message') || '';
+  const msgId = mode === 'starting' ? 'starting-msg' : mode === 'failed' ? 'failed-msg' : 'not-installed-msg';
+  const msgEl = document.getElementById(msgId);
+  if (msgEl && message) msgEl.textContent = message;
+
+  const bridge = window.hull; // preload 桥（仅占位页挂载）
+
+  // 安装进度视图：installStatus 轮询 250ms（B6，非事件推送）；状态离开 installing → 停止轮询（主进程负责导航）
+  if (mode === 'installing') {
+    const phaseEl = document.getElementById('installing-phase');
+    const barEl = document.getElementById('installing-bar');
+    const pctEl = document.getElementById('installing-pct');
+    const phaseNames = { download: '准备运行环境', 'npm-install': '下载并安装 dsh', swap: '安装收尾' };
+    const tick = async () => {
+      if (!bridge) return;
+      const s = await bridge.installStatus();
+      if (!s || s.phase !== 'installing') return; // 主进程将切视图（成功→官方 UI / 失败→引导态）
+      if (s.progress) {
+        phaseEl.textContent = phaseNames[s.progress.phase] || s.progress.phase;
+        barEl.style.width = s.progress.pct + '%';
+        pctEl.textContent = s.progress.pct + '%';
+      }
+      setTimeout(tick, 250);
+    };
+    tick();
+  }
+
+  document.getElementById('retry').addEventListener('click', async () => {
+    if (!bridge) return;
+    const r = await bridge.retry();
+    if (r && r.ok) location.reload();
+  });
+  document.getElementById('install-btn').addEventListener('click', async () => {
+    if (!bridge) return;
+    await bridge.install(); // 主进程切换 installing 视图 + 自动安装
+  });
+  document.getElementById('cancel-install').addEventListener('click', () => bridge && bridge.cancelInstall());
+  document.getElementById('open-logs').addEventListener('click', () => bridge && bridge.openLogs());
+  document.getElementById('open-logs-2').addEventListener('click', () => bridge && bridge.openLogs());
+</script>
+</body>
+</html>

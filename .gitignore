@@ -28,3 +28,11 @@ coverage/
 # 内部文档（本地工作流文档，不进 GitHub）
 docs/
 AGENTS.md
+
+# 构建期 node 下载产物（fetch-node.mjs）
+vendor/
+
+# 测试产物（S7 e2e）
+dist-tests/
+test-results/
+playwright-report/

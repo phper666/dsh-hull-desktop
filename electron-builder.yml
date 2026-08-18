@@ -1,0 +1,27 @@
+# electron-builder 配置（S5 设计 D8/B5 定案 a）
+# - mac targets zip + dmg（GitHub provider 发布，latest-mac.yml 由 electron-builder 生成）
+# - extraResources：vendor/node-*（S2 fetch-node 产物内嵌——extractNode 运行时解压 seam 复用，B5）
+# - mac.identity: null（CI 无证书，🟢-2；正式发布前补公证/签名）
+# - owner/repo：发布链核对注记（与 main/index.ts HullUpdater 装配一致，S6/发布时确认）
+
+appId: com.dsh.hull-desktop
+productName: Hull Desktop
+directories:
+  output: release
+files:
+  - dist/**
+  - package.json
+extraResources:
+  - from: vendor
+    to: vendor
+    filter:
+      - node-*
+mac:
+  target:
+    - zip
+    - dmg
+  identity: null
+publish:
+  provider: github
+  owner: dsh-hull-desktop
+  repo: dsh-hull-desktop
