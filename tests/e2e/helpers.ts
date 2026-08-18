@@ -1,5 +1,7 @@
 /**
- * e2e 公共助手（S7）：临时 userData 隔离（CON-R002 精神）+ fake dsh overlay 种子 + 启动 + 就绪等待 + 假 registry。
+ * e2e 公共助手（S7 + S8 R1）：临时 userData 隔离（CON-R002 精神）+ fake dsh overlay 种子 + 启动 + 就绪等待 + 假 registry。
+ * S8 窗口定位重构：主窗口 = 壳框架（BrowserWindow 加载 shell.html），官方 UI = WebContentsView（独立 webContents）。
+ * 定位约定（URL 定位）：shellPage（file://…shell.html）/ officialPage（http://127.0.0.1: 前缀，Playwright 暴露探测 R2）。
  * 约定：HULL_USER_DATA（userData 覆盖）、HULL_E2E（测试钩子开关）、FAKE_DSH_MODE（fake dsh 行为）、
  *       HULL_REGISTRY（registry 源）——均为 main 侧已支持的注入点。
  */
@@ -75,13 +77,33 @@ export async function launchApp(opts: LaunchOptions): Promise<ElectronApplicatio
   });
 }
 
-/** 主窗口官方 UI URL（webContents 实际导航地址；page 对象 URL 跟踪与 webContents 不同步，须走主进程。
- *  getAllWindows 顺序为 z-order（设置窗打开后可能排前），须按 URL 排除 settings.html 定位主窗口） */
+/** 官方 UI URL（S8：官方 UI 在 WebContentsView 的 webContents，非 BrowserWindow——
+ *  经 webContents.getAllWebContents() 按 http://127.0.0.1: 前缀定位；壳页/settings 均 file:// 可排除）。
+ *  语义与旧 mainWindowUrl 一致：官方 UI 当前导航地址（未加载 → 空串） */
 export async function mainWindowUrl(app: ElectronApplication): Promise<string> {
-  return app.evaluate(({ BrowserWindow }) => {
-    const wins = BrowserWindow.getAllWindows();
-    const main = wins.find((w) => !w.webContents.getURL().includes('settings.html')) ?? wins[0];
-    return main?.webContents.getURL() ?? '';
+  return app.evaluate(({ webContents }) => {
+    const wc = webContents.getAllWebContents().find((w) => w.getURL().startsWith('http://127.0.0.1:'));
+    return wc?.getURL() ?? '';
+  });
+}
+
+/** 壳框架 page（file://…shell.html；主 BrowserWindow 承载——nav + 占位区块；未就绪 → null） */
+export function shellPage(app: ElectronApplication): Page | null {
+  return app.windows().find((w) => w.url().includes('shell.html')) ?? null;
+}
+
+/** 官方 UI page（R2 探测：Playwright 对 WebContentsView page 暴露；未暴露 → null，断言走主进程兜底） */
+export function officialPage(app: ElectronApplication): Page | null {
+  return app.windows().find((w) => w.url().startsWith('http://127.0.0.1:')) ?? null;
+}
+
+/** 官方 view 状态（R2 兜底：主进程侧断言 view.webContents.getURL/getVisible，经 __hullTest hook） */
+export async function officialViewState(
+  app: ElectronApplication
+): Promise<{ url: string; visible: boolean }> {
+  return app.evaluate(() => {
+    const h = (globalThis as { __hullTest?: { officialView(): { url: string; visible: boolean } } }).__hullTest;
+    return h?.officialView() ?? { url: '', visible: false };
   });
 }
 
@@ -103,7 +125,7 @@ export async function mainWindowVisible(app: ElectronApplication): Promise<boole
   });
 }
 
-/** 等待官方 UI 就绪：URL 为 http://127.0.0.1: 且 HTTP 响应 body=ok（真实可交互信号） */
+/** 等待官方 UI 就绪：官方 view URL 为 http://127.0.0.1: 且 HTTP 响应 body=ok（真实可交互信号）；返回壳页 page */
 export async function waitForReady(app: ElectronApplication, timeoutMs = 30_000): Promise<Page> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -111,7 +133,10 @@ export async function waitForReady(app: ElectronApplication, timeoutMs = 30_000)
     if (url.startsWith('http://127.0.0.1:')) {
       try {
         const res = await fetch(url);
-        if ((await res.text()) === 'ok') return app.windows()[0];
+        if ((await res.text()) === 'ok') {
+          const shell = shellPage(app);
+          if (shell) return shell;
+        }
       } catch {
         /* 服务未就绪 */
       }
@@ -139,20 +164,36 @@ export async function waitForOkPage(app: ElectronApplication, timeoutMs = 60_000
   throw new Error(`官方 UI 未在 ${timeoutMs}ms 内恢复可交互（body=ok）`);
 }
 
-/** 等待主窗口 page 出现（launch 后窗口在 whenReady+ensure 后创建，非即时） */
+/** 等待壳框架 page 出现（launch 后窗口在 whenReady+ensure 后创建，非即时；URL 定位 shell.html） */
 export async function waitForMainWindow(app: ElectronApplication, timeoutMs = 30_000): Promise<Page> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const wins = app.windows();
-    if (wins.length > 0) return wins[0];
+    const p = shellPage(app);
+    if (p) return p;
     await sleep(200);
   }
-  throw new Error(`主窗口未在 ${timeoutMs}ms 内创建`);
+  throw new Error(`壳窗口未在 ${timeoutMs}ms 内创建`);
 }
 
-/** 主窗口 page（firstWindow 恒为主窗口——窗口创建顺序固定） */
-export function mainPage(app: ElectronApplication): Page {
-  return app.windows()[0];
+/** 壳 nav 状态区快照（hull:status 渲染结果：phase/version/upgrade；未就绪 → null） */
+export async function navStatus(
+  app: ElectronApplication
+): Promise<{ phase: string; version: string; upgrade: string } | null> {
+  const shell = shellPage(app);
+  if (!shell) return null;
+  try {
+    return await shell.evaluate(() => {
+      // tsconfig.tests.json 无 DOM lib：最小 DOM 接口内联（evaluate 在 renderer 运行，运行时 DOM 可用）
+      interface MinEl {
+        textContent: string | null;
+      }
+      const doc = (globalThis as unknown as { document: { getElementById(id: string): MinEl | null } }).document;
+      const t = (id: string) => doc.getElementById(id)?.textContent ?? '';
+      return { phase: t('status-phase'), version: t('status-version'), upgrade: t('status-upgrade') };
+    });
+  } catch {
+    return null; // 页面导航中
+  }
 }
 
 /** 设置页 page（按 URL 含 settings.html 定位；未打开 → null） */
@@ -216,6 +257,21 @@ export function startFakeRegistry(opts: { latest?: string; tarballDelayMs?: numb
       reject(new Error(`fake-registry 提前退出 code=${code}`));
     });
   });
+}
+
+/** 等待假 registry 收到 ≥min 次 manifest 请求（S8：验证「升级入口触发检查」——原生 dialog 不可 Playwright 驱动） */
+export async function waitForRegistryHits(reg: FakeRegistry, min: number, timeoutMs = 15_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${reg.url}/__hits`);
+      if (Number(await res.text()) >= min) return;
+    } catch {
+      /* registry 未就绪 */
+    }
+    await sleep(200);
+  }
+  throw new Error(`registry 未在 ${timeoutMs}ms 内收到 ${min} 次 manifest 请求`);
 }
 
 /** 托盘菜单项（label + enabled 快照；原生菜单 Playwright 无法点击，读状态校验禁用逻辑） */

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'" />
+<title>Hull</title>
+<style>
+  /* 深色系（延续 placeholder #1e2430） */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #1e2430; color: #e8ecf3;
+    display: flex; height: 100vh; overflow: hidden;
+  }
+  /* 左导航（S8 D2：NAV_WIDTH=200 与主进程常量一致） */
+  #nav { width: 200px; flex-shrink: 0; background: #171c26; border-right: 1px solid #2a3342; display: flex; flex-direction: column; }
+  #nav-title { padding: 16px 16px 10px; font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
+  #nav-items { flex: 1; padding: 4px 8px; overflow-y: auto; }
+  .nav-item {
+    display: block; width: 100%; text-align: left; padding: 9px 12px; margin-bottom: 2px;
+    border-radius: 8px; border: none; background: transparent; color: #c6d0dd;
+    font-size: 13px; cursor: pointer;
+  }
+  .nav-item:hover { background: #2a3342; }
+  .nav-item.active { background: #2e8bf5; color: #fff; }
+  .nav-item[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
+  .nav-item .tag { float: right; font-size: 10px; color: #6b7688; margin-top: 2px; }
+  /* 状态区（hull:status 渲染：runtime.phase + currentVersion + upgrade.phase） */
+  #nav-status { padding: 12px 16px; border-top: 1px solid #2a3342; font-size: 12px; color: #9aa5b5; }
+  #nav-status .row { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+  #nav-status .row:last-child { margin-bottom: 0; }
+  #nav-status .val { color: #c6d0dd; text-align: right; word-break: break-all; }
+  /* 右侧内容区：official view 叠加容器（WebContentsView 浮于其上，z-order 无冲突 D2）+ 占位四区块 */
+  #content { flex: 1; position: relative; overflow: hidden; }
+  #official-container { position: absolute; inset: 0; }
+  .placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; overflow-y: auto; }
+  .hidden { display: none; }
+  .card { text-align: center; max-width: 440px; padding: 24px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 12px; }
+  p { color: #9aa5b5; font-size: 13px; line-height: 1.6; margin: 0 0 20px; word-break: break-all; }
+  button { margin: 4px 8px; padding: 8px 22px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; }
+  .primary { background: #2e8bf5; color: #fff; }
+  .primary:hover { background: #3f97fb; }
+  .ghost { background: #2a3342; color: #c6d0dd; }
+  .ghost:hover { background: #33405a; }
+  .spinner { width: 28px; height: 28px; border: 3px solid #2a3342; border-top-color: #2e8bf5; border-radius: 50%; margin: 0 auto 20px; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .bar { width: 280px; height: 8px; border-radius: 4px; background: #2a3342; margin: 0 auto 8px; overflow: hidden; }
+  .bar-fill { height: 100%; width: 0; background: #2e8bf5; border-radius: 4px; transition: width 0.25s ease; }
+  .muted { font-size: 12px; color: #6b7688; margin-top: 16px; }
+</style>
+</head>
+<body>
+  <nav id="nav" aria-label="Hull 导航">
+    <div id="nav-title">Hull</div>
+    <div id="nav-items">
+      <button id="nav-web" class="nav-item active">dsh web</button>
+      <button id="nav-settings" class="nav-item">设置</button>
+      <button id="nav-upgrade" class="nav-item">升级</button>
+      <button id="nav-board" class="nav-item" aria-disabled="true" title="M2 规划中">任务看板<span class="tag">M2</span></button>
+    </div>
+    <div id="nav-status">
+      <div class="row"><span>dsh 状态</span><span id="status-phase" class="val">…</span></div>
+      <div class="row"><span>版本</span><span id="status-version" class="val">…</span></div>
+      <div class="row"><span>升级</span><span id="status-upgrade" class="val">…</span></div>
+    </div>
+  </nav>
+  <main id="content">
+    <!-- official view 叠加区（主进程 WebContentsView，渲染侧仅占位容器——空 div 无语义，
+         布局锚点：view 浮于其上按 NAV_WIDTH 偏移；renderer 无 view 控制通道（D6），永不填充内容） -->
+    <div id="official-container"></div>
+    <!-- 占位四视图（D4：placeholder.html 迁移；ID/文案/交互语义不变，安装进度轮询 250ms 保留 B6） -->
+    <section id="starting" class="placeholder hidden">
+      <div class="card">
+        <div class="spinner"></div>
+        <h1>正在启动 dsh…</h1>
+        <p id="starting-msg"></p>
+      </div>
+    </section>
+    <section id="installing" class="placeholder hidden">
+      <div class="card">
+        <h1>正在安装 dsh…</h1>
+        <p id="installing-phase"></p>
+        <div class="bar"><div id="installing-bar" class="bar-fill"></div></div>
+        <p id="installing-pct"></p>
+        <button id="cancel-install" class="ghost">取消安装</button>
+        <p class="muted">首次安装需要下载 dsh 及全部插件（约几十 MB），可随时取消，之后可在引导态重新安装。</p>
+      </div>
+    </section>
+    <section id="failed" class="placeholder hidden">
+      <div class="card">
+        <h1>dsh 启动失败</h1>
+        <p id="failed-msg"></p>
+        <button id="retry" class="primary">重试</button>
+        <button id="open-logs" class="ghost">打开日志</button>
+      </div>
+    </section>
+    <section id="not-installed" class="placeholder hidden">
+      <div class="card">
+        <h1>dsh 尚未安装</h1>
+        <p id="not-installed-msg"></p>
+        <p id="install-error" class="hidden" style="color:#e06565"></p>
+        <button id="install-btn" class="primary">安装 dsh</button>
+        <button id="open-logs-2" class="ghost">打开日志</button>
+        <p class="muted">首次安装可取消（本次），主窗口变为引导态；点击「安装 dsh」重新走安装流程。不提供永久跳过。</p>
+      </div>
+    </section>
+  </main>
+<script>
+  // 壳框架页（S8 D4/D5/D6）：
+  // - 右侧内容区显示完全由主进程 hull:status 的 view 字段驱动（renderer 无 view 控制通道）
+  // - 状态区渲染 runtime.phase + currentVersion + upgrade.phase
+  // - 安装进度 installStatus 250ms 轮询（B6）；占位四区块 ID/交互照 placeholder.html
+  const bridge = window.hull;
+  const PLACEHOLDER_PREFIX = 'placeholder:';
+  const sections = ['starting', 'installing', 'failed', 'not-installed'];
+
+  // 占位四视图切换（view 字段驱动；official → 全隐藏）
+  function setView(view) {
+    for (const id of sections) document.getElementById(id).classList.add('hidden');
+    if (view && view.startsWith(PLACEHOLDER_PREFIX)) {
+      document.getElementById(view.slice(PLACEHOLDER_PREFIX.length)).classList.remove('hidden');
+    }
+  }
+
+  const phaseNames = { idle: '未运行', starting: '启动中', ready: '运行中', failed: '启动失败' };
+  const upgradeNames = {
+    idle: '无', checking: '检查中', confirm: '待确认', installing: '安装中',
+    swapping: '切换中', verifying: '验证中', rollback: '回滚中',
+  };
+
+  // 安装进度轮询（250ms；状态离开 installing → 停止，主进程负责 view 切换）
+  let polling = false;
+  function pollInstall() {
+    if (polling || !bridge) return;
+    polling = true;
+    const phaseEl = document.getElementById('installing-phase');
+    const barEl = document.getElementById('installing-bar');
+    const pctEl = document.getElementById('installing-pct');
+    const phaseNamesInstall = { download: '准备运行环境', 'npm-install': '下载并安装 dsh', swap: '安装收尾' };
+    const tick = async () => {
+      try {
+        const s = await bridge.installStatus();
+        if (!s || s.phase !== 'installing') { polling = false; return; }
+        if (s.progress) {
+          phaseEl.textContent = phaseNamesInstall[s.progress.phase] || s.progress.phase;
+          barEl.style.width = s.progress.pct + '%';
+          pctEl.textContent = s.progress.pct + '%';
+        }
+        setTimeout(tick, 250);
+      } catch { polling = false; }
+    };
+    tick();
+  }
+
+  // hull:status 渲染（主进程单一事实源）
+  function renderStatus(payload) {
+    if (!payload) return;
+    const runtime = payload.runtime || {};
+    document.getElementById('status-phase').textContent = phaseNames[runtime.phase] || runtime.phase || '…';
+    document.getElementById('status-version').textContent = payload.currentVersion || '未安装';
+    const upgrade = payload.upgrade || {};
+    document.getElementById('status-upgrade').textContent = upgradeNames[upgrade.phase] || upgrade.phase || '…';
+    setView(payload.view);
+    // 占位消息（failed/not-installed；starting 亦可承载）
+    const msgId = payload.view === 'placeholder:failed' ? 'failed-msg'
+      : payload.view === 'placeholder:not-installed' ? 'not-installed-msg'
+      : payload.view === 'placeholder:starting' ? 'starting-msg' : null;
+    if (msgId) document.getElementById(msgId).textContent = payload.message || '';
+    if (payload.view === 'placeholder:installing') pollInstall();
+  }
+
+  // D6 导航切换：nav 点击仅更新本地 active 高亮 + 触发对应 IPC；无 view 控制通道
+  function setActive(id) {
+    for (const el of document.querySelectorAll('.nav-item')) el.classList.remove('active');
+    document.getElementById(id).classList.add('active');
+  }
+  document.getElementById('nav-web').addEventListener('click', () => setActive('nav-web'));
+  document.getElementById('nav-settings').addEventListener('click', async () => {
+    setActive('nav-settings');
+    if (bridge) await bridge.openSettings();
+  });
+  document.getElementById('nav-upgrade').addEventListener('click', async () => {
+    setActive('nav-upgrade');
+    if (bridge) await bridge.checkDshUpdate(); // main runCheck → 原生 dialog
+  });
+  document.getElementById('nav-board').addEventListener('click', () => {
+    /* aria-disabled + M2 规划中：无路由（YAGNI） */
+  });
+
+  // 失败/引导态按钮（照 placeholder.html 桥绑定；retry 成功不再 reload——视图切换由主进程推送驱动）
+  document.getElementById('retry').addEventListener('click', async () => {
+    if (bridge) await bridge.retry();
+  });
+  document.getElementById('install-btn').addEventListener('click', async () => {
+    if (!bridge) return;
+    await bridge.install(); // 主进程切换 installing 视图 + 自动安装
+  });
+  document.getElementById('cancel-install').addEventListener('click', () => bridge && bridge.cancelInstall());
+  document.getElementById('open-logs').addEventListener('click', () => bridge && bridge.openLogs());
+  document.getElementById('open-logs-2').addEventListener('click', () => bridge && bridge.openLogs());
+
+  // 首载：先订阅再取初值（invoke 响应反映主进程当时状态，事件先到亦会被较新响应覆盖，自洽）
+  // 注：onStatus 返回的取消函数不保存——壳页单页永不导航/卸载，订阅生命周期 = 页面生命周期，无泄漏
+  if (bridge && bridge.onStatus) {
+    bridge.onStatus(renderStatus);
+    bridge.getDshStatus().then(renderStatus).catch(() => {});
+  }
+</script>
+</body>
+</html>

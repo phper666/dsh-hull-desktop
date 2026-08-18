@@ -1,6 +1,7 @@
 /**
  * E2E-01 冷启动 / E2E-05 退出清理 / E2E-06 托盘（S7 契约场景组）。
  * 全部用种子 fake dsh overlay（D2 兜底：可控 + 不依赖真实 dsh 包）。
+ * S8 壳框架：主窗口 = shell.html（nav + 占位区块），官方 UI = WebContentsView（R2 验证点）。
  */
 import { test, expect, type ElectronApplication } from '@playwright/test';
 import { existsSync, readFileSync } from 'node:fs';
@@ -12,6 +13,9 @@ import {
   mainWindowUrl,
   mainWindowVisible,
   makeTempUserData,
+  navStatus,
+  officialPage,
+  officialViewState,
   openSettings,
   psCommandLines,
   seedFakeDsh,
@@ -21,11 +25,12 @@ import {
   trayMenuItems,
   waitForOkPage,
   waitForReady,
+  waitForRegistryHits,
   waitForTrayItemEnabled,
 } from './helpers';
 
 test.describe('E2E-01 冷启动', () => {
-  test('启动 → 主窗口出现 → UI 可交互，总时长 ≤10s（Q-009 权威口径）', async () => {
+  test('启动 → 壳窗口 + nav 可见 → 官方 view 就绪，总时长 ≤10s（Q-009 权威口径）', async () => {
     const tmp = makeTempUserData();
     let app: ElectronApplication | null = null;
     try {
@@ -33,17 +38,69 @@ test.describe('E2E-01 冷启动', () => {
       seedSettings(tmp.dir); // 关自动检查（防原生 dialog 干扰）
       const t0 = Date.now();
       app = await launchApp({ userData: tmp.dir });
-      const win = await waitForReady(app, 30_000);
+      const shell = await waitForReady(app, 30_000);
       const elapsed = Date.now() - t0;
       console.log(`[E2E-01] 冷启动总时长: ${elapsed}ms`);
       expect(elapsed, `冷启动总时长 ${elapsed}ms 应 ≤ 10s（Q-009）`).toBeLessThan(10_000);
-      // UI 可交互：官方 UI（fake dsh "ok" 页）HTTP 响应内容可见
+      // 壳框架：nav 四入口 + 状态区可见
+      await expect(shell.locator('#nav')).toBeVisible();
+      await expect(shell.locator('#nav-web')).toBeVisible();
+      await expect(shell.locator('#nav-settings')).toBeVisible();
+      await expect(shell.locator('#nav-upgrade')).toBeVisible();
+      await expect(shell.locator('#nav-board')).toHaveAttribute('aria-disabled', 'true'); // M2 占位
+      await expect(shell.locator('#nav-status')).toBeVisible();
+      // 官方 UI 就绪：view URL http://127.0.0.1: + HTTP body=ok
       const url = await mainWindowUrl(app);
       expect((await (await fetch(url)).text())).toBe('ok');
+      // R2 验证：Playwright 对 WebContentsView page 暴露探测 + 主进程侧兜底断言
+      const official = officialPage(app);
+      console.log(`[E2E-01] R2: officialPage ${official ? 'exposed' : 'not exposed (fallback)'}`);
+      const viewState = await officialViewState(app);
+      expect(viewState.url.startsWith('http://127.0.0.1:')).toBe(true);
+      expect(viewState.visible).toBe(true);
+      // nav 状态区渲染（runtime.phase=ready + currentVersion + upgrade.phase=idle）
+      await expect(shell.locator('#status-phase')).toHaveText('运行中');
+      await expect(shell.locator('#status-version')).toHaveText('0.1.0-rc.7');
+      await expect(shell.locator('#status-upgrade')).toHaveText('无');
+      // 占位区块：official 时全隐藏
+      await expect(shell.locator('#starting')).toBeHidden();
+      await expect(shell.locator('#installing')).toBeHidden();
+      await expect(shell.locator('#failed')).toBeHidden();
+      await expect(shell.locator('#not-installed')).toBeHidden();
       // dsh 子进程在跑（pid 文件存在）
       expect(existsSync(join(tmp.dir, 'dsh.pid'))).toBe(true);
     } finally {
       if (app) await app.close().catch(() => {});
+      tmp.cleanup();
+    }
+  });
+
+  test('nav 入口：设置开窗 / 升级触发检查 / 看板禁用无路由', async () => {
+    const tmp = makeTempUserData();
+    // 无更新种子（latest == 当前版本）→ 检查无 dialog（原生 dialog 不可 Playwright 驱动，与托盘同属 e2e 不可测限制）；
+    // 用 registry manifest 请求计数验证「nav 升级 → runCheck → updater.check」链路
+    const reg = await startFakeRegistry({ latest: '0.1.0-rc.7' });
+    let app: ElectronApplication | null = null;
+    try {
+      seedFakeDsh(tmp.dir);
+      seedSettings(tmp.dir, { registry: reg.url });
+      app = await launchApp({ userData: tmp.dir, registry: reg.url });
+      const shell = await waitForReady(app);
+      // 设置 → hull:openSettings → 设置窗出现
+      await shell.click('#nav-settings');
+      const settings = await openSettings(app);
+      await expect(settings.locator('h1')).toHaveText('Hull 设置');
+      // 看板 → aria-disabled 无路由（Playwright 视 aria-disabled 为 disabled，点击被拒 = 无路由语义）
+      await expect(shell.locator('#nav-board')).toBeDisabled();
+      await expect(shell.locator('#nav-board')).toHaveAttribute('aria-disabled', 'true');
+      // 升级 → runCheck → updater.check 命中 registry（无更新 → 静默，无 dialog）
+      await shell.click('#nav-upgrade');
+      await waitForRegistryHits(reg, 1, 15_000);
+      const status = await navStatus(app);
+      expect(status?.upgrade).toBe('无');
+    } finally {
+      if (app) await app.close().catch(() => {});
+      await reg.close();
       tmp.cleanup();
     }
   });

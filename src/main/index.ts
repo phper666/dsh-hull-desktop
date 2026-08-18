@@ -96,8 +96,19 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   });
   const winMgr = new WindowManager({
     runtime,
+    // S8 D5：hull:status 载荷的 getDshStatus 形状部分（与 hull:getDshStatus handler 同源）
+    getStatus: () => ({
+      runtime: runtime.snapshot(),
+      upgrade: updater.snapshot(),
+      currentVersion: overlay.currentVersion(),
+      canRollback: swapManager.canRollback(),
+    }),
     isCloseToQuit: () => settings.getSettings().closeToQuit,
     onCloseToQuit: () => void quitOrchestration(),
+    // P1-1：updater 状态迁移 → hull:status payload 刷新（nav 状态区"升级"列实时）
+    onUpgradeStatus: (cb) => {
+      updater.on('status', cb);
+    },
     logger,
   });
   const settingsWindow = new SettingsWindow({ getMainWindow: () => winMgr.getWindow() });
@@ -476,12 +487,22 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     }
   });
 
-  ipcMain.handle('hull:getDshStatus', async () => ({
-    runtime: runtime.snapshot(),
-    upgrade: updater.snapshot(),
-    currentVersion: overlay.currentVersion(),
-    canRollback: swapManager.canRollback(),
-  }));
+  ipcMain.handle('hull:getDshStatus', async () => winMgr.hullStatus());
+  // S8 D6：壳导航升级入口（main runCheck → 原生 dialog）。
+  // 注：现有 hull:checkDshUpdate 被设置页占用（DOM modal 确认流，S6 零改动）→ 壳导航走独立通道；
+  // 桥方法名仍为 checkDshUpdate（设计 D6 命名），实现偏离「无新通道」注记——见实现记录。
+  // 与托盘 runCheck 入口一致（S3 既有约束），无 in-flight 守卫，连点叠弹窗口极小
+  // （Updater queue 互斥兜底：非 idle 时 check 直接忽略，queue-busy 不弹）
+  ipcMain.handle('hull:promptDshUpdate', async () => {
+    if (quitting) return { hasUpdate: false, current: null, latest: null, phase: UpgradePhase.Idle };
+    void runCheck();
+    return { ok: true };
+  });
+  ipcMain.handle('hull:openSettings', async () => {
+    if (quitting) return { ok: false, message: '正在退出' };
+    settingsWindow.show(); // S8 D6：设置入口双入口（壳导航为主、托盘补充，S6 零改动）
+    return { ok: true };
+  });
   ipcMain.handle('hull:checkDshUpdate', async () => {
     if (quitting) return { hasUpdate: false, current: null, latest: null, phase: UpgradePhase.Idle };
     return updater.check();
@@ -544,6 +565,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
       quit: () => void quitOrchestration(),
       trayMenu: () => tray.getMenu(),
       mainWindow: () => winMgr.getWindow(),
+      officialView: () => winMgr.officialViewState(), // S8 R2：Playwright 对 WebContentsView page 暴露兜底断言
     };
   }
 

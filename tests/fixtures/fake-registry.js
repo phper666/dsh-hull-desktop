@@ -55,12 +55,20 @@ function buildTar(version) {
 }
 
 function start(options = {}) {
-  const latest = options.latest || DEFAULT_LATEST;
+  // 头注释声明 env FAKE_REGISTRY_LATEST：options 优先（helpers 传参时经 env 透传），env 兜底默认
+  const latest = options.latest || process.env.FAKE_REGISTRY_LATEST || DEFAULT_LATEST;
   const delayMs = options.tarballDelayMs ?? Number(process.env.FAKE_REGISTRY_TARBALL_DELAY_MS || 0);
   const tarball = gzipSync(buildTar(latest));
+  let manifestHits = 0; // S8：manifest 请求计数（e2e 验证「升级入口触发检查」——原生 dialog 不可 Playwright 驱动）
   const server = http.createServer((req, res) => {
     const path = decodeURIComponent((req.url || '').split('?')[0]);
+    if (path === '/__hits') {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end(String(manifestHits));
+      return;
+    }
     if (path === '/@deepseek-ai%2Fdsh' || path === '/@deepseek-ai/dsh') {
+      manifestHits += 1;
       const manifest = {
         name: '@deepseek-ai/dsh',
         'dist-tags': { latest },
