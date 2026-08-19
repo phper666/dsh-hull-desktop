@@ -10,6 +10,8 @@ Hull 面向程序员，在官方之上叠加自己的层：任务看板、原生
 
 > **状态：** 早期脚手架阶段。壳、升级编排与看板均在设计中。
 
+> **AI 工作流声明：** 本项目使用 [ai-workflow-skills](https://github.com/phper666/ai-workflow-skills)（团队 AI 研发工作流 skills 套件）驱动开发——共识文档 → 三角色扫描 → 待确认闭环 → 接口契约 → 技术方案（判级）→ 实现纪律（TDD/lint/Review/Semgrep）→ 交付核验 → 变更传播 → 经验沉淀。工作流产物见 `docs/`（spec/共识、api/契约、design/技术方案、prd/需求、prototype/原型、records/实现记录、lessons/经验）。
+
 ## 设计原则
 
 - **纯壳。** Hull 永不 fork、patch 或替换 dsh 及其 Web UI。官方每个版本发布当天即可在 Hull 中使用。
