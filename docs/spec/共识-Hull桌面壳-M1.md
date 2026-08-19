@@ -190,6 +190,8 @@
 | S6 | 壳设置页 + 托盘完善 | 双升级区块+版本通道+通用设置+诊断；设置即时生效持久化；托盘完整（升级中禁用）；关闭即退出 | R009 | S1~S5 |
 | S7 | 测试与验收体系 | vitest 单测（状态机/版本比较/残留检测）+ Playwright e2e（升级全流程）+ 10s 测量 | 贯穿 | 贯穿 |
 
+> **M2+ 命名约定**（2026-08-20 补充）：子需求编号含「期」维度——M2 看板期用新编号段 `B1-B5`（Board），**禁止跨期复用 S 编号**（避免与 M1 的 S1-S8 同名冲突）；同一子需求在 design/records/api/lessons 四目录用同一编号前缀（`B1-看板-design.md` / `B1-record.md` / `B1-api-contract.md` / `B1-lesson.md`）；大小写与 slug 语言全库统一。
+
 ### 14.2 文档关联
 
 - **关联**：PRD（docs/prd/2026-08-14-m1-prd.md）、原型（docs/prototype/index.html）、规则索引（docs/spec/规则索引.md）、团队配置（docs/spec/团队配置.md）
