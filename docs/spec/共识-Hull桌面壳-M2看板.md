@@ -301,6 +301,18 @@ idle → queued → running → succeeded → Verify（人工把关）→ Done
 
 本模块不涉及（单端桌面应用，无多端差异）。
 
+### 14.1 M2 子需求清单（Gate B，v1.3 定稿）
+
+> 已写入飞书 ticket 清单（dsh-hull-desktop）：B1~B5，负责人 phper666。交付顺序：B1→B2→B3→B4→B5（B2 依赖 B1，B4 依赖 B3，B5 依赖 B1）。ticket id：B1=t100101、B2=t100102、B3=t100103、B4=t100104、B5=t100105。
+
+| # | 子需求 | 验收标准（可测试） | 规则绑定 | 依赖 | 来源 PRD | 飞书 ticket |
+|:--|:-------|:-------------------|:---------|:-----|:---------|:------------|
+| B1 | 看板数据模型与持久化 | boards.json 顶层 boards[]（多项目）；Board/Column/Task/SubTask/ExecutionRecord/Comment schema 完整（含 executionStatus/currentExecutionId/dependencies/assignee/agentSpec）；原子写（temp+rename）+损坏备份重建+schema version；加载 ≤5MB <500ms（冷启动）；DSH_HOME 零接触 | CON-R017/023/024 | — | 2026-08-19-m2-kanban-prd.md | t100101 |
+| B2 | 看板 UI 与交互 | 6 态列自定义（增删改/排序/颜色/隐藏）；多项目看板（创建/切换，各 Board 独立列+任务）；卡片 CRUD+子任务+拖拽流转（人工拖拽语义：不自动矫正+冲突弹窗）；空态三态；父子双向可见+父引用徽标+跨列聚合 | CON-R020/022/026 | B1 | 2026-08-19-m2-kanban-prd.md | t100102 |
+| B3 | 执行引擎与状态机 | ExecutionProvider 抽象+ACP 默认实现+两级 mock 桩；状态机全迁移矩阵（idle→queued→running→paused/interrupted/cancelled/failed/succeeded→Verify→Done）；并行调度（O-9 进 M2，maxParallelTasks=3）；依赖判据（succeeded/manual 按列 Done）+失败传播+死锁兜底；父卡派生态；壳重启收敛；心跳超时（maxExecutionIdleMinutes=30） | CON-R019/021/023/027/029 | B1 | 2026-08-19-m2-kanban-prd.md | t100103 |
+| B4 | 执行集成与审批 | ACP 接入（newSession/prompt/session.cancel/流式 agent_message_chunk）；permission_request 审批流（非阻塞弹窗+回 ACP 响应 approve/deny+request id+30s 超时 deny+FIFO）；selfCheck 判定（passed=true→Verify）；agentSpec/subagentPolicy 多 agent；执行中修订 AC（中断两选一） | CON-R018/019/030 | B3 | 2026-08-19-m2-kanban-prd.md | t100104 |
+| B5 | 导出/导入与分享 | 导出看板/ticket JSON+导入（FR-16）；导出分享（快照）；实时协作记录 M2+（需服务器，不实做）；附件上限配置（maxAttachmentSizeMB=10） | CON-R017 | B1 | 2026-08-19-m2-kanban-prd.md | t100105 |
+
 ## 15. 附录与版本记录
 
 ### 15.1 文档关联
