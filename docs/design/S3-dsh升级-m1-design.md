@@ -3,7 +3,7 @@
 > 工作项：S3 dsh 升级编排（飞书 dsh-hull-desktop 清单）
 > 状态：已冻结（多方复评通过，2026-08-17）
 > 版本：0.2 · 2026-08-17
-> 事实源：契约 `docs/api/feishu-s3-api-contract.md` v0.2（已冻结）；共识 `docs/spec/共识-Hull桌面壳-M1.md` v1.4（CON-R005/009/012/014、Q-003/004/008/010）；S2 设计 0.2 + 契约 v0.3（冻结 2026-08-17，复用面 OverlayManager/InstallFlow/swapBack）；S1 设计 0.2（冻结 2026-08-16，复用面 RuntimeManager/ReadinessProbe）；`docs/records/S2-record.md`（S3 侧 P3 对齐项登记）
+> 事实源：契约 `docs/api/feishu-s3-m1-api-contract.md` v0.2（已冻结）；共识 `docs/spec/共识-Hull桌面壳-M1.md` v1.4（CON-R005/009/012/014、Q-003/004/008/010）；S2 设计 0.2 + 契约 v0.3（冻结 2026-08-17，复用面 OverlayManager/InstallFlow/swapBack）；S1 设计 0.2（冻结 2026-08-16，复用面 RuntimeManager/ReadinessProbe）；`docs/records/S2-m1-record.md`（S3 侧 P3 对齐项登记）
 > 判级：复杂+安全敏感。理由：7 态升级状态机 + 跨模块编排（Updater/SwapManager/UpgradeQueue ↔ S2 OverlayManager/S1 RuntimeManager）+ 自动回滚 + 崩溃恢复 + 双通道互斥 + 外部系统 registry 检查
 > 偏离契约/共识处统一标注：⛔️ 见 §8 对照表
 
@@ -55,7 +55,7 @@
 ```
 swapBack(): rename dsh → dsh-staging（保留现场） + rename dsh-previous → dsh
 ```
-**非复用 S2 既有 rollbackSwap**——S2-record 🟢-A 澄清：S2 的 rollbackSwap 是「替换失败即时回滚 + 清 staging」，语义与 swapBack（保留现场、供手动/自动回滚多次操作）相反；swapBack 为独立 public 原语（S2 契约 #10），S2 内部序列不动。
+**非复用 S2 既有 rollbackSwap**——S2-m1-record 🟢-A 澄清：S2 的 rollbackSwap 是「替换失败即时回滚 + 清 staging」，语义与 swapBack（保留现场、供手动/自动回滚多次操作）相反；swapBack 为独立 public 原语（S2 契约 #10），S2 内部序列不动。
 
 ### D3 状态机（7 态）
 
@@ -331,8 +331,8 @@ dsh-hull-desktop/
 | 1 | 失败提示/手动回滚 UI 归 S6 设置页（设计保留标注） | 契约 #1/#4 调用方 = 设置页；#4 rollback() 调用方 = 设置页 | S3 交付 main 接口（check/upgrade/cancel/rollback/canRollback）+ 托盘入口 + 原生 dialog；设置页 UI 占位注记 | 设置页内容归 S6（S1 非目标同款）；S3 先落接口与可用入口（托盘 + dialog，S1 先例），S6 接线 UI（按钮禁用态 = canRollback() 数据源，W3 落位） |
 | 2 | 升级入口 UI 托盘先行（设计保留标注） | 契约：升级触发可配置（设置页） | 托盘「检查更新…」菜单 + 原生 dialog 确认（[立即升级/稍后再说]）+ 启动自动检查（开关默认开） | S6 前设置页不可用；托盘 + dialog 为 S1 既有交互面（托盘三菜单 + 崩溃 dialog 先例），零新 UI 面 |
 
-**P3 对齐项落位表**（S2-record 登记 → 本设计落点）：
-| # | S2-record 登记项 | 落位 |
+**P3 对齐项落位表**（S2-m1-record 登记 → 本设计落点）：
+| # | S2-m1-record 登记项 | 落位 |
 |---|---|---|
 | ① | S2 #9 与 S3 #6 承接方式 | D2：SwapManager 薄封装（委托 + 映射），S2 冻结面零改动 |
 | ② | swap 错误码域跨契约映射 | §4.3 映射表（S2 npm-install-failed/cancelled → S3 install-failed/swap-broken，cancelled 边界注记） |

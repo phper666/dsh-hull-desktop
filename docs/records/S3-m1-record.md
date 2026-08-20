@@ -1,7 +1,7 @@
 # S3 实现记录与核验记录
 
 > 判级：复杂+安全敏感（7 态升级状态机 + 跨模块编排（Updater/SwapManager/UpgradeQueue ↔ S2 OverlayManager/S1 RuntimeManager）+ 自动回滚 + 崩溃恢复 + 双通道互斥 + 外部系统 registry 检查）
-> 事实源：契约 `docs/api/feishu-s3-api-contract.md` v0.2（冻结 2026-08-17）、设计 `docs/design/S3-dsh升级-design.md` 0.2（冻结 2026-08-17）
+> 事实源：契约 `docs/api/feishu-s3-m1-api-contract.md` v0.2（冻结 2026-08-17）、设计 `docs/design/S3-dsh升级-m1-design.md` 0.2（冻结 2026-08-17）
 
 ## 实现记录
 

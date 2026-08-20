@@ -1,7 +1,7 @@
 # S7 实现记录与核验记录
 
 > 判级：复杂（测试体系搭建 + 跨层验证 + 外部依赖 electron/dsh/registry；无安全敏感面）
-> 事实源：契约 `docs/api/feishu-s7-api-contract.md` v0.2（冻结 2026-08-17）、设计 `docs/design/S7-测试验收-design.md` 0.2（冻结 2026-08-17）
+> 事实源：契约 `docs/api/feishu-s7-m1-api-contract.md` v0.2（冻结 2026-08-17）、设计 `docs/design/S7-测试验收-m1-design.md` 0.2（冻结 2026-08-17）
 
 ## 实现记录
 

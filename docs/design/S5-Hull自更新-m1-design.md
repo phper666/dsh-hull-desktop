@@ -3,7 +3,7 @@
 > 工作项：S5 Hull 自更新（飞书 dsh-hull-desktop 清单）
 > 状态：已冻结（多方复评通过，2026-08-17）
 > 版本：0.2 · 2026-08-17
-> 事实源：契约 `docs/api/feishu-s5-api-contract.md` v0.2（已冻结）；共识 `docs/spec/共识-Hull桌面壳-M1.md` v1.4（CON-R003/009/012、Q-008/Q-012）；S3 设计 0.2（UpgradeQueue 复用面 + Updater 状态机模式）；S1 设计 0.2（退出编排双 flag + RuntimeManager.stop）；S2 设计 0.2（打包专项/extractNode 接线遗留）
+> 事实源：契约 `docs/api/feishu-s5-m1-api-contract.md` v0.2（已冻结）；共识 `docs/spec/共识-Hull桌面壳-M1.md` v1.4（CON-R003/009/012、Q-008/Q-012）；S3 设计 0.2（UpgradeQueue 复用面 + Updater 状态机模式）；S1 设计 0.2（退出编排双 flag + RuntimeManager.stop）；S2 设计 0.2（打包专项/extractNode 接线遗留）
 > 判级：复杂+安全敏感。理由：自更新=安装软件安全面（Gatekeeper/下载校验）+ 双通道互斥（UpgradeQueue 复用）+ 退出编排交互（quitAndInstall vs S1 双 flag）+ GitHub Releases 外部集成 + CI 发布链
 > 偏离契约/共识处统一标注：⛔️ 见 §8 对照表
 
@@ -62,7 +62,7 @@ interface ElectronUpdaterAdapter {
 
 ### D4 互斥（B2 修正）
 
-**check/download/installAndRestart 全占槽 + 单次 acquire 连续持有至终态**——与 S3 Updater 同语义（实证：S3 `Updater.ts` check 自身 scope 内 acquire/release〔gamma 裁决〕，check 实占槽；「查询不占槽」为 S5 初稿引据错误，修正）。冲突行为：dsh 升级进行中 Hull 全流程 → queue-busy 入口禁用（T5-03，S6 UI 数据源：queue.inFlight()）。**S3-record「check 占互斥槽待 S5 复核」空窗闭环义务随本波履行（B9）**：S3 check 占槽语义确认为契约行为，S5 全流程占槽同族，S5 实现时对 S3 Updater 无改动。
+**check/download/installAndRestart 全占槽 + 单次 acquire 连续持有至终态**——与 S3 Updater 同语义（实证：S3 `Updater.ts` check 自身 scope 内 acquire/release〔gamma 裁决〕，check 实占槽；「查询不占槽」为 S5 初稿引据错误，修正）。冲突行为：dsh 升级进行中 Hull 全流程 → queue-busy 入口禁用（T5-03，S6 UI 数据源：queue.inFlight()）。**S3-m1-record「check 占互斥槽待 S5 复核」空窗闭环义务随本波履行（B9）**：S3 check 占槽语义确认为契约行为，S5 全流程占槽同族，S5 实现时对 S3 Updater 无改动。
 
 ### D5 退出编排交互（重点）
 
@@ -108,7 +108,7 @@ settings.json 扩展 `autoCheckHull`（默认 true）+ **同批扩展 `autoCheck
 - **electron-builder.yml `extraResources`**：node 归档（`vendor/node-*`）打进产物
 - **runtime seam**：复用 S2 `InstallFlow.extractNode` 注入点（打包产物内嵌 → 解压 `<userData>/node/`；dev 无内嵌 → PATH 兜底）
 - **T2-06 关联验收注记**：捆绑 Node 版本检查（fetch-node 锁定小版本）随 S5 打包产物验收一并落地
-- 一次落地（避免两处打包配置漂移）；S2 打包专项取消（S2-record C3 关闭，见 Tier 2）
+- 一次落地（避免两处打包配置漂移）；S2 打包专项取消（S2-m1-record C3 关闭，见 Tier 2）
 
 ### D8b DismissStore 双键（B7）
 
@@ -270,7 +270,7 @@ dsh-hull-desktop/
 - S2 extractNode 打包衔接：**D8 定案 a**（S5 内一次落地：electron-builder.yml extraResources + runtime seam 复用 S2 extractNode 注入点）；fetch-node 产物（vendor/node-*）内嵌进打包产物；T2-06 关联验收注记
 - S1 退出编排交互：D5 quitAndInstallMode 衔接——S1 双 flag 零改动（before-quit 首行新增自更新放行分支），回归面 = S1 退出测试全量
 - S4 schema 扩展续：autoCheckDsh/autoCheckHull 同批（D7，schemaVersion 定 3）——S4 契约修订 + SettingsProvider 代码扩展（实现归 S5 波）
-- S3 DismissStore 分通道键（D8b）——S3 调用点传 'dsh'（代码归实现波）；S3-record「check 占槽待复核」空窗闭环义务随本波履行（B2/B9）
+- S3 DismissStore 分通道键（D8b）——S3 调用点传 'dsh'（代码归实现波）；S3-m1-record「check 占槽待复核」空窗闭环义务随本波履行（B2/B9）
 
 **非偏离的契约忠实点**：6 态迁移表（契约 §状态转换）；Q-012 无「稍后重启」（downloading→restarting 自动，延迟由「稍后再说」覆盖）；Q-008 当日不重复（DismissStore 复用，dsh/Hull 共享当日去重注记）；UpgradeQueue 互斥（installAndRestart 前置 acquire，T5-03）；Gatekeeper 预防性提示（D6 dialog + README）；CI release.yml（#5，GH_TOKEN 已配置）；HULL_UPDATE_ERRORS 五码；HullUpdateStatus schema（含 restart-prompt 枚举值——状态机 6 态不迁移到它，注记）。
 

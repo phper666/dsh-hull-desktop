@@ -1,7 +1,8 @@
 # S5 经验沉淀：全占槽设计的放弃路径 与 GitHub Actions mutable tag 供应链风险
 
 > 三硬标准：可复用 / 非显而易见 / 有代价（均通过）
-> 来源：S5 Hull 自更新（dsh-hull-desktop）实现与评审期
+> 来源-出生：S5 Hull 自更新（dsh-hull-desktop）· 来源 PRD：2026-08-14-m1-prd.md
+> 来源-引用：实现与评审期
 
 ---
 

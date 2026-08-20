@@ -1,0 +1,1676 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hull · 任务看板原型 M2</title>
+<style>
+  :root {
+    --bg: #1e2430;
+    --nav: #171c26;
+    --nav-border: #2a3342;
+    --panel: #202a3a;
+    --panel-border: #2f3a4d;
+    --text: #e8ecf3;
+    --muted: #9aa5b5;
+    --dim: #6b7688;
+    --accent: #2e8bf5;
+    --accent-hover: #3f97fb;
+    --accent-weak: rgba(46, 139, 245, 0.12);
+    --danger: #e06565;
+    --warn: #f5a623;
+    --success: #40c463;
+    --ai: #a56af7;
+    --ai-weak: rgba(165, 106, 247, 0.14);
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+    --radius: 10px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text);
+    display: flex;
+  }
+
+  /* 左侧导航：与 shell.html 完全一致 */
+  #nav {
+    width: 200px; flex-shrink: 0; background: var(--nav); border-right: 1px solid var(--nav-border);
+    display: flex; flex-direction: column;
+  }
+  #nav-title { padding: 16px 16px 10px; font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
+  #nav-items { flex: 1; padding: 4px 8px; overflow-y: auto; }
+  .nav-item {
+    display: block; width: 100%; text-align: left; padding: 9px 12px; margin-bottom: 2px;
+    border-radius: 8px; border: none; background: transparent; color: #c6d0dd;
+    font-size: 13px; cursor: pointer;
+  }
+  .nav-item:hover { background: #2a3342; }
+  .nav-item.active { background: var(--accent); color: #fff; }
+  .nav-item .tag { float: right; font-size: 10px; color: #6b7688; margin-top: 2px; }
+  .nav-item.active .tag { color: rgba(255,255,255,0.75); }
+  #nav-status {
+    padding: 12px 16px; border-top: 1px solid var(--nav-border); font-size: 12px; color: var(--muted);
+  }
+  #nav-status .row { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+  #nav-status .row:last-child { margin-bottom: 0; }
+  #nav-status .val { color: #c6d0dd; text-align: right; word-break: break-all; }
+
+  /* 右侧内容区 */
+  #content { flex: 1; display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; position: relative; }
+
+  /* 原型说明面板 */
+  .info-panel {
+    background: var(--panel); border-bottom: 1px solid var(--panel-border);
+    padding: 14px 18px; font-size: 12.5px; line-height: 1.7;
+  }
+  .info-panel.collapsed .info-body { display: none; }
+  .info-body { max-height: 38vh; overflow-y: auto; }
+  .info-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .info-header h2 { font-size: 13px; font-weight: 600; }
+  .info-toggle {
+    background: transparent; border: none; color: var(--muted); cursor: pointer; font-size: 12px;
+  }
+  .info-toggle:hover { color: var(--text); }
+  .info-body p { color: var(--muted); margin-bottom: 8px; }
+  .info-body ul { color: var(--muted); padding-left: 18px; margin-bottom: 8px; }
+  .info-body li { margin-bottom: 4px; }
+  .route-chip {
+    display: inline-block; background: var(--accent-weak); color: var(--accent);
+    border-radius: 6px; padding: 1px 8px; font-weight: 600; margin-right: 6px;
+  }
+  .legend { display: flex; gap: 14px; margin-top: 6px; flex-wrap: wrap; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+  /* 顶部工具栏 */
+  .toolbar {
+    display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--panel-border);
+    background: var(--bg); flex-wrap: wrap;
+  }
+  .toolbar h1 { font-size: 16px; font-weight: 600; margin-right: auto; display: flex; align-items: center; gap: 10px; }
+  .toolbar .filter {
+    background: var(--panel); border: 1px solid var(--panel-border); color: var(--text);
+    border-radius: 8px; padding: 7px 10px; font-size: 12.5px; min-width: 120px;
+  }
+  .toolbar .filter::placeholder { color: var(--dim); }
+  .toolbar select.filter { cursor: pointer; }
+  .toolbar button {
+    border: none; border-radius: 8px; padding: 7px 14px; font-size: 12.5px; cursor: pointer;
+    background: var(--accent); color: #fff;
+  }
+  .toolbar button:hover { background: var(--accent-hover); }
+  .toolbar button.ghost { background: transparent; border: 1px solid var(--panel-border); color: var(--muted); }
+  .toolbar button.ghost:hover { background: var(--panel); color: var(--text); }
+
+  /* 看板 */
+  #kanban-view { display: flex; flex-direction: column; height: 100%; }
+  .board-wrap { flex: 1; overflow-x: auto; overflow-y: hidden; padding: 14px 18px; min-height: 0; }
+  .board {
+    display: flex; gap: 14px; min-width: max-content; height: 100%;
+  }
+  .col {
+    width: 300px; min-width: 300px; max-height: 100%;
+    background: rgba(23, 28, 38, 0.55); border: 1px solid var(--panel-border); border-radius: var(--radius);
+    display: flex; flex-direction: column;
+    border-top: 3px solid var(--panel-border);
+  }
+  .col-header {
+    display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 10px;
+    border-bottom: 1px solid var(--panel-border); font-size: 12.5px; font-weight: 600;
+  }
+  .col-header .col-name { cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+  .col-header .col-name:hover { background: var(--panel-border); }
+  .col-header .count {
+    background: var(--panel-border); color: var(--muted); border-radius: 999px;
+    padding: 1px 7px; font-size: 11px; font-weight: 500;
+  }
+  .col-body {
+    flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; min-height: 0;
+  }
+  .col-body.drag-over { background: rgba(46, 139, 245, 0.08); }
+
+  /* 优先级/状态徽标 */
+  .p-badge, .s-badge {
+    font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px; display: inline-block;
+  }
+  .p-badge.P0 { background: rgba(224, 101, 101, 0.16); color: #ff8a8a; }
+  .p-badge.P1 { background: rgba(245, 166, 35, 0.16); color: #ffbd47; }
+  .p-badge.P2 { background: rgba(46, 139, 245, 0.16); color: var(--accent); }
+  .scope-badge {
+    position: absolute; top: -6px; right: -6px; font-size: 9px; font-weight: 700;
+    padding: 2px 6px; border-radius: 999px; border: 1px solid var(--panel-border);
+  }
+  .scope-badge.P0 { background: rgba(224,101,101,0.9); color: #fff; }
+  .scope-badge.P1 { background: rgba(245,166,35,0.9); color: #1a1a1a; }
+  .scope-badge.P2 { background: var(--dim); color: #fff; }
+
+  /* 任务卡片 */
+  .card {
+    position: relative; background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: var(--radius); padding: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+    cursor: grab; display: flex; flex-direction: column; gap: 8px; transition: transform .12s, box-shadow .12s;
+  }
+  .card:hover { border-color: #3d4b61; box-shadow: 0 4px 14px rgba(0,0,0,0.28); }
+  .card:active { cursor: grabbing; }
+  .card.dragging { opacity: 0.5; transform: scale(0.98); }
+  .card { border-left: 4px solid var(--panel-border); }
+  .card.P0 { border-left-color: rgba(224,101,101,0.9); }
+  .card.P1 { border-left-color: rgba(245,166,35,0.9); }
+  .card.P2 { border-left-color: var(--accent); }
+  .card-title { font-size: 13px; font-weight: 600; line-height: 1.45; }
+  .card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .tag {
+    font-size: 10px; color: var(--muted); background: var(--panel-border);
+    border-radius: 6px; padding: 2px 6px;
+  }
+  .parent-ref {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10px; color: var(--accent); background: var(--accent-weak);
+    border-radius: 6px; padding: 2px 7px; cursor: pointer;
+  }
+  .parent-ref:hover { color: var(--accent-hover); }
+  .child-col {
+    font-size: 10px; color: var(--dim); margin-left: auto;
+  }
+  .card-footer {
+    display: flex; align-items: center; justify-content: space-between; margin-top: 2px;
+  }
+  .due { font-size: 11px; color: var(--dim); display: flex; align-items: center; gap: 4px; }
+  .avatar {
+    width: 20px; height: 20px; border-radius: 50%; background: var(--accent-weak); color: var(--accent);
+    font-size: 10px; font-weight: 700; display: grid; place-items: center;
+  }
+  .card-actions { display: flex; align-items: center; gap: 4px; }
+  .card-actions button {
+    background: transparent; border: 1px solid var(--panel-border); color: var(--muted);
+    border-radius: 6px; padding: 3px 7px; font-size: 11px; cursor: pointer;
+  }
+  .card-actions button:hover { background: var(--panel-border); color: var(--text); }
+  .card-actions button.agent {
+    border-color: rgba(245,166,35,0.35); color: var(--warn);
+  }
+  .card-actions button.agent:hover { background: rgba(245,166,35,0.12); }
+  .card-actions button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .progress-wrap { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
+  .progress-bar {
+    flex: 1; height: 6px; background: var(--panel-border); border-radius: 3px; overflow: hidden;
+  }
+  .progress-fill { height: 100%; background: var(--success); border-radius: 3px; transition: width .2s; }
+  .expand-hint { font-size: 11px; color: var(--dim); cursor: pointer; }
+  .expand-hint:hover { color: var(--accent); }
+  .child-list {
+    background: rgba(0,0,0,0.12); border-radius: 8px; padding: 8px 10px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .child-list-row {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11.5px; color: #c6d0dd; cursor: pointer;
+  }
+  .child-list-row:hover { color: var(--accent); }
+  .child-list-row .child-col { color: var(--dim); font-size: 10.5px; }
+
+  .exec-status {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; padding: 2px 7px;
+    border-radius: 999px; background: var(--panel-border); color: var(--muted);
+  }
+  .exec-status.queued { background: rgba(245,166,35,0.14); color: var(--warn); }
+  .exec-status.running { background: rgba(46,139,245,0.14); color: var(--accent); }
+  .exec-status.paused { background: rgba(165,106,247,0.14); color: var(--ai); }
+  .exec-status.success { background: rgba(64,196,99,0.14); color: var(--success); }
+  .exec-status.failed { background: rgba(224,101,101,0.14); color: var(--danger); }
+  .exec-status.cancelled { background: rgba(107,118,136,0.14); color: var(--dim); }
+  .exec-status.interrupted { background: rgba(245,166,35,0.14); color: var(--warn); }
+  .mode-badge {
+    font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--panel-border); color: var(--muted);
+  }
+  .mode-badge.auto { background: rgba(46,139,245,0.14); color: var(--accent); }
+  .mode-badge.manual { background: rgba(245,166,35,0.14); color: var(--warn); }
+  .ai-badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 10px; padding: 1px 6px; border-radius: 999px;
+    background: var(--ai-weak); color: var(--ai); font-weight: 600;
+  }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pulse { animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+
+  /* 弹窗 */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(10,14,20,0.72);
+    display: none; align-items: center; justify-content: center; z-index: 60;
+  }
+  .overlay.show { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--panel-border); border-radius: 14px;
+    width: 520px; max-width: 92vw; max-height: 90vh; overflow-y: auto;
+    box-shadow: var(--shadow); padding: 18px;
+  }
+  .modal.wide { width: 580px; }
+  .modal.ac-edit { width: 500px; }
+  .modal h3 { font-size: 14px; margin-bottom: 14px; }
+  .ac-warning {
+    background: rgba(245,166,35,0.1); border: 1px solid rgba(245,166,35,0.35);
+    border-radius: 8px; padding: 10px 12px; font-size: 12px; color: var(--warn); margin-bottom: 12px;
+  }
+  .ac-diff {
+    background: var(--bg); border: 1px solid var(--panel-border); border-radius: 8px;
+    padding: 10px; font-size: 12px; color: #c6d0dd; margin-top: 8px;
+  }
+  .ac-diff .diff-row { display: flex; gap: 8px; margin-bottom: 4px; }
+  .ac-diff .diff-row span { color: var(--muted); min-width: 60px; }
+  .ac-options {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;
+  }
+  .ac-options button {
+    border-radius: 8px; padding: 6px 12px; font-size: 12px; cursor: pointer;
+    border: 1px solid var(--panel-border); background: var(--bg); color: var(--text);
+  }
+  .ac-options button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .ac-options button.danger { border-color: rgba(224,101,101,0.35); color: var(--danger); }
+  .ac-options button:hover { background: var(--panel-border); }
+  .ac-options button.primary:hover { background: var(--accent-hover); }
+  .form-row { margin-bottom: 12px; }
+  .form-row label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  .form-row input, .form-row textarea, .form-row select {
+    width: 100%; background: var(--bg); border: 1px solid var(--panel-border); color: var(--text);
+    border-radius: 8px; padding: 8px 10px; font-size: 13px;
+  }
+  .form-row textarea { min-height: 80px; resize: vertical; }
+  .form-row input:focus, .form-row textarea:focus, .form-row select:focus { outline: none; border-color: var(--accent); }
+  .form-row input.error, .form-row textarea.error, .form-row select.error { border-color: var(--danger); }
+  .form-row.inline { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-row.inline.three { grid-template-columns: 1fr 1fr 1fr; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+  .modal-actions button { border-radius: 8px; padding: 7px 14px; font-size: 12.5px; cursor: pointer; border: none; }
+  .modal-actions .primary { background: var(--accent); color: #fff; }
+  .modal-actions .primary:hover { background: var(--accent-hover); }
+  .modal-actions .danger { background: transparent; color: var(--danger); border: 1px solid rgba(224,101,101,0.35); }
+  .modal-actions .danger:hover { background: rgba(224,101,101,0.1); }
+  .modal-actions .ghost { background: transparent; border: 1px solid var(--panel-border); color: var(--muted); }
+  .modal-actions .ghost:hover { color: var(--text); background: var(--bg); }
+
+  .mode-switch { display: inline-flex; background: var(--bg); border: 1px solid var(--panel-border); border-radius: 8px; overflow: hidden; }
+  .mode-switch button {
+    border: none; background: transparent; color: var(--muted); padding: 6px 14px; font-size: 12.5px; cursor: pointer;
+  }
+  .mode-switch button.active { background: var(--accent); color: #fff; }
+
+  /* 详情侧板 */
+  .drawer {
+    position: fixed; top: 0; right: 0; width: 460px; max-width: 90vw; height: 100%;
+    background: var(--panel); border-left: 1px solid var(--panel-border); box-shadow: var(--shadow);
+    z-index: 55; transform: translateX(100%); transition: transform .2s ease; display: flex; flex-direction: column;
+  }
+  .drawer.open { transform: translateX(0); }
+  .drawer-header {
+    display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid var(--panel-border);
+  }
+  .drawer-header h3 { font-size: 14px; }
+  .drawer-body { flex: 1; overflow-y: auto; padding: 16px; }
+  .drawer-body .section { margin-bottom: 18px; }
+  .drawer-body .section h4 { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .drawer-body .section p { font-size: 13px; line-height: 1.7; color: #c6d0dd; }
+  .drawer-body .section p.breadcrumb { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .drawer-body .section p.breadcrumb span { color: var(--accent); cursor: pointer; }
+  .drawer-body .section p.breadcrumb span:hover { text-decoration: underline; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--panel-border); margin-bottom: 12px; }
+  .tabs button {
+    background: transparent; border: none; color: var(--muted); padding: 8px 12px; font-size: 12.5px; cursor: pointer;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .flow-bar {
+    display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 10px;
+  }
+  .flow-step {
+    display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--dim);
+    background: var(--bg); border: 1px solid var(--panel-border); border-radius: 6px; padding: 4px 8px;
+  }
+  .flow-step.active { border-color: var(--accent); color: var(--accent); background: var(--accent-weak); }
+  .flow-step.done { border-color: var(--success); color: var(--success); background: rgba(64,196,99,0.08); }
+  .flow-step.cancel { border-color: var(--dim); color: var(--dim); }
+  .flow-arrow { color: var(--dim); font-size: 10px; }
+
+  .timeline { display: flex; flex-direction: column; gap: 10px; }
+  .timeline-item {
+    position: relative; padding-left: 18px; border-left: 2px solid var(--panel-border);
+  }
+  .timeline-item::before {
+    content: ''; position: absolute; left: -5px; top: 3px; width: 8px; height: 8px; border-radius: 50%; background: var(--dim);
+  }
+  .timeline-item.comment::before { background: var(--accent); }
+  .timeline-item.comment.agent::before { background: var(--ai); }
+  .timeline-item.execution.queued::before { background: var(--warn); }
+  .timeline-item.execution.running::before { background: var(--accent); }
+  .timeline-item.execution.success::before { background: var(--success); }
+  .timeline-item.execution.failed::before { background: var(--danger); }
+  .timeline-item.status::before { background: var(--dim); }
+  .timeline-item.system::before { background: var(--muted); }
+  .timeline-item .time { font-size: 11px; color: var(--dim); }
+  .timeline-item .note { font-size: 12.5px; color: var(--text); margin-top: 2px; white-space: pre-wrap; }
+  .timeline-item .author { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .timeline-item .source { margin-top: 3px; }
+  .comment-box {
+    display: flex; gap: 8px; margin-top: 10px;
+  }
+  .comment-box textarea {
+    flex: 1; background: var(--bg); border: 1px solid var(--panel-border); color: var(--text);
+    border-radius: 8px; padding: 8px; font-size: 12.5px; resize: vertical; min-height: 50px;
+  }
+  .comment-box button {
+    background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 0 14px; cursor: pointer; font-size: 12px;
+  }
+  .intervention-bar {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;
+  }
+  .intervention-bar button {
+    border-radius: 8px; padding: 6px 12px; font-size: 12px; cursor: pointer; border: 1px solid var(--panel-border); background: var(--bg); color: var(--text);
+  }
+  .intervention-bar button:hover { background: var(--panel-border); }
+  .intervention-bar button.danger { border-color: rgba(224,101,101,0.35); color: var(--danger); }
+  .intervention-bar button.danger:hover { background: rgba(224,101,101,0.1); }
+  .attachment-row {
+    display: flex; align-items: center; gap: 10px; margin-top: 8px;
+  }
+  .attachment-row button {
+    background: var(--bg); border: 1px solid var(--panel-border); color: var(--muted);
+    border-radius: 8px; padding: 5px 10px; font-size: 12px; cursor: pointer;
+  }
+  .attachment-row button:hover { color: var(--text); }
+  .attachment-row .usage { font-size: 12px; color: var(--dim); }
+  .drawer-actions { padding: 12px 16px; border-top: 1px solid var(--panel-border); display: flex; gap: 10px; }
+  .drawer-actions button { flex: 1; border-radius: 8px; padding: 8px; font-size: 12.5px; cursor: pointer; border: none; }
+
+  /* 列管理 */
+  .col-list { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; }
+  .col-list-item {
+    display: flex; align-items: center; gap: 8px; background: var(--bg); border: 1px solid var(--panel-border);
+    border-radius: 8px; padding: 8px 10px;
+  }
+  .col-list-item input[type="text"] {
+    flex: 1; background: transparent; border: none; color: var(--text); font-size: 13px; padding: 4px;
+  }
+  .col-list-item input[type="text"]:focus { outline: none; background: var(--panel); border-radius: 4px; }
+  .col-list-item input[type="color"] {
+    width: 28px; height: 28px; border: none; background: none; cursor: pointer;
+  }
+  .col-list-item .col-actions { display: flex; gap: 4px; }
+  .col-list-item .col-actions button {
+    background: transparent; border: 1px solid var(--panel-border); color: var(--muted);
+    border-radius: 6px; padding: 3px 8px; font-size: 11px; cursor: pointer;
+  }
+  .col-list-item .col-actions button:hover { background: var(--panel-border); color: var(--text); }
+  .col-list-item .col-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .col-list-item .locked { font-size: 10px; color: var(--dim); }
+
+  /* 占位视图（模拟内容区切换） */
+  .placeholder-view {
+    flex: 1; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 12px; color: var(--muted); min-height: 100vh;
+  }
+  .placeholder-view.show { display: flex; }
+
+  /* 滚动条 */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #3d4b61; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #4d5d75; }
+</style>
+</head>
+<body>
+
+<nav id="nav" aria-label="Hull 导航">
+  <div id="nav-title">Hull</div>
+  <div id="nav-items">
+    <button class="nav-item" data-view="web">dsh web</button>
+    <button class="nav-item" data-view="settings">设置</button>
+    <button class="nav-item" data-view="upgrade">升级</button>
+    <button class="nav-item active" data-view="kanban">任务看板<span class="tag">M2</span></button>
+  </div>
+  <div id="nav-status">
+    <div class="row"><span>dsh 状态</span><span class="val">运行中</span></div>
+    <div class="row"><span>版本</span><span class="val">0.2.0-m2</span></div>
+    <div class="row"><span>升级</span><span class="val">无</span></div>
+  </div>
+</nav>
+
+<main id="content">
+  <!-- 看板视图 -->
+  <div class="view" id="kanban-view">
+    <!-- 原型说明面板 -->
+    <section class="info-panel" id="info-panel">
+      <div class="info-header">
+        <h2>原型说明 · M2 任务看板</h2>
+        <button class="info-toggle" onclick="toggleInfo()">收起</button>
+      </div>
+      <div class="info-body">
+        <p><span class="route-chip">路线决策：C 混合</span>
+          看板 UI、任务数据、状态流在 Hull 壳内维护；agent 实际执行通过 dsh 官方扩展点/命令通道接入。
+          数据存 <code>userData/boards.json</code>（JSON 单文件，可迁移）。多设备同步 M2 不做，导出/导入过渡。扩展点插件随壳分发。</p>
+        <p><b>执行通道</b>：ExecutionProvider 抽象层，默认 ACP 实现（壳 ↔ dsh headless agent：JSON-RPC stdio；newSession + prompt 提交；session/cancel 干预；仅已提交文本回写）。独立插件形态时换为进程内 <code>ctx.agents</code>。ACP 执行中提示「ACP headless 执行中…」。</p>
+        <p><b>来源模型</b>：timeline.source { type, agentId, provider }，预留多 agent 平台接入；示例 agent 名 <code>dsh·research</code> 带徽标显示。</p>
+        <p><b>执行状态机</b>：idle → queued → running → (paused ↔ running / interrupted) → failed/verify → done；cancelled 回到执行发起前状态，interrupted 保留在 running 前状态并允许重执行。</p>
+        <ul>
+          <li><b>颜色图例</b>：卡片左侧色条 = 优先级（P0 红 / P1 琥珀 / P2 蓝 / 无灰）；列头色带 = 状态列自定义颜色；徽标颜色 = 优先级/执行状态。</li>
+          <li><b>子任务跨列</b>：子卡放在自己状态列独立显示（与普通卡同视觉），常驻父引用徽标；父卡进度条跨列聚合，展开列表显示每子卡当前列名。</li>
+          <li><b>并行上限</b>：<code>maxParallelTasks</code> 默认 5，设置页可配；只有显式声明无依赖（dependencies 为空）的子任务才可并行，有依赖的串行。</li>
+          <li><b>执行模式</b>：自动模式须填「做什么/期望结果/如何验证/上下文（可选）」；手动模式隐藏三字段，提供 AI 结果输入区。</li>
+          <li><b>人工干预</b>：详情侧板「执行流程」步骤条 + 动态干预按钮；running→暂停/取消/编辑 AC，paused→恢复/取消，failed→重试，interrupted→以新 AC 重新执行/手动完成/继续原执行，成功/空闲→手动完成/改状态。</li>
+          <li><b>执行中修订 AC</b>：running 状态可编辑验收标准；提交后执行 interrupted，timeline 记录 AC 变更 diff；可选择以新 AC 重执行、手动完成或继续原执行（不推荐）。</li>
+          <li><b>自定义状态列</b>：顶部「管理列」可增删改列（改名/排序/颜色），默认 6 态模板。</li>
+          <li><b>时间线</b>：评论 + 执行记录统一流；agent 来源带 AI 徽标，user 评论无徽标，execution 恒显 AI 标识。</li>
+          <li><b>附件</b>：上限在设置页可配（默认 10MB），删除卡片级联清理评论与附件。</li>
+          <li><b>拖拽跨列</b>：直接生效并写入 timeline（user 来源）；拖到 Done 时若任务未执行完成或父卡子任务未全部完成会弹窗确认；执行中拖到其它列不终止执行，agent 完成后标注「执行完成，列由人工指定」。</li>
+          <li>点击卡片展开详情侧板，查看描述、子任务、时间线与干预动作。</li>
+          <li>使用顶部搜索/筛选快速定位任务；点击「+ 新建任务」创建卡片。</li>
+          <li>点击「agent」按钮模拟交给 agent 执行：排队中 → 执行中 → 完成/失败，记录写入时间线。</li>
+        </ul>
+        <div class="legend">
+          <span><span class="p-badge P0">P0</span> 核心已实现</span>
+          <span><span class="p-badge P1">P1</span> 已做简化交互</span>
+          <span><span class="p-badge P2">P2</span> 仅标注，不实现</span>
+        </div>
+        <p style="margin-top:8px">P2 待办：拖拽优化（跨列动画、触摸支持）、多看板空间、导入导出 JSON、多设备同步、无依赖子任务并行高级调度。</p>
+      </div>
+    </section>
+
+    <div class="toolbar">
+      <h1>任务看板 <span class="p-badge P0">P0</span></h1>
+      <input class="filter" id="search" type="text" placeholder="搜索标题 / 标签 / 负责人…">
+      <select class="filter" id="filter-priority">
+        <option value="">全部优先级</option>
+        <option value="P0">P0</option>
+        <option value="P1">P1</option>
+        <option value="P2">P2</option>
+      </select>
+      <select class="filter" id="filter-status">
+        <option value="">全部状态</option>
+      </select>
+      <input class="filter" id="filter-tag" type="text" placeholder="标签筛选">
+      <button class="ghost" onclick="clearFilters()">清除</button>
+      <button class="ghost" onclick="openColumnManager()">管理列</button>
+      <button onclick="openModal()">+ 新建任务</button>
+    </div>
+    <div class="board-wrap" id="board-wrap">
+      <div class="board" id="board"></div>
+    </div>
+  </div>
+
+  <!-- 占位视图：dsh web / 设置 / 升级 -->
+  <div class="placeholder-view" id="placeholder-view">
+    <div style="font-size:32px">&#128736;</div>
+    <p id="placeholder-text">该入口为壳级占位，实际功能由主进程驱动</p>
+  </div>
+
+  <!-- 新建/编辑弹窗 -->
+  <div class="overlay" id="modal-overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal" role="dialog" aria-modal="true">
+      <h3 id="modal-title">新建任务 <span class="p-badge P0">P0</span></h3>
+      <form id="task-form" onsubmit="event.preventDefault(); saveTask();">
+        <input type="hidden" id="task-id">
+        <input type="hidden" id="task-parent-id">
+        <div class="form-row">
+          <label for="task-title">标题</label>
+          <input id="task-title" required maxlength="120">
+        </div>
+        <div class="form-row">
+          <label for="task-desc">描述</label>
+          <textarea id="task-desc" placeholder="任务背景、验收标准…"></textarea>
+        </div>
+        <div class="form-row">
+          <label>执行模式 <span class="mode-badge auto" id="mode-display">自动</span></label>
+          <div class="mode-switch">
+            <button type="button" id="mode-auto" class="active" onclick="setEditMode('auto')">自动</button>
+            <button type="button" id="mode-manual" onclick="setEditMode('manual')">手动</button>
+          </div>
+        </div>
+        <div id="auto-fields">
+          <div class="form-row">
+            <label for="task-what">做什么 <span style="color:var(--danger)">*</span></label>
+            <textarea id="task-what" placeholder="具体行动步骤"></textarea>
+          </div>
+          <div class="form-row">
+            <label for="task-expected">期望结果 <span style="color:var(--danger)">*</span></label>
+            <textarea id="task-expected" placeholder="完成时应有的输出或状态"></textarea>
+          </div>
+          <div class="form-row">
+            <label for="task-verify">如何验证 <span style="color:var(--danger)">*</span></label>
+            <textarea id="task-verify" placeholder="验收标准，可逐条列出"></textarea>
+          </div>
+          <div class="form-row">
+            <label for="task-context">上下文（可选）</label>
+            <textarea id="task-context" placeholder="仓库路径 / 文件范围 / 链接"></textarea>
+          </div>
+        </div>
+        <div class="form-row" id="manual-fields" style="display:none">
+          <label for="task-ai-result">AI 结果 <span style="color:var(--warn)">手动模式</span></label>
+          <textarea id="task-ai-result" placeholder="粘贴 agent 执行结果或手动记录"></textarea>
+        </div>
+        <div class="form-row">
+          <label for="task-deps">依赖子任务 ID（逗号分隔，留空=无依赖可并行）</label>
+          <input id="task-deps" placeholder="t-child-1, t-child-2">
+        </div>
+        <div class="form-row inline three">
+          <div>
+            <label for="task-priority">优先级</label>
+            <select id="task-priority">
+              <option value="P0">P0</option>
+              <option value="P1">P1</option>
+              <option value="P2">P2</option>
+            </select>
+          </div>
+          <div>
+            <label for="task-status">状态</label>
+            <select id="task-status"></select>
+          </div>
+          <div>
+            <label for="task-due">截止日期</label>
+            <input type="date" id="task-due">
+          </div>
+        </div>
+        <div class="form-row inline">
+          <div>
+            <label for="task-assignee">负责人</label>
+            <input id="task-assignee" placeholder="姓名" maxlength="20">
+          </div>
+          <div>
+            <label for="task-tags">标签（逗号分隔）</label>
+            <input id="task-tags" placeholder="M2, 数据, 扩展点">
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="danger" id="btn-delete" onclick="deleteTask()">删除</button>
+          <button type="button" class="ghost" onclick="closeModal()">取消</button>
+          <button type="submit" class="primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 列管理弹窗 -->
+  <div class="overlay" id="col-overlay" onclick="if(event.target===this)closeColumnManager()">
+    <div class="modal wide" role="dialog" aria-modal="true">
+      <h3>管理状态列 <span class="p-badge P0">P0</span></h3>
+      <div class="form-row">
+        <label>默认 6 态模板：Backlog → Todo → In Progress → Verify → Done → Blocked</label>
+        <div class="col-list" id="col-list"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="ghost" onclick="resetColumns()">重置默认</button>
+        <button type="button" class="ghost" onclick="addCustomColumn()">+ 新增列</button>
+        <button type="button" class="ghost" onclick="closeColumnManager()">取消</button>
+        <button type="button" class="primary" onclick="saveColumns()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AC 修订弹窗 -->
+  <div class="overlay" id="ac-overlay" onclick="if(event.target===this)closeAcModal()">
+    <div class="modal ac-edit" role="dialog" aria-modal="true">
+      <h3>编辑验收标准 <span class="p-badge P1">P1</span></h3>
+      <div class="ac-warning">&#9888; 修改验收标准将中断当前执行。旧 partial 结果会被标注为「已废弃（AC 修订）」。</div>
+      <input type="hidden" id="ac-task-id">
+      <div class="form-row">
+        <label for="ac-what">做什么 <span style="color:var(--danger)">*</span></label>
+        <textarea id="ac-what" placeholder="具体行动步骤"></textarea>
+      </div>
+      <div class="form-row">
+        <label for="ac-expected">期望结果 <span style="color:var(--danger)">*</span></label>
+        <textarea id="ac-expected" placeholder="完成时应有的输出或状态"></textarea>
+      </div>
+      <div class="form-row">
+        <label for="ac-verify">如何验证 <span style="color:var(--danger)">*</span></label>
+        <textarea id="ac-verify" placeholder="验收标准，可逐条列出"></textarea>
+      </div>
+      <div class="form-row">
+        <label for="ac-context">上下文（可选）</label>
+        <textarea id="ac-context" placeholder="仓库路径 / 文件范围 / 链接"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="ghost" onclick="closeAcModal()">取消</button>
+        <button type="button" class="primary" onclick="submitAcRevision()">提交修订</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 详情侧板 -->
+  <div class="drawer" id="drawer" onclick="if(event.target===this)closeDrawer()">
+    <div class="drawer-header">
+      <h3>任务详情 <span class="p-badge" id="drawer-badge">P1</span></h3>
+      <button class="ghost" style="padding:4px 10px" onclick="closeDrawer()">关闭</button>
+    </div>
+    <div class="drawer-body" id="drawer-body"></div>
+    <div class="drawer-actions" id="drawer-actions">
+      <button class="primary" onclick="editCurrentTask()">编辑</button>
+      <button class="ghost" style="border:1px solid rgba(245,166,35,0.35);color:var(--warn)" onclick="runAgentCurrent()">交给 agent</button>
+    </div>
+  </div>
+</main>
+
+<script>
+  /* ---------- 配置 ---------- */
+  const STORAGE_KEY = 'hull_m2_kanban_v4';
+  const COL_STORAGE_KEY = 'hull_m2_columns_v1';
+  const DEFAULT_COLUMNS = [
+    { key: 'backlog', label: 'Backlog', color: '#6b7688', template: true },
+    { key: 'todo', label: 'Todo', color: '#9aa5b5', template: true },
+    { key: 'inprogress', label: 'In Progress', color: '#2e8bf5', template: true },
+    { key: 'verify', label: 'Verify', color: '#f5a623', template: true },
+    { key: 'done', label: 'Done', color: '#40c463', template: true },
+    { key: 'blocked', label: 'Blocked', color: '#e06565', template: true },
+  ];
+  const PRIORITY_ORDER = { P0: 0, P1: 1, P2: 2 };
+  const ATTACHMENT_LIMIT_MB = 10;
+  const MAX_PARALLEL = 5;
+  const DEFAULT_AGENT = { agentId: 'dsh·research', provider: 'dsh' };
+
+  /* ---------- 数据 ---------- */
+  let tasks = [];
+  let columns = [];
+  let currentDetailId = null;
+  let editMode = 'auto';
+  const runningTimers = new Map();
+
+  function seedColumns() {
+    return JSON.parse(JSON.stringify(DEFAULT_COLUMNS));
+  }
+
+  function agentSource(agentId, provider) {
+    return { type: 'agent', agentId: agentId || DEFAULT_AGENT.agentId, provider: provider || DEFAULT_AGENT.provider };
+  }
+
+  function seed() {
+    const now = new Date().toISOString().slice(0, 10);
+    const t = now + ' ' + new Date().toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' });
+    return [
+      {
+        id: 't-parent', title: 'M2 看板核心功能落地', desc: '交付看板列管理、任务卡片、子任务拆解、执行模式与时间线。', status: 'inprogress', priority: 'P0', tags: ['M2','核心'], due: addDays(now, 14), assignee: '李雨', exec: 'idle', mode: 'auto',
+        what: '实现 Hull 壳内任务看板，包括列管理、任务 CRUD、子任务、执行模式、时间线。',
+        expected: '用户可在壳内完成规划、跟踪、执行闭环；数据落盘 userData。',
+        verify: '1) 6 态列可用；2) 子任务可拖拽；3) agent 执行结果回写时间线。',
+        context: '仓库 dsh-hull-desktop，主要文件在 src/renderer 与 docs/prototype。',
+        expanded: true,
+        timeline: [
+          { time: t, note: '任务立项，拆分子任务', type: 'comment', source: { type: 'user' }, author: '李雨' },
+          { time: t, note: '我已按 AC 把需求拆成 5 个子任务，建议先串行验证前 3 个，后 2 个无依赖可并行。', type: 'comment', source: agentSource('dsh·research'), author: 'dsh·research' },
+          { time: t, note: '状态变更：Backlog → In Progress', type: 'status', source: { type: 'system' } }
+        ]
+      },
+      { id: 't-child-1', parentId: 't-parent', title: '实现看板数据模型与 JSON 持久化', desc: '定义 Task、Column、Timeline 实体；设计 boards.json 持久化结构。', status: 'done', priority: 'P0', tags: ['M2','数据'], due: addDays(now, 7), assignee: '李雨', exec: 'success', mode: 'auto',
+        what: '设计 boards.json schema，实现原子写与加载。', expected: '数据可持久化、可迁移、损坏可重建。', verify: '重启后数据完整恢复。', context: 'src/main/kanban/store.ts', dependencies: [],
+        timeline: [{ time: t, note: 'ACP headless 执行成功：boards.json 写入验证通过', type: 'execution', source: agentSource('dsh·research'), exec: 'success' }] },
+      { id: 't-child-2', parentId: 't-parent', title: '接入 dsh 官方扩展点执行通道', desc: '通过官方扩展点调用 agent，接收执行结果并回写卡片状态。', status: 'inprogress', priority: 'P0', tags: ['M2','扩展点'], due: addDays(now, 5), assignee: 'Agent', exec: 'interrupted', mode: 'auto',
+        what: '注册 hull-kanban-executor 插件，打通壳 ↔ dsh 执行通道。', expected: '点击执行后 agent 在 dsh 内运行并回传结果。', verify: '执行记录写入时间线，状态正确更新。', context: 'dsh --patch 插件入口', dependencies: ['t-child-1'],
+        timeline: [
+          { time: t, note: '依赖 t-child-1 已完成，准备执行', type: 'status', source: { type: 'system' } },
+          { time: t, note: 'ACP headless 执行中… [已废弃（AC 修订）]', type: 'execution', source: agentSource('dsh·research'), exec: 'running' },
+          { time: t, note: 'AC 修订：\n做什么："注册 hull-kanban-executor 插件" → "注册 hull-kanban-executor 插件并补充错误重试"\n期望结果："点击执行后 agent 在 dsh 内运行并回传结果" → "agent 执行失败时自动重试 1 次并回传结果"\n如何验证："执行记录写入时间线，状态正确更新" → "时间线包含重试记录与最终状态"\n上下文："dsh --patch 插件入口" → "dsh --patch 插件入口 + ACP 错误码文档"', type: 'system', source: { type: 'system' } }
+        ] },
+      { id: 't-child-3', parentId: 't-parent', title: '设计任务状态机与自定义列管理', desc: '梳理 6 态流转，支持列改名/排序/颜色/删除。', status: 'blocked', priority: 'P1', tags: ['设计'], due: addDays(now, 3), assignee: '李雨', exec: 'idle', mode: 'auto',
+        what: '梳理状态机并支持列管理。', expected: '列可增删改，Blocked 可进可出。', verify: '列管理弹窗操作后持久化。', context: 'docs/prd 状态定义', dependencies: ['t-child-2'],
+        timeline: [
+          { time: t, note: '状态变更：In Progress → Blocked', type: 'status', source: { type: 'system' } },
+          { time: t, note: '这里阻塞了，等待产品确认列权限规则。', type: 'comment', source: { type: 'user' }, author: '李雨' }
+        ] },
+      { id: 't-child-4', parentId: 't-parent', title: '壳内导航入口激活', desc: 'shell.html 看板占位激活，点击切换右侧为看板视图。', status: 'done', priority: 'P1', tags: ['UI'], due: addDays(now, -2), assignee: '李雨', exec: 'success', mode: 'manual',
+        aiResult: '导航高亮与视图切换已验证，官方 WebContentsView 与看板视图互斥显示。', dependencies: [],
+        timeline: [
+          { time: t, note: '手动记录：导航激活验证通过', type: 'execution', source: agentSource('dsh·coder'), exec: 'success' },
+          { time: t, note: 'UI 走查通过。', type: 'comment', source: { type: 'user' }, author: '李雨' }
+        ] },
+      { id: 't-child-5', parentId: 't-parent', title: '子任务拖拽与父任务聚合', desc: '子任务独立拖拽，父卡片显示进度条，状态由子任务聚合。', status: 'todo', priority: 'P1', tags: ['交互'], due: addDays(now, 6), assignee: '李雨', exec: 'idle', mode: 'auto',
+        what: '子任务卡片可跨列拖拽；父状态根据子任务完成度聚合。', expected: '看板列按子任务粒度流转，父卡片展示聚合进度。', verify: '所有子任务 done 后父卡片自动进入 Done。', context: 'docs/prototype/m2-kanban.html', dependencies: [],
+        timeline: [] },
+      { id: 't-manual', title: '手动模式：看板筛选与搜索交互', desc: '按关键词、优先级、状态、标签过滤任务。', status: 'backlog', priority: 'P1', tags: ['UX'], due: addDays(now, 6), assignee: '李雨', exec: 'idle', mode: 'manual',
+        aiResult: '筛选搜索原型已就绪，支持标题/标签/负责人/优先级/状态组合过滤。', dependencies: [],
+        timeline: [
+          { time: t, note: '这个任务用手动模式，AI 结果我直接贴。', type: 'comment', source: { type: 'user' }, author: '李雨' },
+          { time: t, note: '手动记录：筛选搜索原型完成', type: 'execution', source: agentSource('dsh·research'), exec: 'success' }
+        ] },
+      { id: 't-comments', title: '评论与执行记录统一时间线', desc: '任务详情侧板展示评论 + 执行记录流，可发送评论。', status: 'inprogress', priority: 'P1', tags: ['交互'], due: addDays(now, 4), assignee: '李雨', exec: 'idle', mode: 'auto',
+        what: '在详情侧板增加时间线 tab，统一展示评论与执行记录。', expected: '用户可评论，agent 结果自动写入时间线。', verify: '评论发送后即时显示；执行记录带状态徽标。', context: 'docs/prototype/m2-kanban.html', dependencies: [],
+        timeline: [
+          { time: t, note: '时间线原型开始搭建', type: 'comment', source: { type: 'user' }, author: '李雨' },
+          { time: t, note: '执行记录卡片样式已确认，我来补充 agent 视角。', type: 'comment', source: agentSource('dsh·research'), author: 'dsh·research' },
+          { time: t, note: '状态变更：Backlog → In Progress', type: 'status', source: { type: 'system' } }
+        ] },
+      { id: 't-running-demo', title: '演示：执行中任务拖到 Done 会弹确认', desc: '模拟一个正在 ACP 执行的任务，尝试拖到 Done 列时触发「任务未完成执行，确认跳过？」弹窗。', status: 'inprogress', priority: 'P1', tags: ['演示','交互'], due: addDays(now, 2), assignee: 'Agent', exec: 'running', mode: 'auto',
+        what: '运行一个长时间 agent 任务用于演示拖拽确认。', expected: '拖拽到 Done 时弹窗提示，且不终止执行。', verify: '弹窗出现；取消后任务仍留在原列。', context: 'docs/prototype/m2-kanban.html', dependencies: [],
+        timeline: [
+          { time: t, note: 'ACP headless 执行中…', type: 'execution', source: agentSource('dsh·research'), exec: 'running' }
+        ] },
+    ];
+  }
+
+  function addDays(date, days) {
+    const d = new Date(date);
+    d.setDate(d.getDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      tasks = raw ? JSON.parse(raw) : seed();
+    } catch (e) {
+      tasks = seed();
+    }
+    try {
+      const c = localStorage.getItem(COL_STORAGE_KEY);
+      columns = c ? JSON.parse(c) : seedColumns();
+    } catch (e) {
+      columns = seedColumns();
+    }
+    ensureFields();
+    persist();
+  }
+  function persist() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks)); } catch (e) {}
+    try { localStorage.setItem(COL_STORAGE_KEY, JSON.stringify(columns)); } catch (e) {}
+  }
+  function ensureFields() {
+    tasks.forEach(t => {
+      if (!t.timeline) t.timeline = [];
+      if (!t.tags) t.tags = [];
+      if (!t.dependencies) t.dependencies = [];
+      if (!t.mode) t.mode = 'auto';
+      if (!t.exec) t.exec = 'idle';
+      if (!('expanded' in t)) t.expanded = true;
+      t.timeline.forEach(item => {
+        if (!item.type) item.type = 'status';
+        if (!item.source || typeof item.source === 'string') {
+          const legacy = item.source;
+          item.source = { type: legacy || (item.type === 'comment' ? 'user' : (item.type === 'execution' ? 'agent' : 'system')) };
+        }
+        if (item.source.type === 'agent' && !item.source.agentId) item.source.agentId = DEFAULT_AGENT.agentId;
+      });
+    });
+  }
+
+  /* ---------- 渲染 ---------- */
+  function renderBoard() {
+    const board = document.getElementById('board');
+    board.innerHTML = '';
+    const filtered = getFilteredTasks();
+    updateStatusFilter();
+    columns.forEach(col => {
+      const colTasks = filtered.filter(t => t.status === col.key).sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]);
+      const el = document.createElement('div');
+      el.className = 'col';
+      el.dataset.status = col.key;
+      el.style.borderTopColor = col.color || 'var(--panel-border)';
+      el.innerHTML = `
+        <div class="col-header">
+          <span class="col-name" onclick="editColumnLabel('${col.key}', this)">${escapeHtml(col.label)}</span>
+          <span class="count">${countColTasks(col.key, filtered)}</span>
+        </div>
+        <div class="col-body" data-status="${col.key}"></div>
+      `;
+      const body = el.querySelector('.col-body');
+      colTasks.forEach(t => body.appendChild(createCardEl(t)));
+      bindColumn(body);
+      board.appendChild(el);
+    });
+  }
+
+  function countColTasks(colKey, filtered) {
+    return filtered.filter(t => t.status === colKey).length;
+  }
+
+  function updateStatusFilter() {
+    const sel = document.getElementById('filter-status');
+    const val = sel.value;
+    sel.innerHTML = '<option value="">全部状态</option>' + columns.map(c => `<option value="${c.key}">${escapeHtml(c.label)}</option>`).join('');
+    sel.value = val;
+  }
+
+  function parentRefHtml(t) {
+    if (!t.parentId) return '';
+    const p = tasks.find(x => x.id === t.parentId);
+    if (!p) return '';
+    return `<span class="parent-ref" onclick="openDetail('${p.id}'); event.stopPropagation();">↳ ${escapeHtml(shortId(p.id))} ${escapeHtml(p.title)}</span>`;
+  }
+
+  function shortId(id) { return id.slice(-4); }
+
+  function childListHtml(t) {
+    const children = tasks.filter(c => c.parentId === t.id).sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]);
+    if (!children.length) return '';
+    const doneCount = children.filter(c => c.status === 'done').length;
+    return `
+      <div class="progress-wrap">
+        <div class="progress-bar"><div class="progress-fill" style="width:${Math.round(doneCount / children.length * 100)}%"></div></div>
+        <span>${doneCount}/${children.length}</span>
+      </div>
+      <div class="expand-hint" onclick="toggleExpand('${t.id}', event)">${t.expanded ? '收起子任务' : '展开子任务'}</div>
+      ${t.expanded ? `
+        <div class="child-list">
+          ${children.map(c => `
+            <div class="child-list-row" onclick="openDetail('${c.id}'); event.stopPropagation();">
+              <span>${escapeHtml(c.title)} <span class="p-badge ${c.priority}">${c.priority}</span></span>
+              <span class="child-col">${labelOf(c.status)}</span>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+    `;
+  }
+
+  function createCardEl(t) {
+    const div = document.createElement('div');
+    const children = tasks.filter(c => c.parentId === t.id);
+    div.className = 'card ' + t.priority + (children.length ? ' parent' : '');
+    div.draggable = true;
+    div.dataset.id = t.id;
+    const idx = columns.findIndex(c => c.key === t.status);
+    const prev = columns[idx - 1];
+    const next = columns[idx + 1];
+    const isParent = children.length > 0;
+    const modeBadge = `<span class="mode-badge ${t.mode}">${t.mode === 'auto' ? '自动' : '手动'}</span>`;
+    const pref = parentRefHtml(t);
+    const childHtml = isParent ? childListHtml(t) : '';
+    div.innerHTML = `
+      <span class="scope-badge ${t.priority}">${t.priority}</span>
+      <div class="card-title">${escapeHtml(t.title)}</div>
+      <div class="card-meta">
+        ${modeBadge}
+        ${pref}
+        ${t.tags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}
+      </div>
+      ${childHtml}
+      <div class="card-footer">
+        <span class="due">&#128197; ${t.due || '无'} <span class="avatar">${initials(t.assignee)}</span></span>
+        <span class="exec-status ${t.exec}">${execDot(t.exec)}${execLabel(t.exec)}</span>
+      </div>
+      <div class="card-actions">
+        <button title="上一列" ${!prev ? 'disabled' : ''} onclick="moveTask('${t.id}', '${prev ? prev.key : ''}', event)">&#8592;</button>
+        <button title="下一列" ${!next ? 'disabled' : ''} onclick="moveTask('${t.id}', '${next ? next.key : ''}', event)">&#8594;</button>
+        <button class="agent" title="交给 agent" ${t.exec === 'queued' || t.exec === 'running' || t.intervention === 'paused' ? 'disabled' : ''} onclick="runAgent('${t.id}', event)">agent</button>
+      </div>
+    `;
+    div.addEventListener('dragstart', e => {
+      div.classList.add('dragging');
+      e.dataTransfer.setData('text/plain', t.id);
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    div.addEventListener('dragend', () => div.classList.remove('dragging'));
+    div.addEventListener('click', () => openDetail(t.id));
+    div.querySelectorAll('button').forEach(b => b.addEventListener('click', e => e.stopPropagation()));
+    div.querySelectorAll('.parent-ref').forEach(b => b.addEventListener('click', e => e.stopPropagation()));
+    return div;
+  }
+
+  function bindColumn(body) {
+    body.addEventListener('dragover', e => {
+      e.preventDefault();
+      body.classList.add('drag-over');
+      e.dataTransfer.dropEffect = 'move';
+    });
+    body.addEventListener('dragleave', () => body.classList.remove('drag-over'));
+    body.addEventListener('drop', e => {
+      e.preventDefault();
+      body.classList.remove('drag-over');
+      const id = e.dataTransfer.getData('text/plain');
+      if (id) moveTask(id, body.dataset.status);
+    });
+  }
+
+  function getFilteredTasks() {
+    const q = document.getElementById('search').value.trim().toLowerCase();
+    const p = document.getElementById('filter-priority').value;
+    const s = document.getElementById('filter-status').value;
+    const tag = document.getElementById('filter-tag').value.trim().toLowerCase();
+    const matched = tasks.filter(t => {
+      const matchesQ = !q || [t.title, t.desc, t.assignee, ...t.tags].some(x => String(x).toLowerCase().includes(q));
+      const matchesP = !p || t.priority === p;
+      const matchesS = !s || t.status === s;
+      const matchesTag = !tag || t.tags.some(x => x.toLowerCase().includes(tag));
+      return matchesQ && matchesP && matchesS && matchesTag;
+    });
+    const parentIds = new Set(matched.filter(t => t.parentId).map(t => t.parentId));
+    const withParents = new Set([...matched.map(t => t.id), ...parentIds]);
+    return tasks.filter(t => withParents.has(t.id));
+  }
+
+  /* ---------- 交互 ---------- */
+  function moveTask(id, newStatus, event, skipConfirm) {
+    if (event) event.stopPropagation();
+    const t = tasks.find(x => x.id === id);
+    if (!t || t.status === newStatus) return;
+    const old = t.status;
+
+    if (!skipConfirm && newStatus === 'done') {
+      const children = tasks.filter(c => c.parentId === id);
+      if (children.length && !children.every(c => c.status === 'done')) {
+        if (!confirm('子任务未全部完成，确认？')) return;
+      } else if (t.exec !== 'success') {
+        if (!confirm('任务未完成执行，确认跳过？')) return;
+      }
+    }
+
+    t.status = newStatus;
+    addTimeline(t, `状态变更：${labelOf(old)} → ${labelOf(newStatus)}`, 'status', null, { type: 'user' });
+    if (t.exec === 'running' || t.exec === 'queued' || t.exec === 'paused' || t.exec === 'interrupted') {
+      t.manualStatus = true;
+    }
+    if (newStatus === 'done') { t.exec = 'success'; addTimeline(t, '任务已完成', 'execution', 'success', agentSource()); }
+    if (newStatus === 'blocked' && t.exec !== 'failed') { t.exec = 'idle'; }
+    if (t.parentId) aggregateParent(t.parentId);
+    persist(); renderBoard();
+  }
+
+  function aggregateParent(parentId) {
+    const parent = tasks.find(t => t.id === parentId);
+    if (!parent) return;
+    const children = tasks.filter(t => t.parentId === parentId);
+    if (!children.length) return;
+    const allDone = children.every(c => c.status === 'done');
+    const anyRunning = children.some(c => c.exec === 'running');
+    const anyFailed = children.some(c => c.exec === 'failed');
+    if (allDone && parent.status !== 'done') {
+      parent.status = 'done';
+      parent.exec = 'success';
+      addTimeline(parent, '子任务全部完成，父任务聚合为 Done', 'execution', 'success', agentSource());
+    } else if (anyFailed) {
+      parent.exec = 'failed';
+    } else if (anyRunning) {
+      parent.exec = 'running';
+    }
+  }
+
+  function toggleExpand(id, event) {
+    event.stopPropagation();
+    const t = tasks.find(x => x.id === id);
+    if (t) { t.expanded = !t.expanded; persist(); renderBoard(); }
+  }
+
+  function clearTaskTimers(id) {
+    const entry = runningTimers.get(id);
+    if (entry) { entry.timers.forEach(clearTimeout); runningTimers.delete(id); }
+  }
+
+  function runAgent(id, event) {
+    if (event) event.stopPropagation();
+    const t = tasks.find(x => x.id === id);
+    if (!t) return;
+    if (t.mode === 'manual') { openDetail(id); return; }
+    if (t.exec === 'running' || t.exec === 'queued') return;
+    const children = tasks.filter(c => c.parentId === id && c.mode === 'auto');
+    if (children.length) {
+      addTimeline(t, `父任务开始调度子任务（maxParallel=${MAX_PARALLEL}，有依赖串行）`, 'status', null, { type: 'system' });
+      runChildrenBatch(id);
+      persist(); renderBoard(); if (currentDetailId === id) renderDrawer(t);
+      return;
+    }
+    startSingleExecution(t);
+  }
+
+  function runChildrenBatch(parentId) {
+    const parent = tasks.find(x => x.id === parentId);
+    if (!parent) return;
+    const pending = tasks.filter(c => c.parentId === parentId && c.mode === 'auto' && c.status !== 'done' && c.exec !== 'running' && c.exec !== 'queued');
+    if (!pending.length) {
+      aggregateParent(parentId);
+      persist(); renderBoard(); if (currentDetailId === parentId) renderDrawer(parent);
+      return;
+    }
+    const runningNow = tasks.filter(c => c.parentId === parentId && c.exec === 'running').length;
+    const ready = pending.filter(c => !c.dependencies || c.dependencies.length === 0 || c.dependencies.every(did => {
+      const d = tasks.find(x => x.id === did);
+      return d && d.status === 'done';
+    }));
+    const slots = Math.max(0, MAX_PARALLEL - runningNow);
+    const batch = ready.slice(0, slots);
+    if (!batch.length) {
+      if (runningNow === 0) {
+        addTimeline(parent, '所有可执行子任务已完成或阻塞', 'status', null, { type: 'system' });
+        aggregateParent(parentId);
+        persist(); renderBoard(); if (currentDetailId === parentId) renderDrawer(parent);
+      }
+      return;
+    }
+    batch.forEach(child => {
+      addTimeline(parent, `调度子任务：${child.title}`, 'status', null, { type: 'system' });
+      startSingleExecution(child, () => runChildrenBatch(parentId));
+    });
+  }
+
+  function startSingleExecution(t, onDone) {
+    clearTaskTimers(t.id);
+    t.intervention = null;
+    t.lastStatusBeforeRun = t.status;
+    t.exec = 'queued';
+    addTimeline(t, 'ACP headless 排队中…', 'execution', 'queued', agentSource());
+    persist(); renderBoard(); if (currentDetailId === t.id) renderDrawer(t);
+    const timers = [];
+    runningTimers.set(t.id, { timers, onDone });
+    timers.push(setTimeout(() => {
+      if (t.intervention === 'cancelled' || t.intervention === 'interrupted') return;
+      t.exec = 'running';
+      addTimeline(t, 'ACP headless 执行中…', 'execution', 'running', agentSource());
+      persist(); renderBoard(); if (currentDetailId === t.id) renderDrawer(t);
+      timers.push(setTimeout(() => {
+        if (t.intervention === 'cancelled' || t.intervention === 'interrupted') return;
+        if (t.intervention === 'paused') {
+          addTimeline(t, '执行被用户暂停', 'system', null, { type: 'system' });
+          persist(); renderBoard(); if (currentDetailId === t.id) renderDrawer(t);
+          return;
+        }
+        const ok = Math.random() > 0.25;
+        t.exec = ok ? 'success' : 'failed';
+        addTimeline(t, ok ? 'ACP headless 执行成功' : 'ACP headless 执行失败：扩展点返回错误', 'execution', ok ? 'success' : 'failed', agentSource());
+        if (ok && t.status !== 'done' && t.status !== 'blocked') {
+          if (t.manualStatus) {
+            addTimeline(t, '执行完成，列由人工指定', 'system', null, { type: 'system' });
+          } else {
+            const old = t.status;
+            t.status = 'verify';
+            addTimeline(t, `状态自动推进到 ${labelOf(t.status)}`, 'status', null, { type: 'system' });
+          }
+          if (t.parentId) aggregateParent(t.parentId);
+        }
+        if (!ok) t.manualStatus = false;
+        persist(); renderBoard(); if (currentDetailId === t.id) renderDrawer(t);
+        if (onDone) onDone();
+      }, 1600 + Math.random() * 1400));
+    }, 700 + Math.random() * 800));
+  }
+
+  function pauseTask(id) {
+    const t = tasks.find(x => x.id === id);
+    if (!t || t.exec !== 'running') return;
+    t.intervention = 'paused';
+    addTimeline(t, '用户点击暂停', 'system', null, { type: 'user' });
+    persist(); renderBoard(); if (currentDetailId === id) renderDrawer(t);
+  }
+  function resumeTask(id) {
+    const t = tasks.find(x => x.id === id);
+    if (!t || t.intervention !== 'paused') return;
+    t.intervention = null;
+    addTimeline(t, '用户恢复执行', 'system', null, { type: 'user' });
+    if (t.parentId) runChildrenBatch(t.parentId);
+    else startSingleExecution(t);
+  }
+  function cancelTask(id) {
+    const t = tasks.find(x => x.id === id);
+    if (!t || (t.exec !== 'running' && t.exec !== 'queued')) return;
+    clearTaskTimers(id);
+    t.intervention = 'cancelled';
+    t.exec = 'idle';
+    const prev = t.lastStatusBeforeRun || t.status;
+    if (prev !== t.status) {
+      addTimeline(t, `取消执行，状态回到 ${labelOf(prev)}`, 'system', null, { type: 'system' });
+      t.status = prev;
+    } else {
+      addTimeline(t, '用户取消执行', 'system', null, { type: 'user' });
+    }
+    if (t.parentId) aggregateParent(t.parentId);
+    persist(); renderBoard(); if (currentDetailId === id) renderDrawer(t);
+  }
+  function openAcModal(id) {
+    const t = tasks.find(x => x.id === id);
+    if (!t || t.mode !== 'auto' || t.exec !== 'running') return;
+    document.getElementById('ac-task-id').value = id;
+    document.getElementById('ac-what').value = t.what || '';
+    document.getElementById('ac-expected').value = t.expected || '';
+    document.getElementById('ac-verify').value = t.verify || '';
+    document.getElementById('ac-context').value = t.context || '';
+    document.getElementById('ac-overlay').classList.add('show');
+  }
+  function closeAcModal() { document.getElementById('ac-overlay').classList.remove('show'); }
+  function submitAcRevision() {
+    const id = document.getElementById('ac-task-id').value;
+    const t = tasks.find(x => x.id === id);
+    if (!t) return;
+    const what = document.getElementById('ac-what').value.trim();
+    const expected = document.getElementById('ac-expected').value.trim();
+    const verify = document.getElementById('ac-verify').value.trim();
+    if (!what || !expected || !verify) return alert('做什么/期望结果/如何验证 必填');
+    const oldAc = { what: t.what, expected: t.expected, verify: t.verify, context: t.context };
+    const newAc = { what, expected, verify, context: document.getElementById('ac-context').value.trim() };
+    // 中断当前执行
+    clearTaskTimers(id);
+    t.intervention = 'interrupted';
+    t.exec = 'interrupted';
+    t.what = newAc.what; t.expected = newAc.expected; t.verify = newAc.verify; t.context = newAc.context;
+    // 标记旧 partial 结果废弃
+    markPartialObsolete(t);
+    // timeline 记录 AC 变更 diff
+    const diffNote = [
+      'AC 修订：',
+      `做什么："${oldAc.what || '-'}" → "${newAc.what}"`,
+      `期望结果："${oldAc.expected || '-'}" → "${newAc.expected}"`,
+      `如何验证："${oldAc.verify || '-'}" → "${newAc.verify}"`,
+      `上下文："${oldAc.context || '-'}" → "${newAc.context || '-'}"`
+    ].join('\n');
+    addTimeline(t, diffNote, 'system', null, { type: 'system' });
+    closeAcModal();
+    persist(); renderBoard(); if (currentDetailId === id) renderDrawer(t);
+  }
+  function markPartialObsolete(t) {
+    (t.timeline || []).forEach(item => {
+      if (item.type === 'execution' && (item.exec === 'running' || item.exec === 'queued')) {
+        item.note = item.note + ' [已废弃（AC 修订）]';
+      }
+    });
+  }
+  function executeWithNewAc(id) {
+    const t = tasks.find(x => x.id === id);
+    if (!t) return;
+    clearTaskTimers(id);
+    t.intervention = null;
+    t.exec = 'idle';
+    addTimeline(t, '用户选择以新 AC 重新执行', 'system', null, { type: 'user' });
+    if (t.parentId) runChildrenBatch(t.parentId);
+    else startSingleExecution(t);
+  }
+  function continueExecution(id) {
+    const t = tasks.find(x => x.id === id);
+    if (!t || t.exec !== 'interrupted') return;
+    clearTaskTimers(id);
+    t.intervention = null;
+    t.exec = 'running';
+    addTimeline(t, '用户选择继续原执行（不推荐）', 'system', null, { type: 'user' });
+    persist(); renderBoard(); if (currentDetailId === id) renderDrawer(t);
+    // 模拟继续执行到结束
+    const timers = [];
+    runningTimers.set(id, { timers });
+    timers.push(setTimeout(() => {
+      const ok = Math.random() > 0.25;
+      t.exec = ok ? 'success' : 'failed';
+      addTimeline(t, ok ? '继续执行成功' : '继续执行失败', 'execution', ok ? 'success' : 'failed', agentSource());
+      if (ok && t.status !== 'done' && t.status !== 'blocked') {
+        const old = t.status;
+        t.status = 'verify';
+        addTimeline(t, `状态自动推进到 ${labelOf(t.status)}`, 'status', null, { type: 'system' });
+        if (t.parentId) aggregateParent(t.parentId);
+      }
+      persist(); renderBoard(); if (currentDetailId === id) renderDrawer(t);
+    }, 1600 + Math.random() * 1400));
+  }
+
+  function retryTask(id) {
+    const t = tasks.find(x => x.id === id);
+    if (!t) return;
+    clearTaskTimers(id);
+    t.intervention = null;
+    startSingleExecution(t);
+  }
+  function manualComplete(id) {
+    const t = tasks.find(x => x.id === id);
+    if (!t) return;
+    const old = t.status;
+    t.status = 'done'; t.exec = 'success';
+    addTimeline(t, '用户手动标记完成', 'system', null, { type: 'user' });
+    if (old !== 'done') addTimeline(t, `状态变更：${labelOf(old)} → Done`, 'status', null, { type: 'system' });
+    if (t.parentId) aggregateParent(t.parentId);
+    persist(); renderBoard(); if (currentDetailId === id) renderDrawer(t);
+  }
+  function changeStatusPrompt(id) {
+    const t = tasks.find(x => x.id === id);
+    if (!t) return;
+    const opts = columns.map(c => `${c.key}:${c.label}`).join(' / ');
+    const key = prompt(`改状态到？可用：${opts}`, t.status);
+    if (!key || !columns.some(c => c.key === key) || key === t.status) return;
+    const old = t.status;
+    t.status = key;
+    addTimeline(t, `用户手动改状态：${labelOf(old)} → ${labelOf(key)}`, 'status', null, { type: 'user' });
+    if (t.parentId) aggregateParent(t.parentId);
+    persist(); renderBoard(); if (currentDetailId === id) renderDrawer(t);
+  }
+
+  function addTimeline(t, note, type, exec, source) {
+    const time = new Date().toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    t.timeline = t.timeline || [];
+    const item = { time, note, type };
+    if (exec) item.exec = exec;
+    if (source) item.source = source;
+    t.timeline.unshift(item);
+  }
+  function sourceBadge(source, type) {
+    if (!source) source = {};
+    if (source.type === 'agent' || type === 'execution') {
+      const name = source.agentId || DEFAULT_AGENT.agentId;
+      return `<span class="ai-badge">&#129302; ${escapeHtml(name)}</span>`;
+    }
+    if (source.type === 'user') return '';
+    return '<span class="ai-badge" style="background:var(--panel-border);color:var(--muted)">system</span>';
+  }
+
+  /* ---------- 弹窗 ---------- */
+  function setEditMode(mode) {
+    editMode = mode;
+    document.getElementById('mode-auto').classList.toggle('active', mode === 'auto');
+    document.getElementById('mode-manual').classList.toggle('active', mode === 'manual');
+    document.getElementById('mode-display').className = 'mode-badge ' + mode;
+    document.getElementById('mode-display').textContent = mode === 'auto' ? '自动' : '手动';
+    document.getElementById('auto-fields').style.display = mode === 'auto' ? 'block' : 'none';
+    document.getElementById('manual-fields').style.display = mode === 'manual' ? 'block' : 'none';
+  }
+
+  function openModal(id, parentId) {
+    const overlay = document.getElementById('modal-overlay');
+    const title = document.getElementById('modal-title');
+    const btnDelete = document.getElementById('btn-delete');
+    const statusSel = document.getElementById('task-status');
+    statusSel.innerHTML = columns.map(c => `<option value="${c.key}">${escapeHtml(c.label)}</option>`).join('');
+    if (id) {
+      const t = tasks.find(x => x.id === id);
+      title.innerHTML = '编辑任务 <span class="p-badge P0">P0</span>';
+      document.getElementById('task-id').value = t.id;
+      document.getElementById('task-parent-id').value = t.parentId || '';
+      document.getElementById('task-title').value = t.title;
+      document.getElementById('task-desc').value = t.desc || '';
+      setEditMode(t.mode || 'auto');
+      document.getElementById('task-what').value = t.what || '';
+      document.getElementById('task-expected').value = t.expected || '';
+      document.getElementById('task-verify').value = t.verify || '';
+      document.getElementById('task-context').value = t.context || '';
+      document.getElementById('task-ai-result').value = t.aiResult || '';
+      document.getElementById('task-deps').value = (t.dependencies || []).join(', ');
+      document.getElementById('task-priority').value = t.priority;
+      document.getElementById('task-status').value = t.status;
+      document.getElementById('task-due').value = t.due || '';
+      document.getElementById('task-assignee').value = t.assignee || '';
+      document.getElementById('task-tags').value = (t.tags || []).join(', ');
+      btnDelete.style.display = '';
+    } else {
+      title.innerHTML = '新建任务 <span class="p-badge P0">P0</span>';
+      document.getElementById('task-form').reset();
+      document.getElementById('task-id').value = '';
+      document.getElementById('task-parent-id').value = parentId || '';
+      document.getElementById('task-priority').value = 'P1';
+      document.getElementById('task-status').value = 'backlog';
+      setEditMode('auto');
+      btnDelete.style.display = 'none';
+    }
+    overlay.classList.add('show');
+  }
+  function closeModal() { document.getElementById('modal-overlay').classList.remove('show'); }
+
+  function markError(id, hasError) {
+    const el = document.getElementById(id);
+    if (hasError) el.classList.add('error'); else el.classList.remove('error');
+  }
+
+  function saveTask() {
+    const id = document.getElementById('task-id').value;
+    const mode = editMode;
+    const payload = {
+      title: document.getElementById('task-title').value.trim(),
+      desc: document.getElementById('task-desc').value.trim(),
+      mode,
+      priority: document.getElementById('task-priority').value,
+      status: document.getElementById('task-status').value,
+      due: document.getElementById('task-due').value,
+      assignee: document.getElementById('task-assignee').value.trim() || '未指派',
+      tags: document.getElementById('task-tags').value.split(/[,，]/).map(s => s.trim()).filter(Boolean),
+      dependencies: document.getElementById('task-deps').value.split(/[,，]/).map(s => s.trim()).filter(Boolean),
+    };
+    if (!payload.title) return alert('请输入标题');
+    if (mode === 'auto') {
+      const what = document.getElementById('task-what').value.trim();
+      const expected = document.getElementById('task-expected').value.trim();
+      const verify = document.getElementById('task-verify').value.trim();
+      markError('task-what', !what); markError('task-expected', !expected); markError('task-verify', !verify);
+      if (!what || !expected || !verify) return;
+      payload.what = what; payload.expected = expected; payload.verify = verify;
+      payload.context = document.getElementById('task-context').value.trim();
+      payload.aiResult = '';
+    } else {
+      payload.aiResult = document.getElementById('task-ai-result').value.trim();
+      payload.what = payload.expected = payload.verify = payload.context = '';
+    }
+    ['task-what','task-expected','task-verify','task-context','task-ai-result'].forEach(x => markError(x, false));
+    if (id) {
+      const t = tasks.find(x => x.id === id);
+      const modeChanged = t.mode !== mode;
+      Object.assign(t, payload);
+      addTimeline(t, '任务信息已更新', 'status', null, { type: 'system' });
+      if (modeChanged) addTimeline(t, `执行模式切换为 ${mode === 'auto' ? '自动' : '手动'}`, 'status', null, { type: 'system' });
+      if (t.parentId) aggregateParent(t.parentId);
+    } else {
+      const parentId = document.getElementById('task-parent-id').value;
+      const t = { id: 't' + Date.now() + Math.random().toString(36).slice(2, 6), exec: 'idle', timeline: [], expanded: true, parentId: parentId || undefined, ...payload };
+      addTimeline(t, parentId ? '子任务创建' : '任务创建', 'status', null, { type: 'system' });
+      tasks.push(t);
+      if (parentId) aggregateParent(parentId);
+    }
+    persist(); renderBoard(); closeModal();
+    if (currentDetailId && currentDetailId === id) openDetail(currentDetailId);
+  }
+
+  function deleteTask() {
+    const id = document.getElementById('task-id').value;
+    if (!confirm('确定删除该任务？子任务、评论与附件会一并清理。')) return;
+    tasks = tasks.filter(t => t.id !== id && t.parentId !== id);
+    persist(); renderBoard(); closeModal();
+    if (currentDetailId === id) closeDrawer();
+  }
+
+  /* ---------- 列管理 ---------- */
+  let editingColumns = [];
+  function openColumnManager() {
+    editingColumns = JSON.parse(JSON.stringify(columns));
+    renderColumnList();
+    document.getElementById('col-overlay').classList.add('show');
+  }
+  function closeColumnManager() { document.getElementById('col-overlay').classList.remove('show'); }
+  function renderColumnList() {
+    const list = document.getElementById('col-list');
+    list.innerHTML = editingColumns.map((c, i) => `
+      <div class="col-list-item">
+        <span style="color:var(--muted);font-size:11px;width:20px">${i + 1}</span>
+        <input type="color" value="${c.color || '#6b7688'}" onchange="updateColumn('${c.key}', 'color', this.value)">
+        <input type="text" value="${escapeHtml(c.label)}" onchange="updateColumn('${c.key}', 'label', this.value)">
+        <span class="col-actions">
+          <button ${i === 0 ? 'disabled' : ''} onclick="moveColumn('${c.key}', -1)">↑</button>
+          <button ${i === editingColumns.length - 1 ? 'disabled' : ''} onclick="moveColumn('${c.key}', 1)">↓</button>
+          <button ${c.template ? 'disabled' : ''} onclick="removeColumn('${c.key}')">删</button>
+        </span>
+        ${c.template ? '<span class="locked">模板</span>' : ''}
+      </div>
+    `).join('');
+  }
+  function updateColumn(key, field, value) {
+    const c = editingColumns.find(x => x.key === key);
+    if (c) c[field] = value;
+    renderColumnList();
+  }
+  function moveColumn(key, dir) {
+    const i = editingColumns.findIndex(x => x.key === key);
+    if (i < 0) return;
+    const j = i + dir;
+    if (j < 0 || j >= editingColumns.length) return;
+    [editingColumns[i], editingColumns[j]] = [editingColumns[j], editingColumns[i]];
+    renderColumnList();
+  }
+  function removeColumn(key) {
+    const i = editingColumns.findIndex(x => x.key === key);
+    if (i >= 0 && !editingColumns[i].template) editingColumns.splice(i, 1);
+    renderColumnList();
+  }
+  function addCustomColumn() {
+    const key = 'custom_' + Date.now();
+    editingColumns.push({ key, label: '新列', color: '#6b7688', template: false });
+    renderColumnList();
+  }
+  function resetColumns() {
+    editingColumns = seedColumns();
+    renderColumnList();
+  }
+  function saveColumns() {
+    columns = editingColumns;
+    tasks.forEach(t => {
+      if (!columns.some(c => c.key === t.status)) t.status = 'todo';
+    });
+    persist(); closeColumnManager(); renderBoard();
+  }
+  function editColumnLabel(key, span) {
+    const c = columns.find(x => x.key === key);
+    if (!c) return;
+    const val = prompt('重命名列', c.label);
+    if (val && val.trim()) { c.label = val.trim(); persist(); renderBoard(); }
+  }
+
+  /* ---------- 详情侧板 ---------- */
+  let drawerTab = 'timeline';
+  function openDetail(id) {
+    currentDetailId = id;
+    const t = tasks.find(x => x.id === id);
+    renderDrawer(t);
+    document.getElementById('drawer').classList.add('open');
+  }
+  function closeDrawer() { document.getElementById('drawer').classList.remove('open'); currentDetailId = null; }
+  function editCurrentTask() { if (currentDetailId) openModal(currentDetailId); }
+  function runAgentCurrent() { if (currentDetailId) runAgent(currentDetailId); }
+
+  function renderDrawer(t) {
+    const body = document.getElementById('drawer-body');
+    const actions = document.getElementById('drawer-actions');
+    const badge = document.getElementById('drawer-badge');
+    if (badge) { badge.className = 'p-badge ' + t.priority; badge.textContent = t.priority; }
+    const children = tasks.filter(c => c.parentId === t.id);
+    const parent = t.parentId ? tasks.find(x => x.id === t.parentId) : null;
+    const parentBreadcrumb = parent ? `
+      <div class="section">
+        <h4>父任务</h4>
+        <p class="breadcrumb"><span onclick="openDetail('${parent.id}')">↳ ${escapeHtml(shortId(parent.id))} ${escapeHtml(parent.title)}</span></p>
+      </div>
+    ` : '';
+    const childrenHtml = children.length ? `
+      <div class="section">
+        <h4>子任务 (${children.filter(c => c.status === 'done').length}/${children.length})</h4>
+        ${children.map(c => `<p>· <span style="color:var(--accent);cursor:pointer" onclick="openDetail('${c.id}')">${escapeHtml(c.title)}</span> <span class="p-badge ${c.priority}">${c.priority}</span> ${labelOf(c.status)}</p>`).join('')}
+      </div>
+    ` : '';
+    const modeHtml = `
+      <div class="section">
+        <h4>执行模式</h4>
+        <p><span class="mode-badge ${t.mode}">${t.mode === 'auto' ? '自动' : '手动'}</span></p>
+        ${t.mode === 'auto' ? `
+          <p><b>做什么：</b>${escapeHtml(t.what || '-')}</p>
+          <p><b>期望结果：</b>${escapeHtml(t.expected || '-')}</p>
+          <p><b>如何验证：</b>${escapeHtml(t.verify || '-')}</p>
+          <p><b>上下文：</b>${escapeHtml(t.context || '-')}</p>
+        ` : `
+          <p><b>AI 结果：</b>${escapeHtml(t.aiResult || '未填写')}</p>
+        `}
+      </div>
+    `;
+    const flowHtml = renderFlowBar(t);
+    const attachments = `
+      <div class="section">
+        <h4>附件</h4>
+        <div class="attachment-row">
+          <button onclick="simulateAttachment('${t.id}')">+ 添加附件（模拟）</button>
+          <span class="usage">0 MB / ${ATTACHMENT_LIMIT_MB} MB</span>
+        </div>
+        <p style="font-size:12px;color:var(--dim);margin-top:6px">删除卡片将级联清理评论与附件。</p>
+      </div>
+    `;
+    body.innerHTML = `
+      <div class="section">
+        <h4>${escapeHtml(t.title)} <span class="p-badge ${t.priority}">${t.priority}</span></h4>
+        <p>${escapeHtml(t.desc || '暂无描述')}</p>
+      </div>
+      <div class="section">
+        <h4>元信息</h4>
+        <p>状态：${labelOf(t.status)} · 负责人：${escapeHtml(t.assignee)} · 截止：${t.due || '无'}</p>
+        <p>标签：${t.tags.map(x => `<span class="tag">${escapeHtml(x)}</span>`).join(' ') || '无'}</p>
+        <p>执行：${execLabel(t.exec)}</p>
+      </div>
+      ${parentBreadcrumb}
+      ${modeHtml}
+      ${flowHtml}
+      ${childrenHtml}
+      ${attachments}
+      <div class="section">
+        <div class="tabs">
+          <button class="${drawerTab === 'timeline' ? 'active' : ''}" onclick="setDrawerTab('timeline')">时间线</button>
+          <button class="${drawerTab === 'comment' ? 'active' : ''}" onclick="setDrawerTab('comment')">评论</button>
+        </div>
+        ${drawerTab === 'timeline' ? renderTimeline(t) : renderCommentTab(t)}
+      </div>
+      <div class="section" id="intervention-section"></div>
+    `;
+    renderIntervention(t);
+    actions.innerHTML = `
+      <button class="primary" onclick="editCurrentTask()">编辑</button>
+      <button class="ghost" style="border:1px solid rgba(245,166,35,0.35);color:var(--warn)" onclick="runAgentCurrent()" ${t.exec === 'running' || t.exec === 'queued' || t.intervention === 'paused' ? 'disabled' : ''}>交给 agent</button>
+    `;
+  }
+
+  function renderFlowBar(t) {
+    const steps = ['idle', 'queued', 'running', 'verify', 'done'];
+    const current = t.exec;
+    const idx = steps.indexOf(current);
+    const flow = steps.map((s, i) => {
+      let cls = '';
+      if (s === current) cls = 'active';
+      else if (idx > -1 && i < idx) cls = 'done';
+      else if (['failed','cancelled','interrupted'].includes(current)) cls = '';
+      if (s === 'running' && (current === 'paused' || current === 'interrupted')) return `<span class="flow-step active">${execLabel(current)}</span>`;
+      return `<span class="flow-step ${cls}">${execLabel(s)}</span>`;
+    }).join('<span class="flow-arrow">→</span>');
+    const branch = current === 'failed' ? '<span class="flow-arrow">→</span><span class="flow-step cancel">失败</span>'
+      : (current === 'cancelled' ? '<span class="flow-arrow">→</span><span class="flow-step cancel">已取消</span>'
+      : (current === 'interrupted' ? '<span class="flow-arrow">→</span><span class="flow-step cancel">已中断（AC 修订）</span>' : ''));
+    return `
+      <div class="section">
+        <h4>执行流程</h4>
+        <div class="flow-bar">${flow}${branch}</div>
+      </div>
+    `;
+  }
+
+  function renderIntervention(t) {
+    const sec = document.getElementById('intervention-section');
+    if (!sec) return;
+    let html = '<h4>干预</h4><div class="intervention-bar">';
+    if (t.exec === 'running') {
+      html += `<button onclick="pauseTask('${t.id}')">暂停</button>`;
+      html += `<button onclick="openAcModal('${t.id}')">编辑 AC</button>`;
+      html += `<button class="danger" onclick="cancelTask('${t.id}')">取消</button>`;
+    } else if (t.exec === 'queued') {
+      html += `<button class="danger" onclick="cancelTask('${t.id}')">取消</button>`;
+    } else if (t.exec === 'paused') {
+      html += `<button onclick="resumeTask('${t.id}')">恢复</button>`;
+      html += `<button class="danger" onclick="cancelTask('${t.id}')">取消</button>`;
+    } else if (t.exec === 'interrupted') {
+      html += `<div class="ac-options">`;
+      html += `<button class="primary" onclick="executeWithNewAc('${t.id}')">以新 AC 重新执行</button>`;
+      html += `<button onclick="manualComplete('${t.id}')">手动完成</button>`;
+      html += `<button class="danger" onclick="continueExecution('${t.id}')">继续原执行（不推荐）</button>`;
+      html += `</div>`;
+    } else if (t.exec === 'failed') {
+      html += `<button onclick="retryTask('${t.id}')">重试</button>`;
+    }
+    if (t.exec === 'success' || t.exec === 'idle' || t.exec === 'failed') {
+      html += `<button onclick="manualComplete('${t.id}')">手动完成</button>`;
+      html += `<button onclick="changeStatusPrompt('${t.id}')">改状态</button>`;
+    }
+    html += '</div>';
+    sec.innerHTML = html;
+  }
+
+  function simulateAttachment(id) {
+    const size = Math.random() > 0.5 ? 12 : 4;
+    if (size > ATTACHMENT_LIMIT_MB) {
+      alert(`文件 ${size} MB 超过上限 ${ATTACHMENT_LIMIT_MB} MB，请在设置页调整上限。`);
+    } else {
+      alert(`已添加模拟附件 ${size} MB。`);
+    }
+  }
+
+  function setDrawerTab(tab) { drawerTab = tab; const t = tasks.find(x => x.id === currentDetailId); if (t) renderDrawer(t); }
+
+  function renderTimeline(t) {
+    const items = (t.timeline || []).map(item => {
+      const cls = item.type === 'execution' ? `execution ${item.exec || ''}` : item.type;
+      return `
+        <div class="timeline-item ${cls}">
+          <div class="time">${escapeHtml(item.time)}</div>
+          <div class="source">${sourceBadge(item.source, item.type)}</div>
+          <div class="note">${escapeHtml(item.note)}</div>
+          ${item.author ? `<div class="author">@${escapeHtml(item.author)}</div>` : ''}
+        </div>
+      `;
+    }).join('') || '<p style="color:var(--dim)">暂无记录</p>';
+    return `<div class="timeline">${items}</div>`;
+  }
+
+  function renderCommentTab(t) {
+    const items = (t.timeline || []).filter(item => item.type === 'comment').map(item => {
+      return `
+        <div class="timeline-item comment ${item.source?.type || 'user'}">
+          <div class="time">${escapeHtml(item.time)}</div>
+          <div class="source">${sourceBadge(item.source, item.type)}</div>
+          <div class="note">${escapeHtml(item.note)}</div>
+          <div class="author">@${escapeHtml(item.author || '匿名')}</div>
+        </div>
+      `;
+    }).join('') || '<p style="color:var(--dim)">暂无评论</p>';
+    return `
+      <div class="timeline">${items}</div>
+      <div class="comment-box">
+        <textarea id="comment-input" placeholder="写评论…"></textarea>
+        <button onclick="sendComment()">发送</button>
+      </div>
+    `;
+  }
+
+  function sendComment() {
+    const input = document.getElementById('comment-input');
+    const text = input.value.trim();
+    if (!text) return;
+    const t = tasks.find(x => x.id === currentDetailId);
+    if (!t) return;
+    addTimeline(t, text, 'comment', null, { type: 'user' }, '我');
+    input.value = '';
+    persist(); renderBoard(); renderDrawer(t);
+  }
+
+  function addTimeline(t, note, type, exec, source, author) {
+    const time = new Date().toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    t.timeline = t.timeline || [];
+    const item = { time, note, type };
+    if (exec) item.exec = exec;
+    if (source) item.source = source;
+    if (author) item.author = author;
+    t.timeline.unshift(item);
+  }
+
+  /* ---------- 工具函数 ---------- */
+  function labelOf(status) { const c = columns.find(x => x.key === status); return c ? c.label : status; }
+  function initials(name) { return (name || '?').slice(0, 1); }
+  function execLabel(exec) {
+    return { idle: '未执行', queued: '排队中', running: '执行中', paused: '已暂停', interrupted: '已中断', success: '成功', failed: '失败', cancelled: '已取消' }[exec] || exec;
+  }
+  function execDot(exec) {
+    if (['queued','running','paused','interrupted'].includes(exec)) return '<span class="dot pulse"></span>';
+    return '<span class="dot"></span>';
+  }
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
+  function clearFilters() {
+    document.getElementById('search').value = '';
+    document.getElementById('filter-priority').value = '';
+    document.getElementById('filter-status').value = '';
+    document.getElementById('filter-tag').value = '';
+    renderBoard();
+  }
+
+  /* ---------- 导航与信息面板 ---------- */
+  function setNav(id) {
+    document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === id));
+    document.getElementById('kanban-view').style.display = id === 'kanban' ? 'flex' : 'none';
+    document.getElementById('placeholder-view').classList.toggle('show', id !== 'kanban');
+    document.getElementById('placeholder-text').textContent = id === 'kanban'
+      ? ''
+      : ({ web: 'dsh web 由主进程 WebContentsView 渲染，壳仅做容器', settings: '设置窗口由独立 SettingsWindow 打开', upgrade: 'dsh 升级检查由主进程原生 dialog 触发' }[id] || '该入口为壳级占位');
+    if (id === 'kanban') renderBoard();
+  }
+  function toggleInfo() {
+    const panel = document.getElementById('info-panel');
+    panel.classList.toggle('collapsed');
+    panel.querySelector('.info-toggle').textContent = panel.classList.contains('collapsed') ? '展开' : '收起';
+  }
+
+  document.querySelectorAll('.nav-item').forEach(btn => {
+    btn.addEventListener('click', () => setNav(btn.dataset.view));
+  });
+  ['search','filter-priority','filter-status','filter-tag'].forEach(id => {
+    document.getElementById(id).addEventListener('input', renderBoard);
+    document.getElementById(id).addEventListener('change', renderBoard);
+  });
+
+  /* ---------- 启动 ---------- */
+  load();
+  setNav('kanban');
+  toggleInfo();
+</script>
+</body>
+</html>

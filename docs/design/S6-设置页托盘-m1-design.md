@@ -3,7 +3,7 @@
 > 工作项：S6 壳设置页 + 托盘完善（飞书 dsh-hull-desktop 清单）
 > 状态：已冻结（多方复评通过，2026-08-17）
 > 版本：0.2 · 2026-08-17
-> 事实源：契约 `docs/api/feishu-s6-api-contract.md` v0.2（已冻结）；共识 `docs/spec/共识-Hull桌面壳-M1.md` v1.4（CON-R008/009/013）；S1~S5 设计（承载点：S1 closeToQuit/日志入口、S3 Updater 检查/回滚、S4 ChannelService 通道、S5 HullUpdater 状态）
+> 事实源：契约 `docs/api/feishu-s6-m1-api-contract.md` v0.2（已冻结）；共识 `docs/spec/共识-Hull桌面壳-M1.md` v1.4（CON-R008/009/013）；S1~S5 设计（承载点：S1 closeToQuit/日志入口、S3 Updater 检查/回滚、S4 ChannelService 通道、S5 HullUpdater 状态）
 > 判级：复杂+安全敏感。理由：设置页独立窗口 UI（greenfield）+ settings 广播持久化（on(changed) 变更传播）+ 跨模块消费 S1~S5 全部承载点 + registry 配置影响安装源（安全面）
 > 偏离契约/共识处统一标注：⛔️ 见 §8 对照表
 

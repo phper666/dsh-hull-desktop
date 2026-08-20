@@ -1,7 +1,7 @@
 # S5 实现记录与核验记录
 
 > 判级：复杂+安全敏感（自更新=安装软件安全面 + 双通道互斥 + 退出编排交互 + GitHub Releases 外部集成 + CI 发布链）
-> 事实源：契约 `docs/api/feishu-s5-api-contract.md` v0.2（冻结 2026-08-17）、设计 `docs/design/S5-Hull自更新-design.md` 0.2（冻结 2026-08-17）
+> 事实源：契约 `docs/api/feishu-s5-m1-api-contract.md` v0.2（冻结 2026-08-17）、设计 `docs/design/S5-Hull自更新-m1-design.md` 0.2（冻结 2026-08-17）
 
 ## 实现记录
 
@@ -50,7 +50,7 @@
 - S3 DismissStore 双键（旧单键 { date } 兼容视作 dsh 侧，hull 不受污染）+ S3 契约 #5 调用方注记
 - S4 schema 协同（autoCheckDsh/autoCheckHull 同批 + schemaVersion 3 单次迁移）
 - S1 设计 §5.1 dismiss.json 双键勘误
-- S2-record C3 关闭（打包专项取消并入 S5：extractNode 接线 + electron-builder.yml 定案 a）
+- S2-m1-record C3 关闭（打包专项取消并入 S5：extractNode 接线 + electron-builder.yml 定案 a）
 - 代码零改动声明：S1~S4 代码未触碰（DismissStore/SettingsProvider 扩展为 S5 实现波内变更传播落地）
 
 ### 环境阻塞

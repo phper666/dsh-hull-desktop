@@ -3,7 +3,7 @@
 > 工作项：S1 壳骨架与进程管理（飞书 dsh-hull-desktop 清单）
 > 状态：已冻结（多方复评通过，2026-08-16）
 > 版本：0.2 · 2026-08-16
-> 事实源：契约 `docs/api/feishu-s1-api-contract.md` v0.2；共识 `docs/spec/共识-Hull桌面壳-M1.md` v1.4；PRD `docs/prd/2026-08-14-m1-prd.md`；原型 `docs/prototype/2026-08-14-m1-prototype/index.html`
+> 事实源：契约 `docs/api/feishu-s1-m1-api-contract.md` v0.2；共识 `docs/spec/共识-Hull桌面壳-M1.md` v1.4；PRD `docs/prd/2026-08-14-m1-prd.md`；原型 `docs/prototype/index.html`
 > 判级：复杂+安全敏感。理由：含子进程生命周期清理（防误杀）与 preload 注入边界，跨契约/状态机/窗口多子系统。（评审终审裁决）
 > 偏离契约/共识处统一标注：⛔️ 见 §8 对照表
 
@@ -265,7 +265,7 @@ dsh-hull-desktop/
 │   └── shared/
 │       ├── types.ts              # RuntimeSnapshot / RuntimePhase / 迁移表
 │       └── errors.ts             # 具名错误集（W1）
-└── docs/design/S1-壳骨架-design.md  # 本文
+└── docs/design/S1-壳骨架-m1-design.md  # 本文
 ```
 
 官方 UI 不落本仓库（CON-R001 零 fork），运行时 loadURL 官方地址。

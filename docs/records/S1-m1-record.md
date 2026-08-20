@@ -1,7 +1,7 @@
 # S1 实现记录与核验记录
 
 > 判级：复杂+安全敏感（含子进程生命周期清理防误杀与 preload 注入边界，跨契约/状态机/窗口多子系统）
-> 事实源：契约 `docs/api/feishu-s1-api-contract.md` v0.2（冻结）、设计 `docs/design/S1-壳骨架-design.md` 0.2（冻结 2026-08-16）
+> 事实源：契约 `docs/api/feishu-s1-m1-api-contract.md` v0.2（冻结）、设计 `docs/design/S1-壳骨架-m1-design.md` 0.2（冻结 2026-08-16）
 
 ## 实现记录
 

@@ -1,14 +1,15 @@
 # S1 经验沉淀：electron preload 挂载机制 与 node:test/tsc 工具链坑
 
 > 三硬标准：可复用 / 非显而易见 / 有代价（均通过）
-> 来源：S1 壳骨架（dsh-hull-desktop）实现期
+> 来源-出生：S1 壳骨架（dsh-hull-desktop）· 来源 PRD：2026-08-14-m1-prd.md
+> 来源-引用：实现期
 
 ---
 
 ## Lesson 1：Electron 43 `LoadURLOptions` 无 `preload` 字段——零注入方案的正确落点
 
 ### 现象
-设计（S1-壳骨架-design.md D6）写「preload 仅随占位页 loadURL 显式传入：`loadURL(url, { preload })`」。实现期核对 `node_modules/electron/electron.d.ts`（43.x）：`LoadURLOptions` 只有 httpReferrer/userAgent/extraHeaders/postData/baseURLForDataURL——**没有 preload 字段**。设计假设的机制在 API 层面不存在。
+设计（S1-壳骨架-m1-design.md D6）写「preload 仅随占位页 loadURL 显式传入：`loadURL(url, { preload })`」。实现期核对 `node_modules/electron/electron.d.ts`（43.x）：`LoadURLOptions` 只有 httpReferrer/userAgent/extraHeaders/postData/baseURLForDataURL——**没有 preload 字段**。设计假设的机制在 API 层面不存在。
 
 ### 根因
 Electron 的 preload 挂载点是 `BrowserWindow` 构造的 `webPreferences.preload`（窗口级、创建后不可变），以及 `session.setPreloads(preloads)`（session 级、可动态改）。`loadURL` 只控制页面加载目标，不控制 preload。

@@ -3,7 +3,7 @@
 > 工作项：S4 dsh 版本通道（飞书 dsh-hull-desktop 清单）
 > 状态：已冻结（多方复评通过，2026-08-17）
 > 版本：0.2 · 2026-08-17
-> 事实源：契约 `docs/api/feishu-s4-api-contract.md` v0.2（已冻结）；共识 `docs/spec/共识-Hull桌面壳-M1.md` v1.4（CON-R008/013、Q-001/Q-005）；S3 设计 0.2（冻结 2026-08-17，Updater 消费点 resolveTarget、registry.ts/semver.ts 复用面）；S1 设计 0.2（§5.1 存储章——settings.json schema 冻结面）
+> 事实源：契约 `docs/api/feishu-s4-m1-api-contract.md` v0.2（已冻结）；共识 `docs/spec/共识-Hull桌面壳-M1.md` v1.4（CON-R008/013、Q-001/Q-005）；S3 设计 0.2（冻结 2026-08-17，Updater 消费点 resolveTarget、registry.ts/semver.ts 复用面）；S1 设计 0.2（§5.1 存储章——settings.json schema 冻结面）
 > 判级：复杂。理由：settings.json schema 扩展触碰 S1 冻结面（契约变更传播）+ 跨模块集成（S3 Updater 消费 resolveTarget）+ registry 外部集成；无安全敏感面（纯配置读写 + 查询）
 > 偏离契约/共识处统一标注：⛔️ 见 §8 对照表
 

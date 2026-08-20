@@ -1,7 +1,7 @@
 # S6 实现记录与核验记录
 
 > 判级：复杂+安全敏感（设置页独立窗口 UI + settings 广播持久化 + 跨模块消费 S1~S5 承载点 + registry 配置影响安装源）
-> 事实源：契约 `docs/api/feishu-s6-api-contract.md` v0.2（冻结 2026-08-17）、设计 `docs/design/S6-设置页托盘-design.md` 0.2（冻结 2026-08-17）
+> 事实源：契约 `docs/api/feishu-s6-m1-api-contract.md` v0.2（冻结 2026-08-17）、设计 `docs/design/S6-设置页托盘-m1-design.md` 0.2（冻结 2026-08-17）
 
 ## 实现记录
 

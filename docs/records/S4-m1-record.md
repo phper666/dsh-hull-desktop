@@ -1,7 +1,7 @@
 # S4 实现记录与核验记录
 
 > 判级：复杂（settings.json schema 扩展触碰 S1 冻结面变更传播 + 跨模块集成 S3 Updater + registry 外部集成；无安全敏感面）
-> 事实源：契约 `docs/api/feishu-s4-api-contract.md` v0.2（冻结 2026-08-17）、设计 `docs/design/S4-dsh版本通道-design.md` 0.2（冻结 2026-08-17）
+> 事实源：契约 `docs/api/feishu-s4-m1-api-contract.md` v0.2（冻结 2026-08-17）、设计 `docs/design/S4-dsh版本通道-m1-design.md` 0.2（冻结 2026-08-17）
 
 ## 实现记录
 

@@ -1,83 +1,83 @@
-# Hull 桌面壳业务规范变更日志
+# 变更摘要-Hull（L2 模块详情）
 
-> 共识文档规则变更记录 + 版本索引（单一事实源）。追加式，最新在前。格式：日期+版本分组、规则编号驱动、取代链、反哺 Q-items。模板见 change-propagation/references/模板-变更摘要.md。
-> 共识文档：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
+> Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
+> L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
 ## 2026-08-18 S8 主窗口壳框架实现完成（共识 v1.5）
 
 - 类型：实现完成 + 影响闭环
-- 内容：壳框架窗口（左侧 Hull 导航 + 右侧 WebContentsView 内嵌官方 UI）实现完成——WindowManager 重构（partition 'shell' + 官方默认 session 隔离、registerPreloadScript 机制删除、hull:status 推送）、shell.html 新增、preload 9 方法、升级/设置入口接线、placeholder.html 删除
-- 验证：222 单测 + 8 集成 + 8 e2e 全绿（冷启动 1853ms）；Semgrep 0 findings；Code Review 有条件通过后修复闭环
-- 影响：影响清单-S8.md 全部闭环；契约 S1 v0.3/S2 v0.4/S6 v0.3/S7 v0.3 已同步
+- 内容：壳框架窗口（左 Hull 导航 + 右 WebContentsView 内嵌官方 UI）实现完成——WindowManager 重构（partition 'shell' + 官方默认 session 隔离、registerPreloadScript 机制删除、hull:status 推送）、shell.html 新增、preload 9 方法、升级/设置入口接线、placeholder.html 删除
+- 验证：222 单测 + 8 集成 + 8 e2e 全绿（冷启动 1853ms）；Semgrep 0 findings；Code Review 修复闭环
+- 影响：影响清单-主窗口形态.md 全部闭环；契约 S1 v0.3/S2 v0.4/S6 v0.3/S7 v0.3 已同步
+- 状态：完成
 
 ## 2026-08-18 主窗口形态变更（共识 v1.5）
 
 - 类型：产品决策变更（用户拍板）+ 共识修订 v1.4→v1.5
-- 内容：主窗口从"全屏渲染官方 UI"改为"壳框架窗口：左侧 Hull 导航 + 右侧 WebContentsView 内嵌官方 UI"；壳层功能入口（设置/升级）以壳导航为主，托盘为补充；官方 UI 零注入原则不变（CON-R001 解释扩展，非规则变更）
-- 影响清单：见 docs/spec/影响清单-S8.md
-- 状态：共识 v1.5 已修订，影响待闭环
+- 内容：主窗口从"全屏渲染官方 UI"改为"壳框架窗口：左侧 Hull 导航 + 右侧 WebContentsView 内嵌官方 UI"；壳层功能入口（设置/升级）以壳导航为主、托盘为补充；官方 UI 零注入原则不变（CON-R001 解释扩展，非规则变更）
+- 影响清单：docs/spec/影响清单-主窗口形态.md
+- 状态：共识 v1.5 已修订，影响已闭环（S8 实现完成）
 
 ## 2026-08-18 M1 验收实测修复（变更传播）
 
-- 类型：M1 验收实测修复变更传播（3 个实现 bug；代码已改、测试已同步）。
-- 内容：① spawn 参数去 `--profile web`——真实 dsh CLI（0.1.0-rc.7）实测 `web` 子命令即 `--profile web` 别名，`--profile` 是顶层选项不能跟在 web 后（报 unknown option '--profile'）；spawn 参数 `web --profile web --host 127.0.0.1 --port 0` → `web --host 127.0.0.1 --port 0`，DSH_CLI_SIGNATURE 同步（`--profile web --host ...` → `web --host ...`）；② npm install 超时 120s → 600s——实测冷装 dsh 234s（254 包/301MB），120s 必被杀；NPM_INSTALL_TIMEOUT_MS 120_000 → 600_000（2.5x 余量）；③ npm-cli 相对路径解析——dev 模式 nodePath='node'（相对路径）导致 npmCliPath 推导相对路径 `../lib/node_modules/npm/bin/npm-cli.js` 相对 staging cwd 解析不存在 → npm 失败；修复：npmRunner 构造时 resolveExecutablePath() 将相对 nodePath 解析为绝对路径（PATH 查找）。
-- 影响清单：S1 契约（spawn 参数修正 + 注记）、S1 设计（spawn argv/参数串/签名校验同步）、S2 契约（安装总上限 120s→600s）、S2 设计（超时常量 120s→600s + 注记）、S7 测试验收设计 + S7-record（fake-dsh 参数同步）、代码（已改：spawnArgs / NPM_INSTALL_TIMEOUT_MS / npmRunner 路径解析）、测试（已同步：219 单元 + 8 集成全绿）。
-- 状态：实测验收通过（测试 219+8 全绿）。
+- 类型：M1 验收实测修复变更传播（3 个实现 bug；代码已改、测试已同步）
+- 内容：① spawn 参数去 `--profile web`——真实 dsh CLI（0.1.0-rc.7）实测 `web` 子命令即 `--profile web` 别名，`--profile` 是顶层选项不能跟在 web 后；DSH_CLI_SIGNATURE 同步 ② npm install 超时 120s→600s——实测冷装 dsh 234s（254 包/301MB）；NPM_INSTALL_TIMEOUT_MS 同步 ③ npm-cli 相对路径解析——npmRunner 构造时 resolveExecutablePath() 将相对 nodePath 解析为绝对路径（PATH 查找）
+- 影响：S1 契约/设计（spawn 参数修正）、S2 契约/设计（超时 120s→600s）、S7-测试验收-m1-design + S7-m1-record（fake-dsh 参数同步）、代码已改、测试 219 单元 + 8 集成全绿
+- 状态：实测验收通过
 
 ## 2026-08-17 S7 v0.2（评审修订 + 变更传播）
 
-- 类型：S7 契约 v0.2 + S7 设计 0.2 评审修订（封口 6 项 + 修订后冻结）+ 变更传播（S1 [timing] 埋点对齐核验 + 指针）。
-- 内容：S7 契约——指针升共识 v1.4（A5）；U3-02 修订（idle→rollback 归合法，S3 D7 W3 手动回滚承载，非法用例换 idle→installing/confirm→rollback）（A1）；vitest 裁决注记（沿用 node:test，评估后否决 vitest，覆盖单元+集成两层）（A2）；E2E 场景补全（E2E-06 托盘 + E2E-07+ 设置页场景组）（A3）；verify-acceptance 表述修正（不启动 electron，依赖 e2e 已产日志）（A4）；封口声明（A6）。S7 设计——验收口径（E2E-01 权威，verify-acceptance 段分解参考）（B1）；[timing] 埋点格式锁定（引用 S1 实现，t3 名为 ready）（B2）；集成 spawn 双路（spawnFn DI 主路 + symlink 补验路）（B3）；verify-acceptance 失败处理（FAIL + 段缺失/日志未找到诊断）（B4）；e2e userData 隔离（--user-data-dir 临时目录，CON-R002 精神）（B5）；e2e 骨架推迟注记（B6）；219 用例数标注预估（B7）；E2E-02 真实 registry 依赖注记（B8）。
-- 影响清单：S7 契约（已更新 v0.2）、S7 设计（已更新 0.2）、**S1 [timing] 埋点对齐核验（结论：已实现——RuntimeManager t0/t1/t2/t3 + WindowManager t4，全部 [timing] 前缀，无需变更传播）**、代码（**零改动声明**）、共识（指针 v1.4 七契约确认）、Q-items（无开放项）。
-- 状态：复评通过，已冻结。复评结论：三席一致可冻结（alpha 1 处 P2 伪码残留已修）；无 P0/P1 残留。
+- 类型：S7 契约 v0.2 + 设计 0.2 评审修订（封口 6 项 + 修订后冻结）+ 变更传播（S1 [timing] 埋点对齐核验 + 指针）
+- 内容：契约——指针升共识 v1.4；U3-02 修订（idle→rollback 归合法，S3 D7 W3 手动回滚承载）；vitest 裁决（沿用 node:test）；E2E 场景补全（E2E-06 托盘 + E2E-07+ 设置页）；verify-acceptance 表述修正（不启动 electron）；封口声明。设计——验收口径 E2E-01 权威；[timing] 埋点格式锁定（t3 名为 ready）；集成 spawn 双路（spawnFn DI 主路 + symlink 补验）；verify-acceptance 失败处理；e2e userData 隔离（--user-data-dir，CON-R002 精神）；e2e 骨架推迟注记
+- 影响：S1 [timing] 埋点对齐核验（已实现：RuntimeManager t0/t1/t2/t3 + WindowManager t4，零改动）；代码零改动声明；共识指针 v1.4
+- 状态：复评通过，已冻结；无 P0/P1 残留
 
 ## 2026-08-17 S6 v0.2（评审修订 + 变更传播）
 
-- 类型：S6 契约 v0.2 + S6 设计 0.2 评审修订（封口 5 项 + 修订后冻结）+ 变更传播（S4 L21 回改 / S2 偏离 3 修订 / S3/S4 registry 消费注记 / 指针）。
-- 内容：S6 契约——指针升共识 v1.4（A1）；SETTINGS_ERRORS persist-failed ≡ settings-write-failed 别名注记（A2）；托盘列表确认注记——仅「检查 dsh 更新」，Hull 入口不入托盘（A3）；变更传播附注——registry 字段落地 + 三消费点优先级「settings 优先 env 兜底」（A4）；封口声明（A5）。S6 设计——设置窗口独立 partition 'settings' + preload 独立挂载（B1）；页面 250ms 轮询 getSettings + 删 onSettingsChanged 页面订阅（B2）；§4.2 表述修正（即时生效=动态读，广播=接口预留）（B3）；maybeAutoCheck 补 autoCheckDsh 门控 + maybeAutoCheckHull（B4）；schemaVersion 迁移逻辑落点（<3 字段补齐 + 损坏备份）（B5）；删托盘 Hull 入口表述（B6）；registry 字段落地三消费点（B7）；双入口并发 queue-busy 注记（B8）；UI 方向落稿（四卡 + token 表 + 560×640 + 交互细则 + a11y）（B9）；失败提示位置定稿（B10）。
-- 影响清单：S6 契约（已更新 v0.2）、S6 设计（已更新 0.2）、**S4 契约（L21 回改：env 承载 → settings 字段落地 + listVersions 消费注记）**、**S2 设计（偏离 3 修订：settings 优先 env 兜底）**、**S3 契约（check 消费点注记）**、代码（**零改动声明**：autoCheck 门控/registry 读取改造归 S6 实现波）、共识（指针 v1.4 六契约确认）、Q-items（无开放项）。
-- 状态：复评通过，已冻结。复评结论：alpha/gamma 可冻结，beta 轻量修订后冻结（1 处 P2 S2 契约偏离 3 注记已补）；无 P0/P1 残留。
+- 类型：S6 契约 v0.2 + 设计 0.2 评审修订（封口 5 项 + 修订后冻结）+ 变更传播（S4 L21 回改 / S2 偏离 3 修订 / S3/S4 registry 消费注记 / 指针）
+- 内容：契约——SETTINGS_ERRORS persist-failed ≡ settings-write-failed 别名；托盘仅「检查 dsh 更新」Hull 入口不入托盘；registry 字段落地三消费点「settings 优先 env 兜底」；封口声明。设计——设置窗口独立 partition 'settings' + preload 独立挂载；250ms 轮询 getSettings + 删页面订阅；maybeAutoCheck 补 autoCheckDsh 门控 + maybeAutoCheckHull；schemaVersion 迁移（<3 字段补齐 + 损坏备份）；双入口并发 queue-busy 注记；UI 四卡 + token 表 + 560×640 + a11y
+- 影响：S4 契约 L21 回改（env 承载 → settings 字段落地 + listVersions 消费注记）；S2 设计偏离 3 修订（settings 优先 env 兜底）；S3 契约 check 消费点注记；代码零改动声明；共识指针 v1.4
+- 状态：复评通过，已冻结；无 P0/P1 残留
 
 ## 2026-08-17 S5 v0.2（评审修订 + 变更传播）
 
-- 类型：S5 契约 v0.2 + S5 设计 0.2 评审修订（封口 6 项 + 修订后冻结）+ 变更传播（S3 DismissStore/autoCheckDsh + S4 schema 协同 + S1 勘误 + S2-record C3 关闭）。
-- 内容：S5 契约——指针升共识 v1.4（A1）；T5-05 改「安装前预防提示 + README 引导」删安装后检测/flag 描述（A2）；接口补 #5 HullUpdater.cancel()（CancellationToken，仅 downloading 可取消）原 #5 CI 顺延 #6（A3）；restart-prompt 枚举保留 + 语义注记（A4）；状态表补 checking→idle 行（A5）；封口声明（A6）。S5 设计——删 Gatekeeper flag 机制改预防性提示（B1）；互斥修正：check/download/installAndRestart 全占槽 + 单次 acquire 连续持有至终态（B2，S3 check 实占槽实证纠正引据）；installAndRestart 补 stop 失败分支（B3）；electron-updater 改 dependencies（B4）；extractNode 打包接线定案 a（extraResources + runtime seam + T2-06 关联验收）（B5）；cancel() 设计（B6）；DismissStore 双键子句 { dsh?, hull? }（B7）；小项落稿：currentVersion=app.getVersion/下载中退出自然中断/双通道并发确认框接受 + S6 排队/quitAndInstallMode getter（B8）；S3-record 空窗闭环义务履行（B9）。
-- 影响清单：S5 契约（已更新 v0.2）、S5 设计（已更新 0.2）、**S3 契约（#5 调用方 + DismissStore 分通道键注记）**、**S3 设计（DismissStore 分通道 + autoCheckDsh 落地注记）**、**S4 契约（schema 协同注记：autoCheckDsh/autoCheckHull 同批，schemaVersion 定 3）**、**S1 设计（§5.1 dismiss.json 双键勘误）**、**S2-record（C3 关闭：打包专项并入 S5）**、代码（**零改动声明**：DismissStore 双键/SettingsProvider autoCheck* 归 S5 实现波）、共识（指针 v1.4 五契约确认）、Q-items（无开放项）。
-- 状态：复评通过，已冻结。复评结论：alpha/gamma 可冻结，beta 轻量修订后冻结（2 处 P2 残留已修：§4.5 占槽同步 + 旧单键字段名）；无 P0/P1 残留。
+- 类型：S5 契约 v0.2 + 设计 0.2 评审修订（封口 6 项 + 修订后冻结）+ 变更传播（S3 DismissStore/autoCheckDsh + S4 schema 协同 + S1 勘误 + S2-record C3 关闭）
+- 内容：契约——T5-05 改「安装前预防提示 + README 引导」删安装后检测/flag；接口补 #5 HullUpdater.cancel()（CancellationToken，仅 downloading 可取消）；restart-prompt 枚举保留 + 语义注记；状态表补 checking→idle；封口声明。设计——删 Gatekeeper flag 改预防性提示；互斥 check/download/installAndRestart 全占槽 + 单次 acquire 连续持有至终态；installAndRestart 补 stop 失败分支；electron-updater 改 dependencies；extractNode 打包接线定案 a（extraResources + runtime seam）；cancel() 设计；DismissStore 双键 { dsh?, hull? }
+- 影响：S3 契约/设计（DismissStore 分通道 + autoCheckDsh 落地注记）；S4 契约（schema 协同：autoCheck* 同批，schemaVersion 定 3）；S1 设计（§5.1 dismiss.json 双键勘误）；S2-record（C3 关闭：打包专项并入 S5）；代码零改动声明；共识指针 v1.4
+- 状态：复评通过，已冻结；无 P0/P1 残留
 
 ## 2026-08-17 S4 v0.2（评审修订 + 变更传播）
 
-- 类型：S4 契约 v0.2 + S4 设计 0.2 评审修订（终审裁决封口 8 项 + 修订后冻结）+ 变更传播（S1 勘误 / S3 注记 / 三契约指针）。
-- 内容：S4 契约——适用版本升共识 v1.4（G1）；变更记录格式统一（G2）；#3 resolveTarget 使用场景改「Updater.upgrade 前（默认目标），解锁升级显式传参绕过」（G3）；#5 VersionCompare 映射注记（≡ S3 semver.compareVersions）+ version-not-found/解锁失败 channel 不动/离线锁定边界注记（G4）；需求追踪表 Settings.registry 行删改 + HULL_REGISTRY env 承载注记（G5）；#1/#2/#4 调用方时序注记（S4 先行 main 接口 + IPC 预留，S6 接线设置页）（G6）；IPC 预留注记（hull:getChannel/setChannel/listVersions 三通道，S6 启用）（G7）；未升版本注记——S3 #1/#2 同步对齐（G8）。
-- S4 设计 0.2：check 恒 latest 字面化 + upgrade 默认 resolveTarget/显式绕过（B1）；版本列表与存在性校验双层拆分（listVersions 截断前 100 + 单版本端点 200/404）（B2）；upgrade guard「目标 == 当前版本 → 拒绝」（B3）；set('latest') 显式清 pinnedVersion 同事务原子写（B4）；写失败内存态丢弃 + get() 恒读磁盘权威 + 解锁回写失败容错（B5）；T4-03 接口级验收 + S3 dialog 按钮集扩展归 S6（B6）；schemaVersion bump 策略（B7）；离线 set('pinned') 边界注记（B8）；§8 偏离表/忠实点/T4 对照更新（B9）。
-- 影响清单：S4 契约（已更新 v0.2）、S4 设计（已更新 0.2）、**S1 设计（勘误：§5.1 schema 表扩展 + 写路径修订）**、**S1 契约（SettingsProvider 描述行注记）**、**S3 契约（#1/#2 行为注记）**、代码（**零改动声明**：SettingsProvider 字段扩展归 S4 实现波）、共识（指针 v1.4 三契约确认）、Q-items（无开放项）。
-- 状态：复评通过，已冻结。复评结论：alpha/gamma 可冻结，beta 轻量修订后冻结（1 处 P2 §4.1 伪码残留已修）；无 P0/P1 残留。
+- 类型：S4 契约 v0.2 + 设计 0.2 评审修订（终审裁决封口 8 项 + 修订后冻结）+ 变更传播（S1 勘误 / S3 注记 / 三契约指针）
+- 内容：契约——#3 resolveTarget 使用场景改「Updater.upgrade 前（默认目标），解锁升级显式传参绕过」；#5 VersionCompare ≡ S3 semver.compareVersions + 离线锁定边界注记；Settings.registry 行删改 + HULL_REGISTRY env 承载注记；IPC 预留（hull:getChannel/setChannel/listVersions 三通道，S6 启用）；#1/#2/#4 调用方时序注记。设计——check 恒 latest 字面化 + upgrade 默认 resolveTarget/显式绕过；upgrade guard「目标 == 当前版本 → 拒绝」；set('latest') 显式清 pinnedVersion 同事务原子写；写失败内存态丢弃 + get() 恒读磁盘权威；schemaVersion bump 策略；离线 set('pinned') 边界注记
+- 影响：S1 设计勘误（§5.1 schema 表扩展 + 写路径修订）；S1 契约（SettingsProvider 描述行注记）；S3 契约（#1/#2 行为注记）；代码零改动声明；共识指针 v1.4
+- 状态：复评通过，已冻结；无 P0/P1 残留
 
 ## 2026-08-17 S3 v0.2（评审修订 + 变更传播）
 
-- 类型：S3 契约 v0.2 + S3 设计 0.2 评审修订 + S2/S1 文档勘误变更传播（终审裁决：14 项裁决 + 修订后冻结）。
-- 内容：S3 契约——补 #8 Updater.canRollback()、#1/#4 调用方时序注记（S3 先行 main/托盘 + dialog，S6 接线设置页）、T3-05 分期标注、version-invalid 双触发点注记。S3 设计——upgrade 伪码 swap 后 phase 校验（B1）、verify 合并进 start()（B2）、HULL_PROBE_TARGET 注入生命周期两段（B3）、手动回滚 ready 态三步（B4）、swapBack 新原语定义（B5，非复用 S2 rollbackSwap）、swap-broken 先读 phase 映射（B6）、失败提示 dialog 载体（B7）、inFlightUpgrade()（B8）、registry URL 编码 + CHECK_TIMEOUT_MS=10s + abort（B9/B12）、changeNotes 可空不建 GitHub 拉取（B10）、回滚后 currentVersion 回写（B11）、confirm 期队列占位（B12）、SwapManager 收敛纯映射薄层（B13）、S1 退出测试全量回归项（B14）。
-- 影响清单：S3 契约（已更新 v0.2）、S3 设计（已更新 0.2）、**S2 契约（变更传播 v0.3：#10 swapBack）**、S2 设计（勘误：swapBack 列模块表/§4）、S2-record（登记 #10 与 🟢-A 语义澄清）、S1 设计（勘误：§5.1 布局表补 dismiss.json，**S1 代码零改动**）、S1/S2 代码（零改动声明）、共识（指针 v1.4 三契约确认）、Q-items（无开放项）。
-- 状态：复评通过，已冻结。复评结论：alpha/beta 可冻结，gamma 修订后冻结（1 处 P1 confirm 占位过度机制已删）；无 P0/P1 残留。
+- 类型：S3 契约 v0.2 + 设计 0.2 评审修订 + S2/S1 文档勘误变更传播（终审裁决 14 项 + 修订后冻结）
+- 内容：契约——补 #8 Updater.canRollback()、#1/#4 调用方时序注记（S3 先行 main/托盘 + dialog，S6 接线设置页）、T3-05 分期标注、version-invalid 双触发点。设计——upgrade 伪码 swap 后 phase 校验；verify 合并进 start()；HULL_PROBE_TARGET 注入生命周期两段；手动回滚 ready 态三步；swapBack 新原语（非复用 S2 rollbackSwap）；swap-broken 先读 phase 映射；registry URL 编码 + CHECK_TIMEOUT_MS=10s + abort；changeNotes 可空不建 GitHub 拉取；回滚后 currentVersion 回写；SwapManager 收敛纯映射薄层
+- 影响：S2 契约 v0.3（#10 swapBack）；S2 设计勘误（swapBack 列模块表/§4）；S2-record 登记；S1 设计勘误（§5.1 补 dismiss.json，S1 代码零改动）；S1/S2 代码零改动声明；共识指针 v1.4
+- 状态：复评通过，已冻结；无 P0/P1 残留
 
 ## 2026-08-17 S2 v0.2（评审修订）
 
-- 类型：S2 契约 v0.2 + S2 设计 0.2 评审修订（终审裁决：8 项裁决 + 修订后冻结）。
-- 内容：接口清单补 #6 installStatus（轮询进度）/ #7 hull:install / #8 hull:cancelInstall / #9 swap（install/swap 拆分，对齐 S3 契约 #6 SwapManager.swap()）；首装自动触发语义（无 overlay 自动安装，取消后才进引导态）；post-swap bin symlink（`<dsh>/bin/dsh` → node_modules/.bin/dsh，S1 spawnArgs 零改动）；取消窗口定稿（仅 installing 可取消 + cancelled 标志）；npm 超时 120s 常量 + `--fetch-timeout=30000`；错误集五码 → **六码**（+runtime-unavailable，registry-unreachable 判定规则注明）；包版本重核（共识 §8 实测：npm dist-tag latest = 0.1.0-rc.6，2026-08-14 实测标注）；ensure() 三态（Q-004/CON-R014，T3-03 对齐）；registry env 化（HULL_REGISTRY，settings schema 不动）；spawn 非 detached + npmRunner 内联 kill（processGroup 抽离删除，S1 零改动双保险）；fetch-node SHA256 校验。
-- 影响清单：S2 契约（已更新 v0.2）、S2 设计（已更新 0.2）、S1（**零改动声明**：symlink 方案保证 spawnArgs 不用改，RuntimeManager 私有实现不动）、S3（零改动协调注记：install/swap 拆分后对齐契约 #6）、共识（指针更新：v1.4，规则无变化）、Q-items（无开放项）。
-- 状态：复评通过，已冻结。复评结论：三席复核员一致可冻结，无 P0/P1。
+- 类型：S2 契约 v0.2 + 设计 0.2 评审修订（终审裁决 8 项 + 修订后冻结）
+- 内容：接口补 #6 installStatus（轮询进度）/ #7 hull:install / #8 hull:cancelInstall / #9 swap（install/swap 拆分，对齐 S3 契约 #6）；首装自动触发语义（无 overlay 自动安装，取消后才进引导态）；post-swap bin symlink（`<dsh>/bin/dsh` → node_modules/.bin/dsh，S1 spawnArgs 零改动）；取消仅 installing 可取消 + cancelled 标志；npm 超时 120s 常量 + `--fetch-timeout=30000`；错误集五码→六码（+runtime-unavailable）；ensure() 三态（Q-004/CON-R014，T3-03 对齐）；registry env 化（HULL_REGISTRY，settings schema 不动）；spawn 非 detached + npmRunner 内联 kill；fetch-node SHA256 校验
+- 影响：S1 零改动声明（symlink 方案保证 spawnArgs 不用改）；S3 零改动协调注记（install/swap 拆分后对齐契约 #6）；共识指针 v1.4
+- 状态：复评通过，已冻结；无 P0/P1
 
 ## 2026-08-14 v1.4
 
-- 类型：S1 契约 v0.2 + 共识 v1.4 评审修订。
-- 内容：7 项契约封口（状态表补 starting 子进程退出→failed / stop()→idle 两行迁移、探测语义改固定 15s 窗口周期重试、Node 来源注记、start 幂等澄清、ReadinessProbe 复合签名、preload 桥 #7、web 子命令入参）+ 3 项共识回写（Q-009 探测语义、§4.2 迁移补充、preload 注入边界声明）+ PRD FR-1 勘误（≤10s 口径统一为含 dsh）。
-- 影响清单：S1 契约（已更新）、共识（已更新）、S3/S5 契约（已核兼容，无需改）、设计 S1-壳骨架（待 0.2 修订）、PRD（勘误已登记）、Q-items（无开放项）。
-- 状态：复评通过，已冻结。复评结论：三席复核员一致可冻结，无 P0/P1。
+- 类型：S1 契约 v0.2 + 共识 v1.4 评审修订
+- 内容：7 项契约封口（状态表补 starting 子进程退出→failed / stop()→idle 两行迁移、探测语义改固定 15s 窗口周期重试、Node 来源注记、start 幂等澄清、ReadinessProbe 复合签名、preload 桥 #7、web 子命令入参）+ 3 项共识回写（Q-009 探测语义、§4.2 迁移补充、preload 注入边界声明）+ PRD FR-1 勘误（≤10s 口径统一为含 dsh）
+- 影响：S1 契约/共识已更新；S3/S5 契约已核兼容无需改；设计 S1-壳骨架-m1-design 待 0.2 修订；PRD 勘误已登记
+- 状态：复评通过，已冻结；无 P0/P1
 
 ## 2026-08-14 v1.3
 
 - Gate B 定稿：M1 子需求清单（S1~S7）写入共识 §14.1 并 ticket 化（飞书 dsh-hull-desktop，负责人 phper666，交付顺序 S1→S2→S3→S4→S5→S6，S7 贯穿）。规则无变化。
-- Q-012 结论回写 §4.4：Hull 升级删除「稍后重启」选项——确认即执行（确认框「稍后再说」已覆盖延迟需求，Q-008）；下载完成后自动重启安装。来源：契约复核（feishu-s5）→ Q-012 闭环。
+- Q-012 结论回写 §4.4：Hull 升级删除「稍后重启」选项——确认即执行（确认框「稍后再说」已覆盖延迟需求，Q-008）；下载完成后自动重启安装。来源：契约复核（feishu-s5-m1-api-contract.md）→ Q-012 闭环。
 
 ## 2026-08-14 v1.2
 

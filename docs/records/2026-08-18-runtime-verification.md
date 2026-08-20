@@ -42,7 +42,7 @@
 
 ## 待办（已登记）
 
-1. ✅ S7 契约版本记录更新：rc.6 → rc.7（08-18 实测）——已闭环（2026-08-18：feishu-s7-api-contract.md 变更记录加 08-18 实测注记 latest = 0.1.0-rc.7）
+1. ✅ S7 契约版本记录更新：rc.6 → rc.7（08-18 实测）——已闭环（2026-08-18：feishu-s7-m1-api-contract.md 变更记录加 08-18 实测注记 latest = 0.1.0-rc.7）
 2. main 启动早期加 logger.info 调用点（首装失败路径写日志——当前 hull.log 空是设计缺口）
 3. ~~`session.setPreloads` → `registerPreloadScript`（Electron 43 废弃 API）~~ ✅ 已闭环 2026-08-18：WindowManager 迁移（固定 id `hull-placeholder`，占位页注册 / 官方 UI unregister），src/preload/index.ts 注释同步
 4. renderer CSP meta（消 Electron 安全警告）

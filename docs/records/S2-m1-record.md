@@ -1,7 +1,7 @@
 # S2 实现记录与核验记录
 
 > 判级：复杂+安全敏感（跨模块协作（OverlayManager/InstallFlow↔S1 RuntimeManager）+ npm registry 外部系统集成 + 安装状态机 + 原子替换 + 安装软件安全面）
-> 事实源：契约 `docs/api/feishu-s2-api-contract.md` v0.2（冻结 2026-08-17）、设计 `docs/design/S2-dsh运行时-design.md` 0.2（冻结 2026-08-17）
+> 事实源：契约 `docs/api/feishu-s2-m1-api-contract.md` v0.2（冻结 2026-08-17）、设计 `docs/design/S2-dsh运行时-m1-design.md` 0.2（冻结 2026-08-17）
 
 ## 实现记录
 
