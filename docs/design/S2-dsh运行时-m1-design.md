@@ -3,7 +3,7 @@
 > 工作项：S2 dsh 运行时管理（飞书 dsh-hull-desktop 清单）
 > 状态：已冻结（多方复评通过，2026-08-17）
 > 版本：0.2 · 2026-08-17
-> 事实源：契约 `docs/api/feishu-s2-m1-api-contract.md` v0.2（已冻结）；共识 `docs/spec/共识-Hull桌面壳-M1.md` v1.4（CON-R002/007/008/010/014/016、Q-004/Q-011）；PRD `docs/prd/2026-08-14-m1-prd.md`；原型 `docs/prototype/index.html`（引导态/安装进度视图）
+> 事实源：契约 `docs/api/feishu-s2-m1-api-contract.md` v0.2（已冻结）；共识 `docs/spec/共识-Hull桌面壳-M1.md` v1.4（CON-R002/007/008/010/014/016、Q-004/Q-011）；PRD `docs/prd/2026-08-14-m1-prd.md`；原型 `docs/prototype/2026-08-14-m1-prototype.html`（引导态/安装进度视图）
 > 判级：复杂+安全敏感。理由：跨模块协作（OverlayManager/InstallFlow↔S1 RuntimeManager）+ 外部系统集成（npm registry）+ 安装状态机 + 原子替换 + 安装软件安全面（DSH_HOME 零接触）
 > 偏离契约/共识处统一标注：⛔️ 见 §8 对照表
 

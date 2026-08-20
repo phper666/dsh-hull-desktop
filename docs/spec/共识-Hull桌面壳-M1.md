@@ -1,7 +1,7 @@
 # Hull 桌面壳（M1）共识文档
 
 > 版本：v1.5 · 更新：2026-08-18 · 维护者：phper666（PM） · 状态：已发布
-> 数据来源：M1 PRD（docs/prd/2026-08-14-m1-prd.md，含 7 项需求决策）、交互原型 v2（docs/prototype/index.html）
+> 数据来源：M1 PRD（docs/prd/2026-08-14-m1-prd.md，含 7 项需求决策）、交互原型 v2（docs/prototype/2026-08-14-m1-prototype.html）
 
 ## 1. 文档元信息
 
@@ -192,7 +192,7 @@
 
 ### 14.2 文档关联
 
-- **关联**：PRD（docs/prd/2026-08-14-m1-prd.md）、原型（docs/prototype/index.html）、规则索引（docs/spec/规则索引.md）、团队配置（docs/spec/团队配置.md）
+- **关联**：PRD（docs/prd/2026-08-14-m1-prd.md）、原型（docs/prototype/2026-08-14-m1-prototype.html）、规则索引（docs/spec/规则索引.md）、团队配置（docs/spec/团队配置.md）
 - **版本记录**（详情事实源：`docs/spec/变更摘要-Hull.md`，此处只留指针）：
   - v1.5（2026-08-18）：主窗口形态变更（全屏官方 UI → 壳框架窗口：左导航 + 右 WebContentsView 内嵌；壳功能入口以壳导航为主、托盘补充；CON-R001 解释扩展非规则变更）。→ 变更摘要-Hull.md v1.5
   - v1.4（2026-08-14）：S1 契约评审修订回写（Q-009 探测语义 15s 窗口、§4.2 迁移补充、preload 边界声明）。→ 变更摘要-Hull.md v1.4
