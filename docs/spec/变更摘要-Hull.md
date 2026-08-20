@@ -8,14 +8,14 @@
 - 类型：实现完成 + 影响闭环
 - 内容：壳框架窗口（左 Hull 导航 + 右 WebContentsView 内嵌官方 UI）实现完成——WindowManager 重构（partition 'shell' + 官方默认 session 隔离、registerPreloadScript 机制删除、hull:status 推送）、shell.html 新增、preload 9 方法、升级/设置入口接线、placeholder.html 删除
 - 验证：222 单测 + 8 集成 + 8 e2e 全绿（冷启动 1853ms）；Semgrep 0 findings；Code Review 修复闭环
-- 影响：影响清单-主窗口形态.md 全部闭环；契约 S1 v0.3/S2 v0.4/S6 v0.3/S7 v0.3 已同步
+- 影响：影响清单-S8.md 全部闭环；契约 S1 v0.3/S2 v0.4/S6 v0.3/S7 v0.3 已同步
 - 状态：完成
 
 ## 2026-08-18 主窗口形态变更（共识 v1.5）
 
 - 类型：产品决策变更（用户拍板）+ 共识修订 v1.4→v1.5
 - 内容：主窗口从"全屏渲染官方 UI"改为"壳框架窗口：左侧 Hull 导航 + 右侧 WebContentsView 内嵌官方 UI"；壳层功能入口（设置/升级）以壳导航为主、托盘为补充；官方 UI 零注入原则不变（CON-R001 解释扩展，非规则变更）
-- 影响清单：docs/spec/影响清单-主窗口形态.md
+- 影响清单：docs/spec/影响清单-S8.md
 - 状态：共识 v1.5 已修订，影响已闭环（S8 实现完成）
 
 ## 2026-08-18 M1 验收实测修复（变更传播）

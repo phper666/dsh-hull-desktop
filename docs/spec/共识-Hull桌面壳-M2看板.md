@@ -1,7 +1,7 @@
 # Hull 桌面壳（M2 任务看板）共识文档
 
 > 版本：v1.0 · 更新：2026-08-19 · 维护者：phper666（PM） · 状态：已发布
-> 数据来源：M2 PRD v0.6（docs/prd/2026-08-19-m2-kanban-prd.md）、交互原型 v6（docs/prototype/m2-kanban.html）
+> 数据来源：M2 PRD v0.6（docs/prd/2026-08-19-m2-kanban-prd.md）、交互原型 v6（docs/prototype/2026-08-19-m2-kanban-prototype.html）
 > 关联：M2 任务看板（PRD 审核通过 2026-08-19，用户确认）
 
 ## 1. 文档元信息
@@ -244,7 +244,7 @@ idle → queued → running → succeeded → Verify（人工把关）→ Done
 
 ### 15.1 文档关联
 
-- **关联**：PRD（docs/prd/2026-08-19-m2-kanban-prd.md）、原型（docs/prototype/m2-kanban.html）、规则索引（docs/spec/规则索引.md）、M1 共识（docs/spec/共识-Hull桌面壳-M1.md）。
+- **关联**：PRD（docs/prd/2026-08-19-m2-kanban-prd.md）、原型（docs/prototype/2026-08-19-m2-kanban-prototype.html）、规则索引（docs/spec/规则索引.md）、M1 共识（docs/spec/共识-Hull桌面壳-M1.md）。
 
 ### 15.2 版本记录
 
