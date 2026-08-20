@@ -1,13 +1,13 @@
 # Hull 桌面壳（M2 任务看板）共识文档
 
-> 版本：v1.0 · 更新：2026-08-19 · 维护者：phper666（PM） · 状态：已发布
+> 版本：v1.1 · 更新：2026-08-20 · 维护者：phper666（PM） · 状态：已发布
 > 数据来源：M2 PRD v0.6（docs/prd/2026-08-19-m2-kanban-prd.md）、交互原型 v6（docs/prototype/2026-08-19-m2-kanban-prototype.html）
 > 关联：M2 任务看板（PRD 审核通过 2026-08-19，用户确认）
 
 ## 1. 文档元信息
 
-- **本版本变更**：首次建立——从 M2 PRD v0.6 + 交互原型提取整理为业务事实源；登记规则 CON-R017~CON-R029（所属模块=看板）；登记未决项 U-001~U-003（PRD §12 遗留待办，下期承接）；PRD 已定案 O-1~O-11 不重复登记（引用 §11 说明）。
-- **历史变更摘要**：无（首版）。
+- **本版本变更**：v1.1 三角色扫描 3 P0 回写——①Q-013：§7.1 Task 增 `executionStatus`（8 态）+ `currentExecutionId`，执行生命周期与看板列双轨解耦；②Q-014：§7.1 Task 增 `dependencies: string[]`（子任务自声明，空=无依赖可并行）；③Q-015：execution 记录增 `selfCheck: { passed, evidence? }` 判定信号，auto 流转 Verify/failed 有客观依据。另并入用户新增：agentSpec 补 `subagentPolicy: 'auto'|'restricted'`，ExecutionProvider 可扩展多平台、dsh 作 ACP client 可编排跨平台子 agent（新规则 CON-R030）。Q-013/014/015 已 closed 回写。
+- **历史变更摘要**：（v1.0 为首次建立——从 M2 PRD v0.6 + 交互原型提取整理为业务事实源；登记规则 CON-R017~CON-R029；登记未决项 U-001~U-003；PRD 已定案 O-1~O-11 不重复登记。）
 
 ## 2. 文档结构总览
 
@@ -57,6 +57,8 @@ idle → queued → running → succeeded → Verify（人工把关）→ Done
                 ├──→ cancelled
                 └──→ failed ──→ queued（重试）
 ```
+
+> **双轨解耦（Q-013 结论）**：本状态机迁移作用于 Task `executionStatus`（执行生命周期）；`columnId`（看板列）是另一轨——人工拖拽改 columnId **不改** executionStatus；父任务聚合基于 columnId，executionStatus 提供补充信号（如执行中徽标、冲突提示依据）。两轨独立持久化、独立流转。
 
 ### 5.2 合法迁移矩阵
 
@@ -117,8 +119,11 @@ idle → queued → running → succeeded → Verify（人工把关）→ Done
 | columnId | 所在列 | 是 | 用户/聚合 | 默认 Todo | 无 |
 | title | 标题 | 是 | 用户 | ≤200 字符 | 无 |
 | executionMode | 执行模式 | 是 | 用户 | manual（默认）/ auto | 无 |
+| executionStatus | 执行生命周期状态（Q-013） | 是 | 系统 | idle（默认）/ queued / running / paused / interrupted / cancelled / failed / succeeded；与 columnId 双轨解耦 | 无 |
+| currentExecutionId | 当前执行指向 timeline execution 条目 | 否 | 系统 | 可空（idle/failed 等无进行中执行时为空） | 无 |
 | acceptanceCriteria | 验收标准 | auto 必填 | 用户 | what/expected/verify 强校验必填 + context 可选 | 无 |
-| agentSpec | agent 指定 | 否 | 用户（M2 不指定） | provider 默认 'dsh'；agent/model 可空 | 无 |
+| agentSpec | agent 指定 | 否 | 用户（M2 不指定） | provider 默认 'dsh'；agent/model 可空；subagentPolicy: 'auto'（默认）/ 'restricted' | 无 |
+| dependencies | 依赖子任务 ID 数组（Q-014） | 否 | 用户 | 仅子任务可声明（同父下）；空 = 无依赖可并行；用户自声明不校验真伪（P2 加环检测） | 无 |
 | description | 描述（Markdown） | 否 | 用户 | P1 | 无 |
 | labels | 标签（彩色小徽标，用户可配颜色） | 否 | 用户 | 数组 | 无 |
 | priority | 优先级 | 否 | 用户 | P0/P1/P2/无（默认 P2） | 无 |
@@ -156,7 +161,8 @@ idle → queued → running → succeeded → Verify（人工把关）→ Done
 | createdAt | 时间 | 是 | ISO 时间戳 |
 | author | 显示名 | 否 | 可空 |
 | source | 来源对象 | 是 | { type: user/agent/system, agentId?, provider? } |
-| execution | 执行详情（type=execution 时携带） | 否 | { status, command, startedAt, finishedAt, exitCode, outputPath } |
+| execution | 执行详情（type=execution 时携带） | 否 | { status, command, startedAt, finishedAt, exitCode, outputPath, selfCheck } |
+| selfCheck | auto 自验判定信号（Q-015） | 否 | { passed: boolean, evidence?: string }；agent 完成返回 passed=true → 流转 Verify；false/超时/异常 → failed |
 
 - 约束：execution 记录恒为 agent 来源；system 事件恒为 system 来源；评论可为 user 或 agent（人工把关需区分内容可信来源）；评论可删除（附件一并删除），execution/system 只读。
 
@@ -184,6 +190,7 @@ idle → queued → running → succeeded → Verify（人工把关）→ Done
 | CON-R027 | 执行顺序：父任务子任务默认串行（逐步验证/依赖天然满足/失败定位准）；无依赖并行（P2 增强） | PRD FR-11 | 生效 | 稳定 |
 | CON-R028 | 干预后仍走 Verify 把关：暂停/取消/重试/手动完成/改状态均不绕过人工把关 | PRD FR-11 | 生效 | 稳定 |
 | CON-R029 | 执行结果回写：auto 验证通过→自动流转 Verify；manual 结果以评论回填、列流转手动；执行完成但列由人工指定时不自动推进 | PRD FR-11/FR-9 | 生效 | 稳定 |
+| CON-R030 | 多 agent 平台派发：agentSpec.subagentPolicy 'auto'（默认，允许内部调用子 agent，含跨平台子 agent，dsh 原生 ACP client/subagent 编排能力）/ 'restricted'（仅 dsh 自身，不调子 agent）；ExecutionProvider 可扩展多平台（provider 字段标识），dsh 作 ACP client 可编排跨平台子 agent | 共识 v1.1（用户新增） | 生效 | 新增 |
 
 ## 9. 枚举值与常量
 
@@ -202,13 +209,17 @@ idle → queued → running → succeeded → Verify（人工把关）→ Done
 | dsh ACP（Agent Client Protocol） | 默认执行通道（壳 spawn dsh ACP 子进程，JSON-RPC over stdio） | newSession(cwd) + prompt（文本+资源引用）发起；session/cancel 取消；agent_message_chunk 流式（仅已提交文本）；session/request_permission 机器审批；局限：无会话加载/恢复/列表、无图片/音频、无推理/工具实时视图；暂停无原生语义 → 降级"标记暂停 + 结果丢弃保留现场" |
 | dsh --patch 插件（hull-kanban-executor） | 备选执行通道（随壳分发，O-5 定案） | ctx.tools.register('hull.kanban.execute')；agent 执行中可查/回写看板（harness.handle / host.call IPC）；独立发布时换进程内 ctx.agents 实现（接口/数据模型零改动） |
 | dsh CLI headless | 兜底执行通道 | spawn `dsh run <prompt>`，解析 stdout/退出码；无事件流（仅开始/结束），暂停/取消降级为 kill 进程 |
+| 多 agent 平台（provider 扩展，CON-R030） | ExecutionProvider 可扩展执行平台 | provider 字段标识平台（默认 'dsh'）；dsh 作 ACP client 可编排跨平台子 agent（subagentPolicy='auto' 时）；restricted 仅 dsh 自身不调子 agent |
 
 ## 11. 未决项登记
 
-> PRD O-1~O-11 已全部定案（见 PRD §11.1），不重复登记；此处仅登记 PRD §12 遗留待办（下期承接，文档头"遗留待办"清单同步）。
+> PRD O-1~O-11 已全部定案（见 PRD §11.1），不重复登记；此处仅登记 PRD §12 遗留待办（下期承接，文档头"遗留待办"清单同步）。Q-013~Q-029 为三角色扫描问题（载体：飞书 q-item 清单 `dsh-hull-desktop-q-item`）；Q-013/014/015 已确认，余项待答。
 
 | 编号 | 问题 | 负责人 | 阻断等级 | 状态 | 结论 | 回写位置 |
 |:-----|:-----|:-------|:---------|:-----|:-----|:---------|
+| Q-013 | executionStatus 未入 Task schema | PM | P0 | closed | 增 executionStatus（8 态）+ currentExecutionId；执行生命周期与 columnId 双轨解耦 | §7.1/§5.1 |
+| Q-014 | dependencies 字段缺失 | PM | P0 | closed | 增 dependencies: string[]（子任务自声明，空=无依赖可并行）；父任务不参与并行调度；自声明不校验真伪（P2 加环检测） | §7.1 |
+| Q-015 | auto 自验判定信号未定义 | PM | P0 | closed | execution 记录增 selfCheck: { passed, evidence? }；passed=true→Verify，false/超时/异常→failed | §7.4/§13 |
 | U-001 | agentSpec 任务级指定（provider/agent/model 选择 UI） | PM | P2 | open | 数据结构已入 schema 留位（O-10 定案），功能排后；触发：多 agent 平台接入 | PRD §12 |
 | U-002 | 多 agent 平台接入（provider 抽象落地） | PM | P2 | open | ExecutionProvider 已抽象（§7.4），provider 字段预留；触发：接入第二个平台 | PRD §12 |
 | U-003 | 并行增强（依赖图可视化） | PM | P2 | open | 并行基础已定（O-9：显式声明无依赖 + maxParallelTasks=5）；触发：并行执行实际使用后 | PRD §12 |
@@ -228,7 +239,8 @@ idle → queued → running → succeeded → Verify（人工把关）→ Done
 
 ## 13. 后端任务规范
 
-- **执行调度**：父任务执行 = 子任务默认串行依次执行（前序失败中止后续）；显式声明无依赖的子任务可并行，并发数 ≤ maxParallelTasks（默认 5）；调度逻辑参考原型 runChildrenBatch（就绪子任务按依赖满足度分批启动）。
+- **执行调度**：父任务执行 = 子任务默认串行依次执行（前序失败中止后续）；显式声明无依赖（`dependencies` 为空）的子任务可并行，并发数 ≤ maxParallelTasks（默认 5）；依赖为**用户自声明**（Q-014：仅子任务可声明、同父下、不校验真伪，P2 加环检测）；父任务不参与并行调度；调度逻辑参考原型 runChildrenBatch（就绪子任务按依赖满足度分批启动）。
+- **自验判定信号（Q-015）**：auto 模式 agent 完成返回 `selfCheck.passed=true` → 自动流转 Verify；`passed=false` / 超时 / 异常 → failed。不用"无异常即通过"（selfCheck 明确可测）。
 - **聚合重算**：子卡流转/新增/删除 → 父卡状态即时重算（全 Done/任一 Blocked/order 最大列）；父卡被人工拖拽锁定后聚合不覆盖（除非用户再次移动）。
 - **级联清理**：删除卡片 → 级联删除子任务 + 全部评论 + 附件磁盘文件（二次确认）。
 - **原子写**：boards.json 写临时文件 → rename 覆盖；变更即写（防抖 500ms）；写失败提示且内存态保留。
@@ -250,4 +262,5 @@ idle → queued → running → succeeded → Verify（人工把关）→ Done
 
 | 版本 | 日期 | 变更摘要条目 | 说明 |
 |:-----|:-----|:-------------|:-----|
+| v1.1 | 2026-08-20 | 变更摘要-M2看板.md 已登记（2026-08-20） | 三角色扫描 3 P0 回写：executionStatus+currentExecutionId（双轨解耦）/dependencies（自声明）/selfCheck 判定信号；agentSpec 补 subagentPolicy + CON-R030 多 agent 平台派发 |
 | v1.0 | 2026-08-19 | 变更摘要-M2看板.md 已登记（2026-08-20） | 首次建立：从 M2 PRD v0.6 + 原型提取整理为业务事实源；登记 CON-R017~CON-R029、U-001~U-003 |
