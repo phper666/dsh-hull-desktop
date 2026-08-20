@@ -720,7 +720,7 @@
           { time: t, note: 'UI 走查通过。', type: 'comment', source: { type: 'user' }, author: '李雨' }
         ] },
       { id: 't-child-5', parentId: 't-parent', title: '子任务拖拽与父任务聚合', desc: '子任务独立拖拽，父卡片显示进度条，状态由子任务聚合。', status: 'todo', priority: 'P1', tags: ['交互'], due: addDays(now, 6), assignee: '李雨', exec: 'idle', mode: 'auto',
-        what: '子任务卡片可跨列拖拽；父状态根据子任务完成度聚合。', expected: '看板列按子任务粒度流转，父卡片展示聚合进度。', verify: '所有子任务 done 后父卡片自动进入 Done。', context: 'docs/prototype/m2-kanban.html', dependencies: [],
+        what: '子任务卡片可跨列拖拽；父状态根据子任务完成度聚合。', expected: '看板列按子任务粒度流转，父卡片展示聚合进度。', verify: '所有子任务 done 后父卡片自动进入 Done。', context: 'docs/prototype/2026-08-19-m2-kanban-prototype.html', dependencies: [],
         timeline: [] },
       { id: 't-manual', title: '手动模式：看板筛选与搜索交互', desc: '按关键词、优先级、状态、标签过滤任务。', status: 'backlog', priority: 'P1', tags: ['UX'], due: addDays(now, 6), assignee: '李雨', exec: 'idle', mode: 'manual',
         aiResult: '筛选搜索原型已就绪，支持标题/标签/负责人/优先级/状态组合过滤。', dependencies: [],
@@ -729,14 +729,14 @@
           { time: t, note: '手动记录：筛选搜索原型完成', type: 'execution', source: agentSource('dsh·research'), exec: 'success' }
         ] },
       { id: 't-comments', title: '评论与执行记录统一时间线', desc: '任务详情侧板展示评论 + 执行记录流，可发送评论。', status: 'inprogress', priority: 'P1', tags: ['交互'], due: addDays(now, 4), assignee: '李雨', exec: 'idle', mode: 'auto',
-        what: '在详情侧板增加时间线 tab，统一展示评论与执行记录。', expected: '用户可评论，agent 结果自动写入时间线。', verify: '评论发送后即时显示；执行记录带状态徽标。', context: 'docs/prototype/m2-kanban.html', dependencies: [],
+        what: '在详情侧板增加时间线 tab，统一展示评论与执行记录。', expected: '用户可评论，agent 结果自动写入时间线。', verify: '评论发送后即时显示；执行记录带状态徽标。', context: 'docs/prototype/2026-08-19-m2-kanban-prototype.html', dependencies: [],
         timeline: [
           { time: t, note: '时间线原型开始搭建', type: 'comment', source: { type: 'user' }, author: '李雨' },
           { time: t, note: '执行记录卡片样式已确认，我来补充 agent 视角。', type: 'comment', source: agentSource('dsh·research'), author: 'dsh·research' },
           { time: t, note: '状态变更：Backlog → In Progress', type: 'status', source: { type: 'system' } }
         ] },
       { id: 't-running-demo', title: '演示：执行中任务拖到 Done 会弹确认', desc: '模拟一个正在 ACP 执行的任务，尝试拖到 Done 列时触发「任务未完成执行，确认跳过？」弹窗。', status: 'inprogress', priority: 'P1', tags: ['演示','交互'], due: addDays(now, 2), assignee: 'Agent', exec: 'running', mode: 'auto',
-        what: '运行一个长时间 agent 任务用于演示拖拽确认。', expected: '拖拽到 Done 时弹窗提示，且不终止执行。', verify: '弹窗出现；取消后任务仍留在原列。', context: 'docs/prototype/m2-kanban.html', dependencies: [],
+        what: '运行一个长时间 agent 任务用于演示拖拽确认。', expected: '拖拽到 Done 时弹窗提示，且不终止执行。', verify: '弹窗出现；取消后任务仍留在原列。', context: 'docs/prototype/2026-08-19-m2-kanban-prototype.html', dependencies: [],
         timeline: [
           { time: t, note: 'ACP headless 执行中…', type: 'execution', source: agentSource('dsh·research'), exec: 'running' }
         ] },
