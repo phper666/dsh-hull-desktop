@@ -1,25 +1,25 @@
 # Hull 桌面壳（M2 任务看板）共识文档
 
-> 版本：v1.2 · 更新：2026-08-20 · 维护者：phper666（PM） · 状态：已发布
+> 版本：v1.3 · 更新：2026-08-20 · 维护者：phper666（PM） · 状态：已发布
 > 数据来源：M2 PRD v0.6（docs/prd/2026-08-19-m2-kanban-prd.md）、交互原型 v6（docs/prototype/2026-08-19-m2-kanban-prototype.html）
 > 关联：M2 任务看板（PRD 审核通过 2026-08-19，用户确认）
 
 ## 1. 文档元信息
 
-- **本版本变更**：v1.2 三角色扫描 10 P1 回写 + 并行进 M2。① O-9 变更：并行**提前进 M2**（原 PRD P2 增强）；② CON-R023 修改：maxParallelTasks 默认 **5→3**；③ Q-016 并行调度闭环（依赖判据 succeeded/manual 按列 Done、失败传播、死锁兜底、父卡派生态）；④ Q-017 壳重启执行态收敛；⑤ Q-018 permission_request 审批流；⑥ Q-019 级联删除补全；⑦ Q-020 Task 增 assignee；⑧ Q-021 空态三态；⑨ Q-022 interrupted 修订——删"继续原执行"，收敛两选一（全量同步 §5.1/§5.2/§5.4/§12/CON-R021）；⑩ Q-023 迁移矩阵补三类（列迁移/重跑规则/系统收敛）；⑪ Q-024 两级测试替身；⑫ Q-025 执行开始即写记录（观测口径）。Q-016~Q-025 已 closed 回写。
-- **历史变更摘要**：（v1.1 三角色扫描 3 P0 回写——executionStatus+currentExecutionId 双轨解耦/dependencies 自声明/selfCheck 判定信号；agentSpec 补 subagentPolicy + CON-R030 多 agent 派发。v1.0 为首次建立——从 M2 PRD v0.6 + 交互原型提取整理为业务事实源；登记规则 CON-R017~CON-R029；登记未决项 U-001~U-003；PRD 已定案 O-1~O-11 不重复登记。）
+- **本版本变更**：v1.3 三角色扫描 4 P2 回写 + 2 决策。① Q-026 执行超时修正为**活动心跳超时**（非总时长）：连续 N 分钟无活动事件 → 疑似卡死 → failed；阈值可配（maxExecutionIdleMinutes 默认 30）；用户可手动"延长执行"；② Q-027 Blocked 隐藏列语义（隐藏=过滤，解除回原列）；③ Q-028 agent 评论只读不可删；④ Q-029 加载 500ms 测量口径（≤5MB 数据集 + 冷启动计时）。决策：⑤ **多项目看板提前进 M2**（原 P2 FR-11 多看板提前，boards[] 顶层 + 创建/切换/独立列）；⑥ **实时协作分享记录为 M2+**（需服务器+同步，关联 O-4；M2 只做导出/导入分享 FR-16；权限模型 M2+）。Q-026~Q-029 已 closed 回写。
+- **历史变更摘要**：（v1.2 三角色扫描 10 P1 回写 + 并行进 M2——O-9 变更 + maxParallelTasks 5→3；并行闭环/重启收敛/审批流/级联补全/assignee/空态三态/interrupted 修订/迁移矩阵三类/mock 桩/执行记录时序。v1.1 三角色扫描 3 P0 回写——executionStatus+currentExecutionId 双轨解耦/dependencies 自声明/selfCheck 判定信号；agentSpec 补 subagentPolicy + CON-R030 多 agent 派发。v1.0 为首次建立——从 M2 PRD v0.6 + 交互原型提取整理为业务事实源；登记规则 CON-R017~CON-R029；登记未决项 U-001~U-003；PRD 已定案 O-1~O-11 不重复登记。）
 
 ## 2. 文档结构总览
 
-- **覆盖**：M2 任务看板全部业务面——看板/列/卡片/子任务/执行模式（manual/auto）/执行通道（ExecutionProvider/ACP/插件/CLI）/评论时间线/人工干预（暂停/取消/重试/AC 修订/手动完成）/自定义列/人工拖拽语义。
+- **覆盖**：M2 任务看板全部业务面——看板（**多项目看板：boards[] 顶层，创建/切换/独立列配置**）/列/卡片/子任务/执行模式（manual/auto）/执行通道（ExecutionProvider/ACP/插件/CLI）/评论时间线/人工干预（暂停/取消/重试/AC 修订/手动完成）/自定义列/人工拖拽语义。
 - **适用范围**：仅 Hull 壳内看板业务（规划/跟踪/持久化/执行编排）；**不覆盖** dsh 官方业务（agent 内部行为、官方 UI、会话内容）——那些是 dsh 的领域，Hull 只做容器与执行通道客户端。
-- **不做事项（M2 明确排除）**：多设备同步（O-4 定案，P2 导出/导入为过渡）；看板数据加密（O-3 定案，同步/云协作场景再评估 SQLite）；插件独立发布（O-5 定案，随壳分发）；任务级指定 agent/模型（O-10 定案，agentSpec 留位功能排后）；并行依赖图可视化（P2 遗留待办）；多人协作/权限。
+- **不做事项（M2 明确排除）**：多设备同步（O-4 定案，P2 导出/导入为过渡）；看板数据加密（O-3 定案，同步/云协作场景再评估 SQLite）；插件独立发布（O-5 定案，随壳分发）；任务级指定 agent/模型（O-10 定案，agentSpec 留位功能排后）；并行依赖图可视化（P2 遗留待办）；多人协作/权限（**实时协作分享记录为 M2+**，见 §15.3）。
 
 ## 3. 领域术语表
 
 | 术语 | 定义 | 出处 |
 |:-----|:-----|:-----|
-| 看板 | 一组列 + 一组卡片的容器；顶层数据为 boards[]，M2 默认单看板，多看板 P2 | PRD §5 Schema |
+| 看板 | 一组列 + 一组卡片的容器；顶层数据为 boards[]，**M2 支持多项目看板（决策 1）：每 Board 独立列配置/任务，可创建/切换**；M2 默认单看板 | PRD §5 Schema + 决策 1 |
 | 列 | 卡片的状态容器；默认预置 6 态模板列，可增删/改名/排序/改色/隐藏（模板列不可删） | PRD FR-2 |
 | 卡片/任务 | 看板最小工作单元；标题必填，可含描述/标签/优先级/截止/执行模式/验收标准/时间线 | PRD FR-3 |
 | 子任务 | 挂在父任务下的独立卡片（`parentId` 指向父卡）；单层嵌套（不可再嵌套，YAGNI） | PRD FR-7 |
@@ -115,6 +115,19 @@ idle → queued → running → succeeded → Verify（人工把关）→ Done
 
 ## 7. 字段业务定义
 
+### 7.0 Board（看板/项目，决策 1：多项目看板提前进 M2）
+
+> 顶层数据为 `boards[]` 数组，M2 支持多项目看板——每个 Board 独立列配置 + 任务集合，可创建/切换。M2 默认单看板起步，多项目为增量能力。
+
+| 字段 | 语义 | 必填 | 来源 | 枚举/默认 |
+|:-----|:-----|:-----|:-----|:----------|
+| id | 看板唯一标识 | 是 | 系统 | b_<uuid> |
+| name | 看板名（项目名） | 是 | 用户 | 可重命名 |
+| columns | 列配置（独立于其他看板） | 是 | 用户 | 默认 6 态模板列 |
+| tasks | 任务集合（该看板下任务） | 是 | 用户 | 空起步 |
+| order | 看板排序 | 是 | 系统 | 数字 |
+| createdAt / updatedAt | 创建/更新时间 | 是 | 系统 | ISO 时间戳 |
+
 ### 7.1 Task（任务/卡片）
 
 | 字段 | 语义 | 必填 | 来源 | 枚举/默认 | 敏感性 |
@@ -170,7 +183,7 @@ idle → queued → running → succeeded → Verify（人工把关）→ Done
 | execution | 执行详情（type=execution 时携带） | 否 | { status, command, startedAt, finishedAt, exitCode, outputPath, selfCheck } |
 | selfCheck | auto 自验判定信号（Q-015） | 否 | { passed: boolean, evidence?: string }；agent 完成返回 passed=true → 流转 Verify；false/超时/异常 → failed |
 
-- 约束：execution 记录恒为 agent 来源；system 事件恒为 system 来源；评论可为 user 或 agent（人工把关需区分内容可信来源）；评论可删除（附件一并删除），execution/system 只读。
+- 约束：execution 记录恒为 agent 来源；system 事件恒为 system 来源；评论可为 user 或 agent（人工把关需区分内容可信来源）；**评论删除权限（Q-028）**——user 评论可删（附件一并删除）；**agent 评论（含执行结果回填）只读不可删**（保执行记录一致性），需删走"删除执行记录"流程；execution/system 只读。
 
 ### 7.5 设置项（SettingsProvider）
 
@@ -178,6 +191,7 @@ idle → queued → running → succeeded → Verify（人工把关）→ Done
 |:-----|:-----|:-----|:-----|
 | maxAttachmentSizeMB | 附件单文件上限 | 10 | 超限拒绝上传并提示 |
 | maxParallelTasks | 并行执行并发上限 | 3 | 显式声明无依赖才可并行；默认 3（用户拍板"5 个太多"，v1.2） |
+| maxExecutionIdleMinutes | 执行活动心跳超时（Q-026） | 30 | 连续 N 分钟无任何活动事件（agent_message_chunk 流式）→ 疑似卡死 → failed；非总时长限制；用户可手动"延长执行"（重设心跳窗口） |
 
 ## 8. 业务规则清单
 
@@ -197,6 +211,8 @@ idle → queued → running → succeeded → Verify（人工把关）→ Done
 | CON-R028 | 干预后仍走 Verify 把关：暂停/取消/重试/手动完成/改状态均不绕过人工把关 | PRD FR-11 | 生效 | 稳定 |
 | CON-R029 | 执行结果回写：auto 验证通过→自动流转 Verify；manual 结果以评论回填、列流转手动；执行完成但列由人工指定时不自动推进 | PRD FR-11/FR-9 | 生效 | 稳定 |
 | CON-R030 | 多 agent 平台派发：agentSpec.subagentPolicy 'auto'（默认，允许内部调用子 agent，含跨平台子 agent，dsh 原生 ACP client/subagent 编排能力）/ 'restricted'（仅 dsh 自身，不调子 agent）；ExecutionProvider 可扩展多平台（provider 字段标识），dsh 作 ACP client 可编排跨平台子 agent | 共识 v1.1（用户新增） | 生效 | 新增 |
+| CON-R031 | 多项目看板（决策 1）：boards[] 顶层，每 Board 独立列配置/任务，可创建/切换；M2 默认单看板起步 | 共识 v1.3 | 生效 | 新增 |
+| CON-R032 | 执行活动心跳超时（Q-026）：连续 maxExecutionIdleMinutes（默认 30，可配）无活动事件 → 疑似卡死 → failed；非总时长限制；用户可手动"延长执行" | 共识 v1.3 | 生效 | 新增 |
 
 ## 9. 枚举值与常量
 
@@ -206,20 +222,20 @@ idle → queued → running → succeeded → Verify（人工把关）→ Done
 - **来源类型**：user / agent / system。
 - **timeline type**：comment / execution / system。
 - **颜色语义（三色分层）**：卡片左侧色条 = 优先级；标签 = 彩色小徽标（用户可配）；列头色带 = 列语义（列自定义配置）。
-- **常量**：标题 ≤200 字符（原型 120 为简化，以 PRD 为准）；执行超时 30min（插件侧）；输出摘要截断 4KB；写盘防抖 500ms；附件路径 `<userData>/kanban/attachments/<timelineId>/`；执行输出 `<userData>/kanban/executions/e_<uuid>.log`；boards.json ≤5MB 时加载 <500ms。
+- **常量**：标题 ≤200 字符（原型 120 为简化，以 PRD 为准）；**执行超时 = 活动心跳超时（Q-026）**——连续 `maxExecutionIdleMinutes`（默认 30）无活动事件 → 疑似卡死 → failed（非总时长限制，持续输出的长任务不超时；插件侧原 30min 固定超时废弃）；输出摘要截断 4KB；写盘防抖 500ms；附件路径 `<userData>/kanban/attachments/<timelineId>/`；执行输出 `<userData>/kanban/executions/e_<uuid>.log`；**boards.json ≤5MB 时加载 <500ms（Q-029 测量口径）：构造 ≤5MB 数据集（1000+ 卡）+ 冷启动（无缓存）计时基准 ≤500ms 验收**。
 
 ## 10. 第三方对接
 
 | 外部系统 | 用途 | 关键点 |
 |:---------|:-----|:-------|
-| dsh ACP（Agent Client Protocol） | 默认执行通道（壳 spawn dsh ACP 子进程，JSON-RPC over stdio） | newSession(cwd) + prompt（文本+资源引用）发起；session/cancel 取消；agent_message_chunk 流式（仅已提交文本）；**session/request_permission 机器审批流（Q-018）**：壳收 request_permission → 弹非阻塞确认框（任务/执行上下文 + agent 消息 + 批准/拒绝）→ 用户决策回 ACP 响应（approve/deny + request id，防 agent 悬挂）→ 30s 超时自动 deny + 关弹窗 → 决策写 timeline（system, user）→ 多请求并行按任务平铺/FIFO 排队；局限：无会话加载/恢复/列表、无图片/音频、无推理/工具实时视图；暂停无原生语义 → 降级"标记暂停 + 结果丢弃保留现场" |
+| dsh ACP（Agent Client Protocol） | 默认执行通道（壳 spawn dsh ACP 子进程，JSON-RPC over stdio） | newSession(cwd) + prompt（文本+资源引用）发起；session/cancel 取消；**agent_message_chunk 流式（仅已提交文本）——即活动心跳（Q-026）：持续收流式事件视为活跃不超时**；**session/request_permission 机器审批流（Q-018）**：壳收 request_permission → 弹非阻塞确认框（任务/执行上下文 + agent 消息 + 批准/拒绝）→ 用户决策回 ACP 响应（approve/deny + request id，防 agent 悬挂）→ 30s 超时自动 deny + 关弹窗 → 决策写 timeline（system, user）→ 多请求并行按任务平铺/FIFO 排队；局限：无会话加载/恢复/列表、无图片/音频、无推理/工具实时视图；暂停无原生语义 → 降级"标记暂停 + 结果丢弃保留现场" |
 | dsh --patch 插件（hull-kanban-executor） | 备选执行通道（随壳分发，O-5 定案） | ctx.tools.register('hull.kanban.execute')；agent 执行中可查/回写看板（harness.handle / host.call IPC）；独立发布时换进程内 ctx.agents 实现（接口/数据模型零改动） |
 | dsh CLI headless | 兜底执行通道 | spawn `dsh run <prompt>`，解析 stdout/退出码；无事件流（仅开始/结束），暂停/取消降级为 kill 进程 |
 | 多 agent 平台（provider 扩展，CON-R030） | ExecutionProvider 可扩展执行平台 | provider 字段标识平台（默认 'dsh'）；dsh 作 ACP client 可编排跨平台子 agent（subagentPolicy='auto' 时）；restricted 仅 dsh 自身不调子 agent |
 
 ## 11. 未决项登记
 
-> PRD O-1~O-11 已全部定案（见 PRD §11.1），不重复登记；此处仅登记 PRD §12 遗留待办（下期承接，文档头"遗留待办"清单同步）。Q-013~Q-029 为三角色扫描问题（载体：飞书 q-item 清单 `dsh-hull-desktop-q-item`）；Q-013~Q-025 已确认，余项待答。
+> PRD O-1~O-11 已全部定案（见 PRD §11.1），不重复登记；此处仅登记 PRD §12 遗留待办（下期承接，文档头"遗留待办"清单同步）。Q-013~Q-029 为三角色扫描问题（载体：飞书 q-item 清单 `dsh-hull-desktop-q-item`）；Q-013~Q-029 已全部确认闭环。
 
 | 编号 | 问题 | 负责人 | 阻断等级 | 状态 | 结论 | 回写位置 |
 |:-----|:-----|:-------|:---------|:-----|:-----|:---------|
@@ -236,6 +252,10 @@ idle → queued → running → succeeded → Verify（人工把关）→ Done
 | Q-023 | 状态机迁移矩阵不完整 | PM | P1 | closed | 补三类：列迁移（不改 executionStatus）/重跑规则（任何态点执行→queued）/系统收敛；②③合并为重跑规则 | §5.2 |
 | Q-024 | ACP 无 mock/桩定义 | PM | P1 | closed | 两级替身：接口级内存桩（主）+ ACP 帧协议桩（可选）；HULL_EXEC_PROVIDER=mock 仅 debug/test；真实冒烟保留 | §13 |
 | Q-025 | 并行上限无观测口径 | PM | P1 | closed | 执行开始即写 execution 记录（startedAt），完成补 finishedAt；断言双界（≥2 且 ≤3）；mock 可控延迟；依赖分批时序断言 | §13 |
+| Q-026 | 执行超时仅插件侧 | PM | P2 | closed | 修正为**活动心跳超时**（非总时长）：连续 maxExecutionIdleMinutes（默认 30）无活动事件→疑似卡死→failed；阈值可配；用户可手动"延长执行" | §9/§7.5/§13 |
+| Q-027 | Blocked 隐藏时解除语义 | PM | P2 | closed | 隐藏列=卡片不显示（视为过滤），数据保留；解除 Blocked 回原列重新显示 | §12 |
+| Q-028 | agent 评论删除权限 | PM | P2 | closed | user 评论可删；agent 评论（含执行回填）只读不可删（保执行记录一致性）；需删走"删除执行记录"流程 | §7.4 |
+| Q-029 | 加载 500ms 无测量口径 | PM | P2 | closed | 构造 ≤5MB 数据集（1000+ 卡）+ 冷启动（无缓存）计时；冷启动 ≤500ms 验收 | §9 |
 | U-001 | agentSpec 任务级指定（provider/agent/model 选择 UI） | PM | P2 | open | 数据结构已入 schema 留位（O-10 定案），功能排后；触发：多 agent 平台接入 | PRD §12 |
 | U-002 | 多 agent 平台接入（provider 抽象落地） | PM | P2 | open | ExecutionProvider 已抽象（§7.4），provider 字段预留；触发：接入第二个平台 | PRD §12 |
 | U-003 | 并行增强（依赖图可视化） | PM | P2 | open | 并行执行已进 M2（O-9 变更，依赖声明+maxParallelTasks=3）；依赖图可视化仍 P2 排后 | PRD §12 |
@@ -244,7 +264,7 @@ idle → queued → running → succeeded → Verify（人工把关）→ Done
 
 | 页面/组件 | 角色 | 功能 | 权限 | 数据范围 |
 |:----------|:-----|:-----|:-----|:---------|
-| 看板主界面 | 用户 | 左侧 Hull 导航（dsh web/设置/升级/任务看板）+ 右侧看板视图；工具栏（搜索/优先级筛选/状态筛选/标签筛选/清除/管理列/新建任务）；列（300px，列头色带=列颜色，卡片数徽标）；卡片（左侧色条=优先级、模式徽标、父引用徽标、标签、进度条+展开子任务列表、截止/负责人、执行状态徽标、←/→/agent 按钮） | 全量 | 看板数据 |
+| 看板主界面 | 用户 | 左侧 Hull 导航（dsh web/设置/升级/任务看板）+ 右侧看板视图；**多项目看板（决策 1）：看板切换器/创建看板按钮，各看板独立列+任务**；工具栏（搜索/优先级筛选/状态筛选/标签筛选/清除/管理列/新建任务）；列（300px，列头色带=列颜色，卡片数徽标）；卡片（左侧色条=优先级、模式徽标、父引用徽标、标签、进度条+展开子任务列表、截止/负责人、执行状态徽标、←/→/agent 按钮） | 全量 | 看板数据 |
 | 详情侧板 | 用户 | 标题/描述/元信息/父任务面包屑（点击跳父）/执行模式（auto 四字段 or manual AI 结果）/执行流程步骤条/子任务列表（点击跳子）/附件（上限提示）/时间线 tab + 评论 tab/干预按钮区 | 全量 | 单卡片 |
 | 编辑弹窗 | 用户 | 标题/描述/执行模式切换（auto 显示四字段，manual 显示 AI 结果输入）/依赖子任务 ID（逗号分隔，留空=无依赖可并行）/优先级/状态/截止/**负责人（assignee，可空，Q-020）**/标签；auto 必填项缺失标红拦截 | 全量 | 单卡片 |
 | 列管理弹窗 | 用户 | 列列表（序号/颜色选择器/名称/上移下移/删除，模板列锁定）+ 重置默认/新增列/保存；删除列时列内卡片移入 Todo | 全量 | 看板列 |
@@ -254,6 +274,8 @@ idle → queued → running → succeeded → Verify（人工把关）→ Done
 | 时间线 | 用户 | 评论+执行记录统一流；agent 来源带 AI 徽标（agentId 显示），user 评论无徽标，execution 恒显 AI 标识；评论 tab 含输入框 | 评论可写，execution/system 只读 | 单卡片 |
 
 > **空态三态（Q-021 结论）**：① 空列——无卡片，显示"新建任务"引导按钮；② 筛选无结果——显示"无匹配卡片"提示 + 清除筛选按钮；③ 空看板——罕见兜底（首进自动建 6 态模板列，正常不出现）。
+
+> **隐藏列语义（Q-027 结论）**：隐藏列 = 该列卡片不显示（视为过滤），数据保留不展示；解除 Blocked（blockedFromColumnId）后卡片自动回原列重新显示；被隐藏的 Blocked 列内卡片不显示在任一列区。
 
 ## 13. 后端任务规范
 
@@ -267,6 +289,7 @@ idle → queued → running → succeeded → Verify（人工把关）→ Done
 - **自验判定信号（Q-015）**：auto 模式 agent 完成返回 `selfCheck.passed=true` → 自动流转 Verify；`passed=false` / 超时 / 异常 → failed。不用"无异常即通过"（selfCheck 明确可测）。
 - **执行记录时序（Q-025）**：执行开始即写 execution 记录（`startedAt`），完成补 `finishedAt`——供并行观测、状态视图、重启收敛共同依赖；Q-025 用例断言双界（峰值并发 ≥2 且 ≤3）、mock 可控延迟、依赖分批时序（后置 startedAt ≥ 前驱 finishedAt）。
 - **测试替身（Q-024）**：两级——① ExecutionProvider 接口级内存桩（主，确定性事件注入：权限/超时/cancel/流式/selfCheck passed=false）；② ACP 帧协议桩（可选，仅验证编解码）。`HULL_EXEC_PROVIDER=mock` 仅 debug/test 生效；真实 dsh 冒烟保留。
+- **活动心跳超时（Q-026）**：执行超时 = 活动心跳——ACP 持续收流式事件（agent_message_chunk）视为活跃不超时；**连续 `maxExecutionIdleMinutes`（默认 30，可配）无任何活动事件** → 判定"疑似卡死" → failed + 终止进程；非总时长限制（持续输出 3 小时的任务不超时，卡死 30min 无输出的任务超时）；用户可手动"延长执行"（重设心跳窗口）。
 - **聚合重算**：子卡流转/新增/删除 → 父卡状态即时重算（全 Done/任一 Blocked/order 最大列）；父卡被人工拖拽锁定后聚合不覆盖（除非用户再次移动）。
 - **级联清理（Q-019 补全）**：删除卡片 → 级联删除子任务 + 全部评论 + 附件磁盘文件 + **executions/\*.log**（与 PRD R4 滚动清理互补）；**删除前检查全部子任务执行态**（任一 running/queued → 禁止删除）；**被删任务从调度队列摘除**；**清理其他子任务 dependencies 中对该任务的引用**（二次确认）。
 - **原子写**：boards.json 写临时文件 → rename 覆盖；变更即写（防抖 500ms）；写失败提示且内存态保留。
@@ -288,6 +311,18 @@ idle → queued → running → succeeded → Verify（人工把关）→ Done
 
 | 版本 | 日期 | 变更摘要条目 | 说明 |
 |:-----|:-----|:-------------|:-----|
+| v1.3 | 2026-08-20 | 变更摘要-M2看板.md 已登记（2026-08-20） | 4 P2 回写（心跳超时/隐藏列语义/agent 评论只读/500ms 测量口径）+ 多项目看板提前进 M2 + 实时协作记录 M2+ |
 | v1.2 | 2026-08-20 | 变更摘要-M2看板.md 已登记（2026-08-20） | 并行进 M2（O-9 变更）+ maxParallelTasks 5→3；10 P1 回写：并行闭环/重启收敛/审批流/级联补全/assignee/空态三态/interrupted 修订/迁移矩阵三类/mock 桩/执行记录时序 |
 | v1.1 | 2026-08-20 | 变更摘要-M2看板.md 已登记（2026-08-20） | 三角色扫描 3 P0 回写：executionStatus+currentExecutionId（双轨解耦）/dependencies（自声明）/selfCheck 判定信号；agentSpec 补 subagentPolicy + CON-R030 多 agent 平台派发 |
 | v1.0 | 2026-08-19 | 变更摘要-M2看板.md 已登记（2026-08-20） | 首次建立：从 M2 PRD v0.6 + 原型提取整理为业务事实源；登记 CON-R017~CON-R029、U-001~U-003 |
+
+### 15.3 后续规划（M2+）
+
+> 记录 M2 明确后置/不实做项，供后续里程碑规划承接。
+
+| 项 | 阶段 | 说明 |
+|:---|:-----|:-----|
+| **实时协作分享** | M2+（不实做） | 需服务器 + 同步（关联 O-4 同步后置）；他人实时可见/可编辑；**M2 只做"导出分享"**（导出看板/ticket JSON → 可导入，FR-16 导出/导入承载） |
+| **权限模型** | M2+ | 被分享人可看/可改需权限语义；M2 无权限语义（Q-020 明确 assignee 纯展示/筛选无权限）；实时协作需权限，M2+ 引入 |
+| 多项目看板 | **已提前进 M2**（决策 1） | 原 P2（FR-11 多看板）提前；boards[] 顶层 + 创建/切换/独立列，见 §7.0/§12 |
+| 导出/导入 | M2（FR-16 承载） | 导出分享的基础；与实时协作区分 |
