@@ -22,6 +22,9 @@
 | DSH_HOME 零接触 | B1 | CON-R017（CON-R002 延伸） | 数据落 userData/kanban，不碰 DSH_HOME | 数据归属 | 已定义 |
 | 评论来源/删除权限 | B1 | CON-R025 + Q-028 | user 评论可删；agent 评论只读 | kanban:deleteComment | 已定义 |
 | 执行态/记录字段 | B1 | Q-015/Q-025 + CON-R030 | selfCheck/statedAt-finishedAt/subagentPolicy | ExecutionRecord Schema | 已定义 |
+| 删除守卫 | B1 | Q-019 + CON-R033 | running/queued 禁删；看板含 ticket（含归档）拒删 | deleteTask/deleteBoard | 已定义 |
+| 归档 | B1 | CON-R033（决策 1/2） | Done 可归档 + 恢复/彻底删除；archivedAt/archivedFromColumnId | archiveTask/restoreTask/purgeTask | 已定义 |
+| 列删除 | B1 | CON-R020 + PRD FR-2 | 自定义列可删（列内卡入 Todo）；模板列拒删 | kanban:deleteColumn | 已定义 |
 
 ## 范围与非目标
 
@@ -80,6 +83,10 @@
 | 10 | 已定义 | invoke | `kanban:addComment` | 追加评论（manual 结果回填/user 评论） | 无 | 否（创建） |
 | 11 | 已定义 | invoke | `kanban:deleteComment` | 删除评论（仅 user 评论，Q-028） | 无 | 否（删除） |
 | 12 | 已定义 | invoke | `kanban:updateColumn` | 更新列配置（改名/排序/颜色/隐藏） | 无 | 是 |
+| 13 | 已定义 | invoke | `kanban:deleteColumn` | 删除自定义列（列内卡片移入 Todo） | 无 | 否（删除） |
+| 14 | 已定义 | invoke | `kanban:archiveTask` | 归档 Done ticket（CON-R033） | 无 | 是 |
+| 15 | 已定义 | invoke | `kanban:restoreTask` | 恢复归档 ticket（回 Done 或原列） | 无 | 是 |
+| 16 | 已定义 | invoke | `kanban:purgeTask` | 彻底删除归档 ticket（级联清理） | 无 | 否（删除） |
 
 ## Schema 与枚举
 
@@ -135,6 +142,8 @@
 | dueDate | string | 否 | 是 | 日期，可空 | 无 | 截止日期 |
 | order | integer | 是 | 否 | 数字 | 无 | 列内排序 |
 | blockedFromColumnId | string | 否 | 是 | Blocked 来源列，解除时恢复（来源列已删则回 Todo） | 无 | Blocked 来源 |
+| archivedAt | string | 否 | 是 | 空=未归档；非空=在归档区（CON-R033，决策 1） | 无 | 归档时间 |
+| archivedFromColumnId | string | 否 | 是 | 归档前所在列，恢复用（回原列或 Done） | 无 | 归档来源列 |
 | createdAt / updatedAt | string | 是 | 否 | ISO 8601 UTC | 无 | 创建/更新时间 |
 | timeline | array[TimelineItem] | 是 | 否 | 统一时间线（评论+执行+系统） | 无 | 时间线 |
 
@@ -230,6 +239,8 @@
 | store-corrupt | 解析失败/损坏 | code + msg + rebuilt=true | 提示已备份重建 | 否（已重建） |
 | store-migrate-failed | schema 迁移失败 | code + msg + rebuilt=true | 提示已备份重建 | 否（已重建） |
 | store-not-found | board/task/comment 不存在（已删除） | code + msg | 提示"数据已删除，自动刷新" | 否 |
+| store-task-executing | 任务 running/queued 时删除（Q-019 执行态守卫） | code + msg | 提示"执行中不可删" | 否 |
+| store-board-not-empty | 看板含 ticket（含归档）时删除（CON-R033） | code + msg | 提示"先清空全部 ticket（含归档）" | 否 |
 | validation-error | 真输入校验失败（标题空/超长、auto 缺 AC、目标列不存在） | code + msg + field | 提示具体字段 | 否 |
 
 ## 接口详情
@@ -370,9 +381,11 @@
 | 语义错误码 | 触发条件 | 响应字段要求 | 客户端处理 | 可重试 |
 |---|---:|---:|---|---|:---:|
 | store-not-found | 看板 id 不存在 | code+msg | 提示"数据已删除，自动刷新" | 否 |
-| validation-error | 删除唯一看板（最后一个看板） | code+msg | 提示不可删除唯一看板 | 否 |
+| store-board-not-empty | 看板含 ticket（含归档） | code+msg | 提示"先清空全部 ticket（含归档）" | 否 |
+| validation-error | 删除最后一个看板（可改名替代） | code+msg | 提示"最后一个看板不可删，可改名" | 否 |
+| store-task-executing | 看板内任务 running/queued（含归档外的执行中） | code+msg | 提示"执行中不可删" | 否 |
 
-> 注：删除看板级联清理任务 + 附件 + executions 日志（级联清理规则 Q-019 由 B3 消费，B1 数据层提供原子删除原语）。
+> **删除规则（CON-R033 对齐，P1-D/E）**：删除看板——有 ticket（含归档）→ 拒删（store-board-not-empty）；看板内任务执行中 → 拒删（store-task-executing）；无 ticket → 可删；最后一个看板 → 不可删（可改名，validation-error）。原"删除唯一看板 → validation-error"规则废弃，替换为本规则。删除成功后级联清理全部任务 + 附件 + executions log。
 
 ### 5. getTasks
 
@@ -501,7 +514,12 @@
 #### 失败响应
 
 - 适用公共异常集：`KANBAN_STORE_ERROR`
-- 特有异常：无。
+- 特有异常：
+
+| 语义错误码 | 触发条件 | 响应字段要求 | 客户端处理 | 可重试 |
+|---|---:|---:|---|---|:---:|
+| store-not-found | 任务 id 不存在（已删除） | code+msg | 提示"数据已删除，自动刷新" | 否 |
+| validation-error | dependencies 引用非同级子任务（编辑时校验，同 createTask）；executionMode 切 auto 缺 AC（CON-R018 门控）；直接改 executionStatus/currentExecutionId/timeline（系统管理字段） | code+msg+field | 提示具体字段 | 否 |
 
 #### 幂等与并发
 
@@ -575,8 +593,9 @@
 | 语义错误码 | 触发条件 | 响应字段要求 | 客户端处理 | 可重试 |
 |---|---:|---:|---|---|:---:|
 | store-not-found | 任务 id 不存在 | code+msg | 提示"数据已删除，自动刷新" | 否 |
+| store-task-executing | 任务 running/queued（含子任务执行中）时删除（Q-019 守卫） | code+msg | 提示"执行中不可删" | 否 |
 
-> 注：级联删除子任务/评论/附件/executions 日志（Q-019 完整规则由 B3 执行层校验执行态后触发；B1 提供原子删除原语）。
+> **执行态守卫归属（P1-B）**：B1 store 内置校验——deleteTask 删除前检查目标任务及全部子任务 executionStatus，任一 running/queued → 拒绝（store-task-executing）。B2 删除按钮直接调 B1 也受此守卫（不依赖 B3 前置校验），B3 调度层删除原语同样走此校验。级联删除子任务/评论/附件/executions log（Q-019）+ 清理其他子任务 dependencies 引用（二次确认）。
 
 ### 10. addComment
 
@@ -695,6 +714,147 @@
 
 - 幂等：是（同配置重复更新结果一致）
 
+### 13. deleteColumn
+
+`invoke kanban:deleteColumn { boardId, columnId }`
+
+#### 用途与依据
+
+- 使用场景：删除自定义列（列内卡片移入 Todo）
+- 共识：CON-R020（列自定义）+ PRD FR-2（仅删自定义列，模板列不可删）
+- 验收：删除自定义列时列内卡片移入 Todo；模板列不可删除
+
+#### 请求
+
+| 位置 | 字段 | 类型 | 必填 | 约束 | 说明 |
+|---|---|---|---|---|---|
+| body | boardId | string | 是 | `b_<uuid>` | 看板 id |
+| body | columnId | string | 是 | `c_<uuid>` | 列 id |
+
+#### 成功响应
+
+- 响应：删除成功（`{ deleted: true }`）；该列内卡片 columnId 改 Todo（父卡聚合重算由 B2 消费）
+
+#### 失败响应
+
+- 适用公共异常集：`KANBAN_STORE_ERROR`
+- 特有异常：
+
+| 语义错误码 | 触发条件 | 响应字段要求 | 客户端处理 | 可重试 |
+|---|---:|---:|---|---|:---:|
+| store-not-found | 列/看板 id 不存在 | code+msg | 提示"数据已删除，自动刷新" | 否 |
+| validation-error | 尝试删除模板列（有 type） | code+msg+field | 提示模板列不可删 | 否 |
+
+#### 幂等与并发
+
+- 幂等：否（删除后重复请求 → store-not-found）
+
+### 14. archiveTask
+
+`invoke kanban:archiveTask { boardId, id }`
+
+#### 用途与依据
+
+- 使用场景：归档 Done 列 ticket → 归档区（只读）
+- 共识：CON-R033（决策 1/2）
+- 验收：Done 可归档；归档后入归档区
+
+#### 请求
+
+| 位置 | 字段 | 类型 | 必填 | 约束 | 说明 |
+|---|---|---|---|---|---|
+| body | boardId | string | 是 | `b_<uuid>` | 看板 id |
+| body | id | string | 是 | `t_<uuid>` | 任务 id |
+
+#### 成功响应
+
+- 响应 Schema：`Task`（`archivedAt`=当前时间、`archivedFromColumnId`=当前 columnId；system 事件"已归档"）
+
+#### 失败响应
+
+- 适用公共异常集：`KANBAN_STORE_ERROR`
+- 特有异常：
+
+| 语义错误码 | 触发条件 | 响应字段要求 | 客户端处理 | 可重试 |
+|---|---:|---:|---|---|:---:|
+| store-not-found | 任务 id 不存在 | code+msg | 提示"数据已删除，自动刷新" | 否 |
+| validation-error | 任务不在 Done 列（非 Done 不可归档） | code+msg+field | 提示仅 Done 可归档 | 否 |
+
+#### 幂等与并发
+
+- 幂等：是（已归档再归档结果一致）
+
+### 15. restoreTask
+
+`invoke kanban:restoreTask { boardId, id, toColumnId? }`
+
+#### 用途与依据
+
+- 使用场景：恢复归档 ticket（回 Done 或原列）
+- 共识：CON-R033（决策 1/2）
+- 验收：归档区 ticket 可恢复
+
+#### 请求
+
+| 位置 | 字段 | 类型 | 必填 | 约束 | 说明 |
+|---|---|---|---|---|---|
+| body | boardId | string | 是 | `b_<uuid>` | 看板 id |
+| body | id | string | 是 | `t_<uuid>` | 任务 id |
+| body | toColumnId | string | 否 | 缺省 = archivedFromColumnId（原列，若已删/隐藏则 Done） | 恢复目标列 |
+
+#### 成功响应
+
+- 响应 Schema：`Task`（清 `archivedAt`/`archivedFromColumnId`，columnId 回目标列；system 事件"已恢复"）
+
+#### 失败响应
+
+- 适用公共异常集：`KANBAN_STORE_ERROR`
+- 特有异常：
+
+| 语义错误码 | 触发条件 | 响应字段要求 | 客户端处理 | 可重试 |
+|---|---:|---:|---|---|:---:|
+| store-not-found | 任务 id 不存在 | code+msg | 提示"数据已删除，自动刷新" | 否 |
+| validation-error | 任务未归档（archivedAt 空）；toColumnId 不存在 | code+msg+field | 提示具体字段 | 否 |
+
+#### 幂等与并发
+
+- 幂等：是（同目标列重复恢复结果一致）
+
+### 16. purgeTask
+
+`invoke kanban:purgeTask { boardId, id }`
+
+#### 用途与依据
+
+- 使用场景：彻底删除归档 ticket（从归档区移除）
+- 共识：CON-R033（决策 1/2）
+- 验收：归档区 ticket 可彻底删除（级联清理）
+
+#### 请求
+
+| 位置 | 字段 | 类型 | 必填 | 约束 | 说明 |
+|---|---|---|---|---|---|
+| body | boardId | string | 是 | `b_<uuid>` | 看板 id |
+| body | id | string | 是 | `t_<uuid>` | 任务 id |
+
+#### 成功响应
+
+- 响应：删除成功（`{ deleted: true }`）；级联清理 timeline + 附件磁盘文件 + executions log（二次确认）
+
+#### 失败响应
+
+- 适用公共异常集：`KANBAN_STORE_ERROR`
+- 特有异常：
+
+| 语义错误码 | 触发条件 | 响应字段要求 | 客户端处理 | 可重试 |
+|---|---:|---:|---|---|:---:|
+| store-not-found | 任务 id 不存在 | code+msg | 提示"数据已删除，自动刷新" | 否 |
+| validation-error | 任务未归档（archivedAt 空，非归档区不可 purge） | code+msg+field | 提示仅归档区可彻底删除 | 否 |
+
+#### 幂等与并发
+
+- 幂等：否（删除后重复请求 → store-not-found）
+
 ## 数据库与外部系统影响
 
 > 无变化（本地 JSON 单文件，无外部系统）。数据归属 `<userData>/kanban/boards.json`，不触 DSH_HOME（CON-R002）。
@@ -720,9 +880,20 @@
 | K15 | updateTask 非法字段 | 默认看板 | updateTask 直接改 executionStatus | **validation-error**（executionStatus 系统管理） | 不落盘 | B1 验收 |
 | K16 | moveTask 进 Blocked | 默认看板 | moveTask{toColumnId:blocked} | blockedFromColumnId 自动记录来源列 | system 事件 from→to/user | B1 验收 |
 | K17 | moveTask 解除 Blocked | 卡在 Blocked | moveTask{toColumnId:来源列} | 自动还原来源列（非隐藏）；来源列已删/隐藏 → Todo | blockedFromColumnId 清除 | B1 验收 |
-| K18 | deleteBoard 级联 | 看板含任务+附件+executions log | deleteBoard | 级联清理任务+附件+executions log；store-not-found 若唯一看板 | boards[] 移除 | B1 验收 |
+| K18 | deleteBoard 级联 | 看板含任务+附件+executions log | deleteBoard | **store-board-not-empty**（有 ticket 含归档拒删）；清空全部 ticket 后可删；最后一个看板 → **validation-error**（可改名） | boards[] 移除 | B1 验收 |
 | K19 | deleteComment user 评论 | user 评论 | deleteComment | 删除成功 + 附件一并清理 | 重启不复活 | B1 验收 |
 | K20 | deleteComment agent 评论 | agent 评论（执行回填） | deleteComment | **validation-error**（Q-028：agent 评论只读） | 不可删 | B1 验收 |
+| K21 | deleteTask 执行中 | 任务 running | deleteTask | **store-task-executing**（执行中不可删） | 不可删 | B1 验收 |
+| K22 | deleteBoard 执行中 | 看板内任务 running | deleteBoard | **store-task-executing**（执行中不可删） | 不可删 | B1 验收 |
+| K23 | deleteColumn 模板列 | 默认看板 | deleteColumn{columnId:c_done} | **validation-error**（模板列不可删） | 列保留 | B1 验收 |
+| K24 | deleteColumn 自定义列 | 自定义列含卡 | deleteColumn | 删除成功，列内卡片移入 Todo | 卡片 columnId=Todo | B1 验收 |
+| K25 | archiveTask 非 Done | 任务在 Todo | archiveTask | **validation-error**（仅 Done 可归档） | 不归档 | B1 验收 |
+| K26 | archiveTask→restoreTask | Done 任务 | archive→restore | 归档（archivedAt+from）→ 恢复回原列/ Done，清归档字段 | system 事件 | B1 验收 |
+| K27 | purgeTask 彻底删除 | 归档区 ticket 含附件/executions | purgeTask | 级联清 timeline+附件+executions log | 无残留 | B1 验收 |
+| K28 | deleteBoard 含归档拒删 | 看板有已归档 ticket | deleteBoard | **store-board-not-empty**（含归档拒删） | 看板保留 | B1 验收 |
+| K29 | updateTask dependencies 非法引用 | 默认看板 | updateTask{dependencies:["t_别父下"]} | **validation-error**（非同父子任务） | 不落盘 | B1 验收 |
+| K30 | updateTask 切 auto 缺 AC | manual 任务 | updateTask{executionMode:auto,无AC} | **validation-error**（CON-R018 门控） | 不落盘 | B1 验收 |
+| K31 | updateTask 已删任务 | — | updateTask{id:"t_已删"} | **store-not-found** | 提示已删除 | B1 验收 |
 
 ## 开放问题
 
@@ -734,10 +905,12 @@
 
 | 事项 | 跨模块/第三方 | 责任人 | 截止时间 | 状态 |
 |---|---|---|---|---|
-| STORE 错误码统一 | 已定：公共异常集 `KANBAN_STORE_ERROR`（含 store-not-found），B2/B3 消费同一错误码集 | phper666 | 已闭环（本契约） | 已闭环 |
+| STORE 错误码统一 | 已定：公共异常集 `KANBAN_STORE_ERROR`（含 store-not-found/store-task-executing/store-board-not-empty），B2/B3 消费同一错误码集 | phper666 | 已闭环（本契约） | 已闭环 |
 | 执行态字段写入权 | B1 updateTask 不写 executionStatus，B3 调度层写 | phper666 | B3 契约 | 已定（本契约约束） |
 | IPC channel 命名与 preload 桥 | B2/B3 消费同一 preload 桥 | phper666 | B2 契约 | 待定 |
 | B3 执行层与 store 直调 | **B3 与 B1 同主进程，直调 store 方法，不经 IPC**（仅 B2 renderer 走 IPC） | phper666 | B3 契约 | 已定 |
+| 删除执行态守卫归属 | **B1 store 内置校验**（P1-B）：deleteTask/deleteBoard 内置 running/queued 检查，B2 删除按钮直调 B1 也受守卫（不依赖 B3 前置）；B3 删除原语同走此校验 | phper666 | 已闭环（本契约） | 已闭环 |
+| 归档原语对接 | archiveTask/restoreTask/purgeTask（B1 数据层），归档 UI 归属 B2；purgeTask 级联清理（Q-019） | phper666 | B2 契约 | 已定 |
 
 ## 完成记录
 
@@ -760,11 +933,12 @@
 |---|---|---|
 | 2026-08-20 | 初次生成 | 基于 t100101（B1）和共识 v1.3 §7.1/§9/§13 生成契约草案 |
 | 2026-08-20 | 复核修复 | 修复 ora-1 复核退回问题：P0-1 补 store-not-found 闭环；P1-1 timeline system 写入权定稿；P1-2 补 addComment/deleteComment/updateColumn；P1-3 统一 not-found 错误码；P1-4 补失败用例 + 验收编号 K1~K20 + 原子写注入法 + Blocked/deleteBoard 用例；P2 错误码 kebab 化、subagentPolicy 默认、createTask dependencies/示例、Blocked 自动记/还原、最小 boards.json 示例 |
+| 2026-08-20 | 二轮复核修复 | P1-A updateTask 失败契约补全（not-found/同级校验/auto 缺 AC）；P1-B 补 store-task-executing 执行态守卫（deleteTask/deleteBoard）；P1-C 补 deleteColumn；P1-D/E deleteBoard 对齐 CON-R033（store-board-not-empty + 最后看板规则）；归档对齐 CON-R033（Task 增 archivedAt/archivedFromColumnId + archiveTask/restoreTask/purgeTask 原语）；测试 K18 对齐 + K21~K31 补归档/守卫用例 |
 
 ## 自检记录
 
-- 追踪完整性：PASS（B1→CON-R017/023/024/R025/R030/R031 + Q-013/014/015/020/025/027/028→验收，追踪矩阵全覆盖）
+- 追踪完整性：PASS（B1→CON-R017/018/020/023/024/025/R030/R031/R033 + Q-013/014/015/019/020/025/027/028→验收，追踪矩阵全覆盖）
 - OpenAPI 一致性：不适用（本地文件数据契约，无 OpenAPI yaml；JSON Schema 即字段唯一事实源）
-- 示例与错误场景：PASS（20 个联调场景 K1~K20 含成功/失败/边界 + 公共异常集 + 最小 boards.json 示例）
+- 示例与错误场景：PASS（31 个联调场景 K1~K31 含成功/失败/边界 + 公共异常集 + 最小 boards.json 示例）
 - 安全与敏感字段：PASS（无敏感字段；DSH_HOME 零接触声明）
 - 链接与格式：PASS
