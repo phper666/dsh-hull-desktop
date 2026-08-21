@@ -2,8 +2,9 @@
 <html lang="zh">
 <head>
 <meta charset="utf-8" />
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'" />
-<title>Hull</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline' 'self'; img-src data:; base-uri 'none'; form-action 'none'" />
+  <title>Hull</title>
+  <link rel="stylesheet" href="kanban.css" />
 <style>
   /* 深色系（延续 placeholder #1e2430） */
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -58,7 +59,7 @@
       <button id="nav-web" class="nav-item active">dsh web</button>
       <button id="nav-settings" class="nav-item">设置</button>
       <button id="nav-upgrade" class="nav-item">升级</button>
-      <button id="nav-board" class="nav-item" aria-disabled="true" title="M2 规划中">任务看板<span class="tag">M2</span></button>
+      <button id="nav-board" class="nav-item">任务看板<span class="tag">M2</span></button>
     </div>
     <div id="nav-status">
       <div class="row"><span>dsh 状态</span><span id="status-phase" class="val">…</span></div>
@@ -106,6 +107,10 @@
         <p class="muted">首次安装可取消（本次），主窗口变为引导态；点击「安装 dsh」重新走安装流程。不提供永久跳过。</p>
       </div>
     </section>
+    <!-- B2 任务看板（M2）：view=placeholder:board 时显示；数据经 window.kanban/window.exec 桥消费 -->
+    <section id="board" class="placeholder hidden">
+      <div id="board-root"></div>
+    </section>
   </main>
 <script>
   // 壳框架页（S8 D4/D5/D6）：
@@ -114,7 +119,7 @@
   // - 安装进度 installStatus 250ms 轮询（B6）；占位四区块 ID/交互照 placeholder.html
   const bridge = window.hull;
   const PLACEHOLDER_PREFIX = 'placeholder:';
-  const sections = ['starting', 'installing', 'failed', 'not-installed'];
+  const sections = ['starting', 'installing', 'failed', 'not-installed', 'board'];
 
   // 占位四视图切换（view 字段驱动；official → 全隐藏）
   function setView(view) {
@@ -185,8 +190,9 @@
     setActive('nav-upgrade');
     if (bridge) await bridge.checkDshUpdate(); // main runCheck → 原生 dialog
   });
-  document.getElementById('nav-board').addEventListener('click', () => {
-    /* aria-disabled + M2 规划中：无路由（YAGNI） */
+  document.getElementById('nav-board').addEventListener('click', async () => {
+    setActive('nav-board');
+    if (bridge) await bridge.showBoard(); // main 切 view → placeholder:board → section#board 显示
   });
 
   // 失败/引导态按钮（照 placeholder.html 桥绑定；retry 成功不再 reload——视图切换由主进程推送驱动）
@@ -208,5 +214,6 @@
     bridge.getDshStatus().then(renderStatus).catch(() => {});
   }
 </script>
+<script src="kanban.js"></script>
 </body>
 </html>

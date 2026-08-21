@@ -1,0 +1,388 @@
+/**
+ * L3a ExecutionEngine 门面单测
+ *
+ * 注入 MockProvider（outcome 可控）+ 内存 KanbanStore（参照 KanbanStore.test.ts 用法）。
+ * 覆盖：executeTask 单/父卡/自检通过进 Verify/失败 failed/confirmVerify/manualComplete/
+ * cancel/pause/resume/快照/心跳超时/收敛。
+ */
+import { test, after } from 'node:test';
+import { equal, ok, throws } from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { KanbanStore } from '../kanban/KanbanStore';
+import { DEFAULT_COLUMNS } from '../kanban/types';
+import { MockProvider, type MockOutcome } from './provider/MockProvider';
+import type { ExecutionProvider, ExecutionTask, ExecutionHandlers } from './provider/ExecutionProvider';
+import { ProviderManager } from './provider/ProviderManager';
+import { ExecutionEngine } from './ExecutionEngine';
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function waitFor(pred: () => boolean, timeoutMs = 2000): Promise<void> {
+  const t0 = Date.now();
+  while (!pred()) {
+    if (Date.now() - t0 > timeoutMs) throw new Error('waitFor 超时');
+    await sleep(5);
+  }
+}
+
+const cleanup: Array<() => void> = [];
+after(() => {
+  for (const fn of cleanup) fn();
+});
+
+function makeEnv(outcome?: MockOutcome, delayMs = 0) {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-engine-'));
+  cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+  const store = new KanbanStore({ userDataPath: dir });
+  cleanup.push(() => store.dispose());
+  const board = store.createBoard('看板', DEFAULT_COLUMNS.map((c) => ({ ...c })));
+  const provider = new MockProvider(outcome ? { outcome, delayMs } : { delayMs });
+  const engine = new ExecutionEngine({
+    store,
+    providerManager: new ProviderManager({ env: { HULL_EXEC_PROVIDER: 'mock' } }),
+    provider,
+    maxParallelTasks: 3,
+  });
+  cleanup.push(() => engine.dispose());
+  return { store, board, engine };
+}
+
+function makeTask(
+  store: KanbanStore,
+  boardId: string,
+  over: { title?: string; executionMode?: 'manual' | 'auto'; ac?: boolean; parentId?: string; dependencies?: string[] } = {},
+) {
+  return store.createTask(boardId, {
+    title: over.title ?? '任务',
+    executionMode: over.executionMode ?? 'auto',
+    acceptanceCriteria: over.ac === false ? null : { what: 'w', expected: 'e', verify: 'v' },
+    parentId: over.parentId,
+    dependencies: over.dependencies ?? [],
+  });
+}
+
+const status = (store: KanbanStore, boardId: string, taskId: string) =>
+  store.getBoard(boardId).tasks.find((t) => t.id === taskId)!.executionStatus;
+const column = (store: KanbanStore, boardId: string, taskId: string) =>
+  store.getBoard(boardId).tasks.find((t) => t.id === taskId)!.columnId;
+
+/** manual 结算 stub：无 selfCheck（对齐 ACP 对 manual 任务不回 selfCheck，Q-015） */
+class NoSelfCheckProvider implements ExecutionProvider {
+  execute(task: ExecutionTask, handlers: ExecutionHandlers): { cancel(): Promise<void> } {
+    handlers.onStatus('running');
+    setTimeout(() => {
+      handlers.onResult({ exitCode: 0, summary: 'manual 完成', outputPath: '' });
+      handlers.onStatus('succeeded');
+    }, 5);
+    return { cancel: async () => {} };
+  }
+}
+
+function makeManualEnv() {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-engine-'));
+  cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+  const store = new KanbanStore({ userDataPath: dir });
+  cleanup.push(() => store.dispose());
+  const board = store.createBoard('看板', DEFAULT_COLUMNS.map((c) => ({ ...c })));
+  const engine = new ExecutionEngine({
+    store,
+    providerManager: new ProviderManager({ env: { HULL_EXEC_PROVIDER: 'mock' } }),
+    provider: new NoSelfCheckProvider(),
+    maxParallelTasks: 3,
+  });
+  cleanup.push(() => engine.dispose());
+  return { store, board, engine };
+}
+
+test('单任务执行：queued → running → succeeded + 列→verify（selfCheck passed=true）', async () => {
+  const { store, board, engine } = makeEnv(undefined, 5);
+  const t = makeTask(store, board.id);
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'succeeded');
+  const verifyColId = board.columns.find((c) => c.type === 'verify')!.id;
+  equal(column(store, board.id, t.id), verifyColId, '完成自动进 verify');
+  const rec = store.getBoard(board.id).tasks.find((x) => x.id === t.id)!;
+  // 🟡-4：succeeded 后清 currentExecutionId（execution record 走 timeline 追溯，不再指向旧执行）
+  equal(rec.currentExecutionId, null, 'succeeded 后清 currentExecutionId');
+  // execution 记录 timeline
+  ok(rec.timeline.some((x) => x.type === 'execution'), '有 execution 记录');
+  ok(rec.timeline.some((x) => x.type === 'system'), '有 system 事件');
+});
+
+test('selfCheck passed=false → failed', async () => {
+  const { store, board, engine } = makeEnv({ kind: 'success', selfCheck: { passed: false } }, 5);
+  const t = makeTask(store, board.id);
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'failed');
+  equal(status(store, board.id, t.id), 'failed');
+});
+
+test('父卡展开：executeTask(父卡) → 子任务入队执行全部 succeeded', async () => {
+  const { store, board, engine } = makeEnv(undefined, 5);
+  const parent = makeTask(store, board.id, { title: '父卡' });
+  const c1 = makeTask(store, board.id, { parentId: parent.id });
+  const c2 = makeTask(store, board.id, { parentId: parent.id });
+  const c3 = makeTask(store, board.id, { parentId: parent.id });
+  const res = engine.executeTask(board.id, parent.id);
+  equal(res.kind, 'parent_expand');
+  equal(res.enqueued.length, 3);
+  await waitFor(() => [c1.id, c2.id, c3.id].every((id) => status(store, board.id, id) === 'succeeded'));
+});
+
+test('父卡展开缺 AC 子任务跳过（manual 任务绕过 store 门控）', async () => {
+  const { store, board, engine } = makeEnv(undefined, 5);
+  const parent = makeTask(store, board.id, { title: '父卡' });
+  const ok1 = makeTask(store, board.id, { parentId: parent.id, title: '好子' });
+  // manual 任务无 AC 也是合法（store 不门控 manual）
+  const manual = makeTask(store, board.id, { parentId: parent.id, title: 'manual 子', executionMode: 'manual', ac: false });
+  const res = engine.executeTask(board.id, parent.id);
+  equal(res.enqueued.length, 2, 'manual 子也入队（manual 无 AC 门槛）');
+  equal(res.enqueued.includes(ok1.id), true);
+  equal(res.enqueued.includes(manual.id), true);
+  await waitFor(() => status(store, board.id, ok1.id) === 'succeeded');
+});
+
+test('confirmVerify：verify 列 → done 列；非 verify 列 → validation-error', async () => {
+  const { store, board, engine } = makeEnv(undefined, 5);
+  const t = makeTask(store, board.id);
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'succeeded');
+  const vc = board.columns.find((c) => c.type === 'verify')!;
+  const dc = board.columns.find((c) => c.type === 'done')!;
+  equal(column(store, board.id, t.id), vc.id);
+  const out = engine.confirmVerify(board.id, t.id);
+  equal(out.columnId, dc.id);
+  equal(column(store, board.id, t.id), dc.id);
+  const t2 = makeTask(store, board.id, { title: '未执行' });
+  throws(() => engine.confirmVerify(board.id, t2.id), /仅 verify 列任务可确认完成/);
+});
+
+test('manualComplete：failed → succeeded + 列→verify', async () => {
+  const { store, board, engine } = makeEnv({ kind: 'success', selfCheck: { passed: false } }, 5);
+  const t = makeTask(store, board.id);
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'failed');
+  const out = engine.manualComplete(board.id, t.id);
+  equal(out.executionStatus, 'succeeded');
+  equal(status(store, board.id, t.id), 'succeeded');
+  const vc = board.columns.find((c) => c.type === 'verify')!;
+  equal(column(store, board.id, t.id), vc.id);
+});
+
+test('cancel：running 任务取消 → cancelled + 心跳停止', async () => {
+  const { store, board, engine } = makeEnv(undefined, 100);
+  const t = makeTask(store, board.id);
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'running');
+  await engine.cancel(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'cancelled');
+  equal(status(store, board.id, t.id), 'cancelled');
+});
+
+test('pause/resume：running → paused → queued → running → succeeded', async () => {
+  const { store, board, engine } = makeEnv(undefined, 60);
+  const t = makeTask(store, board.id);
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'running');
+  await engine.pause(board.id, t.id);
+  equal(status(store, board.id, t.id), 'paused');
+  await engine.resume(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'succeeded');
+});
+
+test('getExecutionSnapshot：running/queued + maxParallel', async () => {
+  const { store, board, engine } = makeEnv(undefined, 60);
+  const t1 = makeTask(store, board.id);
+  const t2 = makeTask(store, board.id);
+  const t3 = makeTask(store, board.id);
+  engine.executeTask(board.id, t1.id);
+  engine.executeTask(board.id, t2.id);
+  engine.executeTask(board.id, t3.id);
+  await waitFor(() => status(store, board.id, t1.id) === 'running');
+  const snap = engine.getExecutionSnapshot(board.id);
+  equal(snap.maxParallel, 3);
+  equal(snap.running.length, 3);
+  equal(snap.queued.length, 0);
+});
+
+test('心跳超时：无活动 → failed', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-engine-'));
+  cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+  const store = new KanbanStore({ userDataPath: dir });
+  cleanup.push(() => store.dispose());
+  const board = store.createBoard('b', DEFAULT_COLUMNS.map((c) => ({ ...c })));
+  const engine = new ExecutionEngine({
+    store,
+    providerManager: new ProviderManager({ env: { HULL_EXEC_PROVIDER: 'mock' } }),
+    provider: new MockProvider({ delayMs: 5000 }), // 长任务，触发心跳超时
+    maxExecutionIdleMinutes: 0.001, // 60ms 心跳超时
+  });
+  cleanup.push(() => engine.dispose());
+  const t = makeTask(store, board.id);
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'failed', 3000);
+  equal(status(store, board.id, t.id), 'failed');
+});
+
+test('收敛：壳重启残留 running → failed（Q-017）', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-engine-'));
+  cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+  const store = new KanbanStore({ userDataPath: dir });
+  cleanup.push(() => store.dispose());
+  const board = store.createBoard('b', DEFAULT_COLUMNS.map((c) => ({ ...c })));
+  const a = store.createTask(board.id, { title: '残留运行', acceptanceCriteria: { what: 'w', expected: 'e', verify: 'v' } });
+  // 直写 raw 内部态（模拟壳重启残留：running + currentExecutionId）
+  const rawBoard = (store as unknown as { data: { boards: Array<{ id: string; tasks: Array<{ id: string; executionStatus: string; currentExecutionId: string | null }> }> } }).data.boards.find((b) => b.id === board.id)!;
+  const rawTask = rawBoard.tasks.find((x) => x.id === a.id)!;
+  rawTask.executionStatus = 'running';
+  rawTask.currentExecutionId = 'e_residual';
+  const engine = new ExecutionEngine({
+    store,
+    providerManager: new ProviderManager({ env: { HULL_EXEC_PROVIDER: 'mock' } }),
+  });
+  cleanup.push(() => engine.dispose());
+  engine.start(); // 收敛
+  equal(status(store, board.id, a.id), 'failed');
+  equal(rawTask.currentExecutionId, null, '清 currentExecutionId');
+});
+
+// ─────────────────── 🔴-2 执行态持久化（flushSync 落盘）───────────────────
+
+test('🔴-2 执行态直写后 flush：running → succeeded 全链路落盘（boards.json 可读）', async () => {
+  const { store, board, engine } = makeEnv(undefined, 5);
+  const t = makeTask(store, board.id);
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'succeeded');
+  // 同步 flush 已随每次执行态写入触发（setExecutionRecord/setExecutionStatus/writeExecutionRecord）
+  store.flushSync();
+  const filePath = join((store as unknown as { dir: string }).dir, 'boards.json');
+  const onDisk = JSON.parse(readFileSync(filePath, 'utf8')) as {
+    boards: Array<{ id: string; tasks: Array<{ id: string; executionStatus: string; currentExecutionId: string | null; timeline: Array<{ id: string; type: string }> }> }>;
+  };
+  const dt = onDisk.boards.find((b) => b.id === board.id)!.tasks.find((x) => x.id === t.id)!;
+  equal(dt.executionStatus, 'succeeded', '落盘 executionStatus=succeeded');
+  equal(dt.currentExecutionId, null, '🟡-4：succeeded 后 currentExecutionId=null 落盘');
+  ok(dt.timeline.some((x) => x.type === 'execution'), '落盘 execution timeline 条目');
+});
+
+test('🔴-2 收敛后立刻 flush：重启收敛态可读（failed 落盘）', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-engine-'));
+  cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+  const store = new KanbanStore({ userDataPath: dir });
+  cleanup.push(() => store.dispose());
+  const board = store.createBoard('b', DEFAULT_COLUMNS.map((c) => ({ ...c })));
+  const a = store.createTask(board.id, { title: '残留', acceptanceCriteria: { what: 'w', expected: 'e', verify: 'v' } });
+  const rawBoard = (store as unknown as { data: { boards: Array<{ id: string; tasks: Array<{ id: string; executionStatus: string }> }> } }).data.boards.find((b) => b.id === board.id)!;
+  rawBoard.tasks.find((x) => x.id === a.id)!.executionStatus = 'running';
+  const engine = new ExecutionEngine({
+    store,
+    providerManager: new ProviderManager({ env: { HULL_EXEC_PROVIDER: 'mock' } }),
+  });
+  cleanup.push(() => engine.dispose());
+  engine.start(); // markFailed → setExecutionStatus → flushStore 已同步落盘
+  equal(status(store, board.id, a.id), 'failed');
+  // 不额外 flushSync：验证引擎自身已 flush
+  const filePath = join((store as unknown as { dir: string }).dir, 'boards.json');
+  const onDisk = JSON.parse(readFileSync(filePath, 'utf8')) as {
+    boards: Array<{ id: string; tasks: Array<{ id: string; executionStatus: string }> }>;
+  };
+  const dt = onDisk.boards.find((b) => b.id === board.id)!.tasks.find((x) => x.id === a.id)!;
+  equal(dt.executionStatus, 'failed', '收敛 failed 已落盘（无额外 flushSync）');
+});
+
+// ─────────────────── 🔴-1 execution timeline 条目 id = currentExecutionId ───────────────────
+
+test('🔴-1 markSucceeded：execution timeline 条目 id = 本次执行 e_<seq> + succeeded 后清 currentExecutionId（🟡-4 重跑独立追溯）', async () => {
+  const { store, board, engine } = makeEnv({ kind: 'success', selfCheck: { passed: true } }, 5);
+  const t = makeTask(store, board.id);
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'succeeded');
+  const rec = store.getBoard(board.id).tasks.find((x) => x.id === t.id)!;
+  const execItem = rec.timeline.find((x) => x.type === 'execution')!;
+  ok(execItem, '有 execution 记录');
+  ok(execItem.id.startsWith('e_'), 'execution 条目 id = 本次执行 e_<seq>');
+  equal(rec.currentExecutionId, null, '🟡-4：succeeded 后清 currentExecutionId（重跑不指向旧执行）');
+  ok(execItem.execution?.outputPath?.includes(execItem.id), 'execution 记录 outputPath 指向本次执行日志');
+});
+
+// ─────────────────── 🟡-1 manual 结算 succeeded + 依赖解锁 ───────────────────
+
+test('🟡-1 manual 任务执行后 succeeded（结算不误判 failed）', async () => {
+  const { store, board, engine } = makeManualEnv();
+  const t = store.createTask(board.id, { title: 'manual 卡', executionMode: 'manual' });
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'succeeded');
+  equal(status(store, board.id, t.id), 'succeeded', 'manual 结算 succeeded 而非 failed');
+  const rec = store.getBoard(board.id).tasks.find((x) => x.id === t.id)!;
+  ok(rec.timeline.some((x) => x.type === 'comment' && x.content.includes('执行结果')), 'manual 结果评论回填');
+});
+
+test('🟡-1 依赖 manual 的下游任务正确解锁（不级联失败）', async () => {
+  const { store, board, engine } = makeManualEnv();
+  // manual 父下两个子任务：manual 依赖 + auto 依赖（依赖 manual）
+  const parent = makeTask(store, board.id, { title: '父卡' });
+  const manualDep = store.createTask(board.id, { title: 'manual 依赖', parentId: parent.id, executionMode: 'manual' });
+  const downstream = store.createTask(board.id, {
+    title: '下游 auto',
+    parentId: parent.id,
+    executionMode: 'auto',
+    acceptanceCriteria: { what: 'w', expected: 'e', verify: 'v' },
+    dependencies: [manualDep.id],
+  });
+  // 首次展开：依赖未满足 → manualDep 入队，downstream 跳过（B3 父卡展开一次）
+  engine.executeTask(board.id, parent.id);
+  await waitFor(() => status(store, board.id, manualDep.id) === 'succeeded');
+  equal(status(store, board.id, downstream.id), 'idle', '依赖未满足时下游保持 idle（未入队）');
+  // manualDep 已 succeeded → 依赖满足；重展开父卡 → downstream 入队执行
+  engine.executeTask(board.id, parent.id);
+  await waitFor(() => status(store, board.id, downstream.id) === 'succeeded');
+  equal(status(store, board.id, downstream.id), 'succeeded', 'manual 结算 succeeded → 下游依赖解锁（不触发 E15 级联 failed）');
+});
+
+// ─────────────────── 🟡-3 引擎 execution-update 事件 ───────────────────
+
+test('🟡-3 ExecutionEngine 发出 execution-update 事件（状态变更推送）', async () => {
+  const { store, board, engine } = makeEnv(undefined, 10);
+  const updates: Array<{ taskId: string; executionStatus: string }> = [];
+  engine.on('execution-update', (p: { taskId: string; executionStatus: string }) => updates.push(p));
+  const t = makeTask(store, board.id);
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'succeeded');
+  ok(updates.length >= 3, `收到 queued/running/succeeded 事件（实际 ${updates.length}）`);
+  const succ = updates.find((u) => u.taskId === t.id && u.executionStatus === 'succeeded');
+  ok(succ, '收到 succeeded 事件');
+  const running = updates.find((u) => u.taskId === t.id && u.executionStatus === 'running');
+  ok(running, '收到 running 事件');
+});
+
+// ─────────────────── 🟡-4 succeeded 重跑追溯断裂修复 ───────────────────
+
+test('🟡-4 succeeded 任务重跑后 currentExecutionId=null + 新 execution record 独立', async () => {
+  const { store, board, engine } = makeEnv({ kind: 'success', selfCheck: { passed: true } }, 5);
+  const t = makeTask(store, board.id);
+  // 首次执行 → succeeded
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'succeeded');
+  let rec = store.getBoard(board.id).tasks.find((x) => x.id === t.id)!;
+  equal(rec.currentExecutionId, null, '首次 succeeded 后 currentExecutionId=null（🟡-4）');
+  const firstExec = rec.timeline.filter((x) => x.type === 'execution');
+  equal(firstExec.length, 1, '首次执行 1 条 execution 记录');
+  const firstId = firstExec[0].id;
+
+  // 重跑（Q-023 succeeded → queued）→ 再次 succeeded
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'succeeded');
+  rec = store.getBoard(board.id).tasks.find((x) => x.id === t.id)!;
+  equal(rec.currentExecutionId, null, '重跑 succeeded 后 currentExecutionId 仍 null（不指向旧执行）');
+  const execs = rec.timeline.filter((x) => x.type === 'execution');
+  equal(execs.length, 2, '重跑新增独立 execution 记录（共 2 条）');
+  ok(execs[0].id !== execs[1].id, '两次执行记录 id 独立');
+  ok(execs[1].id.startsWith('e_'), '新记录为 e_<seq> 格式');
+  ok(execs[1].id !== firstId, '新记录不指向旧执行');
+  ok(execs[1].execution?.outputPath?.includes(execs[1].id), '新记录 outputPath 指向本次执行日志');
+});

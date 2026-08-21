@@ -25,6 +25,13 @@ import { SettingsProvider } from '../settings/SettingsProvider';
 import { ChannelService } from '../channel/ChannelService';
 import { KanbanStore } from '../kanban/KanbanStore';
 import { registerKanbanIpc } from '../kanban/KanbanIpc';
+import { ExecutionEngine } from '../exec/ExecutionEngine';
+import { ACPProvider } from '../exec/provider/ACPProvider';
+import { ProviderManager } from '../exec/provider/ProviderManager';
+import { ProviderRegistry } from '../exec/provider/ProviderRegistry';
+import { ApprovalManager } from '../exec/approval/ApprovalManager';
+import { AcEditor } from '../exec/approval/AcEditor';
+import { registerExecIpc } from '../exec/ipc/ExecIpc';
 import { Logger } from '../log/Logger';
 
 /**
@@ -64,6 +71,80 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     maxAttachmentSizeMB: 10,
   });
   registerKanbanIpc(kanbanStore);
+  // B3+B4：执行引擎门面（ExecutionEngine 组装 Scheduler/Heartbeat/Convergence/VerifyGate）+ ProviderManager
+  // + ProviderRegistry（M2 注册 'dsh' ACP）+ ApprovalManager + AcEditor + 执行控制 IPC（B3 10 + B4 3）
+  const providerManager = new ProviderManager();
+  // B4 收口：真实 ACP provider 显式实例化（供 ApprovalManager 审批链路接线 permission 事件；
+  // 仅 HULL_EXEC_PROVIDER=mock 时回落 ProviderManager 的 MockProvider，不接 permission 事件）
+  const acpProvider: ACPProvider | undefined =
+    providerManager.getProvider() instanceof ACPProvider ? (providerManager.getProvider() as ACPProvider) : undefined;
+  const execEngine = new ExecutionEngine({
+    store: kanbanStore,
+    providerManager,
+    maxExecutionIdleMinutes: 30,
+  });
+  execEngine.start(); // 壳重启收敛（Q-017）：running/paused/interrupted → failed + queued 重排
+  // B1 store 内部 system 事件写原语（B4 审批/AC 修订 timeline 写权，P1-1：B4 经 store 原语直调，不经 IPC）
+  const appendSystem = (boardId: string, taskId: string, content: string): void => {
+    const b = (kanbanStore as unknown as { data: { boards: Array<{ id: string; tasks: Array<{ id: string; timeline: unknown[] }> }> } }).data.boards.find((x) => x.id === boardId);
+    const t = b?.tasks.find((x) => x.id === taskId);
+    t?.timeline.push({
+      id: `tl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'system',
+      content,
+      attachments: [],
+      createdAt: new Date().toISOString(),
+      author: 'system',
+      source: { type: 'system' },
+      execution: null,
+    });
+  };
+  // RuntimeManager 由后续启动编排段创建（isReady 闭包延迟执行时已初始化）
+  const registry = new ProviderRegistry();
+  registry.register({
+    provider: 'dsh',
+    displayName: 'DeepSeek Harness',
+    supportsSubagent: true,
+    factory: () => providerManager.getProvider(),
+    // isReady = dsh 运行时就绪（RuntimeManager.phase==='ready'）；与 executeTask 实际可用口径一致（P1-B4-2）
+    isReady: () => runtime.snapshot().phase === 'ready',
+  });
+  // 审批流：respondApproval 回 ACP（经 engine 转发到当前执行句柄 permission_response 帧）+ timeline 写
+  const approval = new ApprovalManager({
+    respondApproval: (ctx, decision, reason) => {
+      execEngine.respondApproval(ctx.taskId, ctx.requestId, decision === 'approve', reason);
+    },
+    timelineStore: { appendSystemEvent: appendSystem },
+    logger,
+  });
+  // B4 收口：ACPProvider permission_request 通知 → ApprovalManager 入队（生产审批链路）
+  // （仅真实 ACP provider 接线；HULL_EXEC_PROVIDER=mock 无 permission 事件源，跳过）
+  if (acpProvider) acpProvider.on('permission', (ctx) => void approval.handlePermission(ctx));
+  const acEditor = new AcEditor({
+    readStore: {
+      getExecutionStatus: (boardId, taskId) => kanbanStore.getBoard(boardId).tasks.find((t) => t.id === taskId)?.executionStatus ?? 'idle',
+      getCurrentExecutionId: (boardId, taskId) => kanbanStore.getBoard(boardId).tasks.find((t) => t.id === taskId)?.currentExecutionId ?? null,
+      getAcceptanceCriteria: (boardId, taskId) => kanbanStore.getBoard(boardId).tasks.find((t) => t.id === taskId)?.acceptanceCriteria ?? null,
+    },
+    mutations: {
+      updateAcceptanceCriteria: (boardId, taskId, ac) => {
+        kanbanStore.updateTask(boardId, taskId, { acceptanceCriteria: ac });
+      },
+    },
+    executionBridge: {
+      cancelExecution: (boardId, taskId) => execEngine.cancel(boardId, taskId),
+      markInterrupted: (boardId, taskId) => {
+        void execEngine.interruptExecution(boardId, taskId, '执行已中断', 'AC 修订');
+      },
+      markExecutionDeprecated: (boardId, taskId, executionId) => {
+        execEngine.markExecutionDeprecated(boardId, taskId, executionId);
+      },
+    },
+    timelineStore: { appendSystemEvent: appendSystem },
+  });
+  registerExecIpc({ engine: execEngine, approval, registry, acEditor });
+  // B5：导出/导入传输层（KanbanTransfer 默认装配 electron dialog + KanbanStore；2 IPC 已随 registerKanbanIpc 注册）
+  // S2：overlay 管理栈（首装自动触发 / ensure 三态 / 取消）
   const runtime = new RuntimeManager({ userDataPath, logger });
   // S2：overlay 管理栈（首装自动触发 / ensure 三态 / 取消）
   const bundledNode = join(userDataPath, 'node', 'bin', 'node');
@@ -511,6 +592,13 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   ipcMain.handle('hull:openSettings', async () => {
     if (quitting) return { ok: false, message: '正在退出' };
     settingsWindow.show(); // S8 D6：设置入口双入口（壳导航为主、托盘补充，S6 零改动）
+    return { ok: true };
+  });
+  // B2：壳导航任务看板入口 → 主进程切 view 到 placeholder:board（官方 WebContentsView 隐藏，
+  // 渲染侧 section#board 显示；复用 showPlaceholder 机制，D6 view 单一事实源不破）
+  ipcMain.handle('hull:showBoard', async () => {
+    if (quitting) return { ok: false, message: '正在退出' };
+    winMgr.showPlaceholder('board', '');
     return { ok: true };
   });
   ipcMain.handle('hull:checkDshUpdate', async () => {

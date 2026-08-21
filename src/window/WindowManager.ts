@@ -51,8 +51,9 @@ export type PlaceholderView =
   | 'placeholder:starting'
   | 'placeholder:installing'
   | 'placeholder:failed'
-  | 'placeholder:not-installed';
-export type PlaceholderMode = 'starting' | 'installing' | 'failed' | 'not-installed';
+  | 'placeholder:not-installed'
+  | 'placeholder:board';
+export type PlaceholderMode = 'starting' | 'installing' | 'failed' | 'not-installed' | 'board';
 
 /**
  * 主窗口壳框架（S8 D1-D7 唯一实现依据）：

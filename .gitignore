@@ -6,6 +6,14 @@ dist/
 out/
 release/
 *.tsbuildinfo
+# tsc 编译产物（开发期可能就地输出；排除手写 B2 UI 源 src/renderer/kanban.js）
+/src/**/*.ts
+/src/**/*.d.ts
+src/**/*.js
+src/**/*.js.map
+# 显式保留手写源（覆盖默认）
+!src/renderer/kanban.js
+!src/renderer/kanban.css
 
 # Logs
 *.log
