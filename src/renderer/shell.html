@@ -101,13 +101,6 @@
   .toast { position: fixed; right: 16px; bottom: 16px; background: #1f2328; color: #fff; font-size: 12px; padding: 8px 14px; border-radius: 8px; opacity: 0; transform: translateY(8px); transition: opacity 0.25s, transform 0.25s; pointer-events: none; z-index: 100; }
   .toast.show { opacity: 1; transform: translateY(0); }
   /* upgrade 视图：双通道卡片（dsh/Hull 各自独立状态） */
-  .modal-overlay { position: fixed; inset: 0; background: rgba(20,20,25,0.45); display: none; align-items: center; justify-content: center; z-index: 50; padding: 20px; }
-  .modal-overlay.show { display: flex; }
-  .modal { background: #fff; border-radius: 12px; width: 420px; max-width: 100%; padding: 18px; box-shadow: 0 20px 60px rgba(0,0,0,0.25); }
-  .modal h3 { font-size: 14px; margin-bottom: 12px; color: #1f2328; }
-  .modal-body { font-size: 13px; color: #1f2328; }
-  .modal-body p.muted { color: #5a6370; margin-top: 6px; }
-  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
   .ver { display: flex; gap: 10px; align-items: center; margin: 12px 0; }
   .ver .box { flex: 1; border: 1px solid #e3e3df; border-radius: 10px; padding: 10px 12px; }
   .ver .box.target { border-color: #4c6ef5; background: #edf1fe; }
@@ -333,13 +326,6 @@
     </section>
   </main>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <div id="modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="modal-desc">
-    <div class="modal">
-      <h3 id="modal-title"></h3>
-      <div id="modal-desc" class="modal-body"></div>
-      <div id="modal-actions" class="modal-actions"></div>
-    </div>
-  </div>
 <script>
   // 壳框架页（S8 D4/D5/D6 + S8' M1-重构）：
   // - 右侧内容区显示完全由主进程 hull:status 的 view 字段驱动（renderer 无 view 控制通道）
@@ -397,7 +383,8 @@
     'placeholder:upgrade': 'nav-upgrade',
   };
   // 升级进行中例外（M3）：placeholder:upgrade 且 upgrade.phase ∈ 进行中 → 保持 nav-upgrade；空闲回落 nav-web
-  const UPGRADE_ACTIVE_PHASES = ['checking', 'confirm', 'installing', 'swapping', 'verifying'];
+  // P3-3：rollback 补进（手动回滚时 phase=rollback → nav-upgrade 保持高亮，与进度段一致）
+  const UPGRADE_ACTIVE_PHASES = ['checking', 'confirm', 'installing', 'swapping', 'verifying', 'rollback'];
   function setActive(id) {
     for (const el of document.querySelectorAll('.nav-item')) el.classList.remove('active');
     document.getElementById(id).classList.add('active');
@@ -819,6 +806,11 @@
       renderDsh(dsh);
       renderHull(hullStatus);
       renderHullUpgrade(hullStatus);
+      // P2/M4：upgrade 视图 dsh 进度实时刷新——Updater 的 this.pct 中间值不 emit status 事件，
+      // 但 hull:status 事件仅 transition 边界携带 pct（50/90/95/100 步进）。250ms tick 的
+      // getDshStatus() 返回实时快照（overlay installStatus 进度透传 snapshot），
+      // 此处用实时快照重渲 upgrade dsh 卡，补足进度刷新（编排层零改动，CON-R005）
+      renderDshUpgrade(dsh.upgrade || {}, dsh);
       // preventive-prompt 重放（Hull 重启安装态提示）
       if (hullStatus.phase === 'restarting' || hullStatus.phase === 'done') renderRestartPrompt();
     } catch (err) {

@@ -51,7 +51,31 @@
 ## 核验记录
 
 ### Code Review
-- 由 orchestrator 指定评审机制（待跑 ocr review / 团队既有机制；本次交付后执行）
+- ora-1 评审（commit b8d9d10）：P2/M4 核验 + P3-1 + P3-3 修复
+
+#### P2/M4 核验结论（Updater pct 是否 emit）
+
+**结论：`this.pct` 中间值不独立 emit status 事件。**
+
+- `src/updater/Updater.ts` 中 `this.pct` 赋值点（50/90/95/100）均**不伴随** status emit——仅 `transition()` 末尾 `this.emit('status', this.snapshot())`（line 360），且调用顺序为「先 transition（此时 pct 为旧值）→ 后赋 pct」：
+  - installing: `transition(Installing)`（pct 旧值）→ `this.pct = 50`（line 236/237）
+  - swapping: `this.pct = 90` → `transition(Swapping)`（emit 携带 90，line 250/251）
+  - verifying: `transition(Verifying)`（pct 旧值 90）→ `this.pct = 95`（line 272/273）
+  - idle 成功: `this.pct = 100` → `transition(Idle)`（emit 携带 100，line 286/287）
+- Updater **不订阅** overlay 'progress' 事件——overlay 的 npm install 细粒度进度（`installStatus().progress`）不流入 Updater snapshot（`this.pct` 是 Updater 自身的粗步进值，非 overlay 实时进度）。
+- 影响：hull:status 事件推送仅携带 transition 边界 pct；依赖事件推送的渲染会在 installing 段看到「50%」后直到 swapping 才变 90%（不卡「准备…」，但步进非平滑）。
+
+**处理（壳内化侧补刷新，编排层零改动 CON-R005）**：
+- shell.html 250ms tick 本就轮询 `getDshStatus()`（返回实时 `updater.snapshot()`），但 upgrade 区此前未消费——补 `renderDshUpgrade(dsh.upgrade, dsh)` 调用，使进度按 250ms 轮询实时重渲（步进值即时刷新，跨 transition 边界无需等 status 事件）。
+- 细粒度 npm install 进度（overlay installStatus）不在升级编排层订阅（S3/S5 既有设计，非本波引入）；壳内化前 settings.html 的 renderDshProgress 同样消费 `u.pct` 粗步进——行为与迁移前一致，无回归。
+- 该结论与 P3 修复一并回填本记录。
+
+#### P3-1 修复（shell.html 死代码）
+- 删除 `.modal-overlay` / `.modal` / `.modal-body` / `.modal-actions` CSS 4 行 + 空 `#modal` DOM 结构（review 确认无 JS 引用，showModal/closeModal 已随 S6' 迁移移除）。
+- 保留 `#toast`（`toast()` 多处使用）。
+
+#### P3-3 修复（rollback 补进高亮）
+- `UPGRADE_ACTIVE_PHASES`（renderNavHighlight）补 `'rollback'`——手动回滚时（phase=rollback）nav-upgrade 保持高亮，与进度段（checking/confirm/installing/swapping/verifying）一致；空闲回落 nav-web 不变。
 
 ### Semgrep
 - 未配置（项目现有 Semgrep 扫描流程外，记录风险项：新增代码为 renderer 内联 script + preload 桥，白名单固定无透传）
@@ -78,6 +102,7 @@
 | 2 | 删除死代码 runUpgrade/runHullDownload | 确认流壳内化后渲染侧直调 hull:upgradeDsh / hull:downloadHullUpdate（main handler 内已含 installAndRestart），两包装函数无调用方 | 清理死代码，编排逻辑零改动 |
 | 3 | 单测保持 467（未达「约 471」） | 方案 §5 明确 view 状态机单测 YAGNI；467 为实际基线显式用例数，「471」为估算含复合 | 不新增单测，符合方案 |
 | 4 | e2e openSettings helper 改切视图定位（返回 shell 页） | 独立设置窗口移除，section 无独立 page | 既有 openSettings 语义保留（切 settings 视图），返回壳页 |
+| 5 | P2/M4 补 shell 侧 250ms 实时重渲 upgrade dsh 卡 | Updater pct 中间值不 emit（核验确认）；review 允许「接受折衷或补推送」——在渲染侧（非编排层）补实时快照消费，进度不卡步进 | 编排层零改动（CON-R005），仅 shell.html tick 消费既有 getDshStatus() 快照 |
 
 ### 红线核对
 
