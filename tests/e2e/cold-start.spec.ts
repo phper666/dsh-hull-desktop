@@ -47,7 +47,8 @@ test.describe('E2E-01 冷启动', () => {
       await expect(shell.locator('#nav-web')).toBeVisible();
       await expect(shell.locator('#nav-settings')).toBeVisible();
       await expect(shell.locator('#nav-upgrade')).toBeVisible();
-      await expect(shell.locator('#nav-board')).toHaveAttribute('aria-disabled', 'true'); // M2 占位
+      await expect(shell.locator('#nav-board')).toBeVisible(); // M2 看板已启用（B2）
+      await expect(shell.locator('#nav-board')).not.toHaveAttribute('aria-disabled', 'true');
       await expect(shell.locator('#nav-status')).toBeVisible();
       // 官方 UI 就绪：view URL http://127.0.0.1: + HTTP body=ok
       const url = await mainWindowUrl(app);
@@ -90,9 +91,13 @@ test.describe('E2E-01 冷启动', () => {
       await shell.click('#nav-settings');
       const settings = await openSettings(app);
       await expect(settings.locator('h1')).toHaveText('Hull 设置');
-      // 看板 → aria-disabled 无路由（Playwright 视 aria-disabled 为 disabled，点击被拒 = 无路由语义）
-      await expect(shell.locator('#nav-board')).toBeDisabled();
-      await expect(shell.locator('#nav-board')).toHaveAttribute('aria-disabled', 'true');
+      // 看板 → 已启用（B2）：点击 → 看板面板显示（placeholder:board）
+      await expect(shell.locator('#nav-board')).toBeEnabled();
+      await shell.click('#nav-board');
+      await expect(shell.locator('#board')).toBeVisible();
+      // 回官方 view（showWeb 对称恢复）
+      await shell.click('#nav-web');
+      await expect(shell.locator('#board')).toBeHidden();
       // 升级 → runCheck → updater.check 命中 registry（无更新 → 静默，无 dialog）
       await shell.click('#nav-upgrade');
       await waitForRegistryHits(reg, 1, 15_000);

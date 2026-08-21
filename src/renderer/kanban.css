@@ -1,7 +1,8 @@
 /* B2 看板 UI 样式（M2）——深色主题沿用 shell.html 设计语言 */
 /* 覆盖 shell.html .placeholder 绝对定位+居中：看板需占满 + 左对齐列横排 */
-/* position:absolute inset:0 + z-index:10 让 #board 在 #official-container 上层（避免官方 UI 容器拦截点击） */
-#board { position: absolute !important; display: block !important; inset: 0; z-index: 10; }
+/* 只在非 hidden 时显示（.hidden { display:none } 必须生效，否则 #board 永远拦截点击）；
+   position:absolute inset:0 + z-index:10 让 #board 在 #official-container 上层（避免官方 UI 容器拦截点击） */
+#board:not(.hidden) { position: absolute; inset: 0; z-index: 10; display: block; }
 #board-root {
   width: 100%; height: 100%; display: flex; flex-direction: column;
   overflow: hidden; background: #1e2430; color: #e8ecf3; font-size: 13px;
