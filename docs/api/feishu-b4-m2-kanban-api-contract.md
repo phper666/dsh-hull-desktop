@@ -3,8 +3,8 @@
 ## 契约信息
 
 - 工作项：B4 执行集成与审批（飞书 dsh-hull-desktop 清单，t100104）
-- 契约状态：草案
-- 版本：v0.1
+- 契约状态：待评审（修复后第二轮复核，ora-1 复核问题已修复）
+- 版本：v0.2
 - 适用版本：M2（共识 v1.4）
 - 最后更新：2026-08-21
 - 说明：桌面壳本地执行集成契约（无 HTTP API 面）；核心 = ACP JSON-RPC stdio 集成（newSession/prompt/session.cancel/agent_message_chunk/request_permission 连接生命周期）+ permission_request 审批流（非阻塞弹窗/30s 超时 deny/FIFO/timeline 留痕）+ selfCheck 判定 + 多 agent 注册表（CON-R030）+ AC 修订入口。**B4 构建在 B3 ExecutionProvider 之上**——B4 提供 ACP Provider（B3 `execute()` 的默认实现），向 B2（UI）暴露审批/AC 修订交互契约。
@@ -134,10 +134,15 @@ B3 executeTask → 调度就绪 → 调 B4 ACPProvider.execute()
 
 | 项 | 类型 | 说明 |
 |:---|:---|:---|
-| register(provider, factory) | method | 注册执行平台（provider 标识）；M2 仅 'dsh' 注册 |
+| register(provider, factory) | method | 注册执行平台（provider 标识）；**幂等——同 provider 重复注册 = 覆盖旧 factory（写日志），不报错**；M2 仅 'dsh' 注册 |
 | list() | method | 列出已注册 provider（供 getAgentProviders） |
-| resolve(provider) | method | 解析 agentSpec.provider 到对应 ExecutionProvider 实现；未注册 → exec-provider-unavailable |
+| resolve(provider) | method | 解析 agentSpec.provider 到对应 ExecutionProvider 实现；**未注册 → exec-provider-unavailable**（含可用性不一致判定） |
 | subagentPolicy | enum | 'auto'（默认，允许 dsh 内部调用子 agent，含跨平台子 agent）/ 'restricted'（仅 dsh 自身，不调子 agent） |
+
+> **resolve 失败语义与 available 口径（P1-B4-2，必读）**：
+> - `resolve(provider)` 双重判定：① provider **未注册**（registry 无此键）→ `exec-provider-unavailable`；② 已注册但 **factory 就绪检查失败**（如 dsh ACP 不可 spawn）→ 同样 `exec-provider-unavailable`。
+> - `getAgentProviders[].available` 与 executeTask 实际可用口径**一致**——available = resolve(provider) 当前能否通过（注册 + 就绪双判）；UI 显示 available=false 的 provider，executeTask 必回 `exec-provider-unavailable`；available=true 的 provider，executeTask 仅可能因瞬时故障失败（spawn 竞争），不存在"UI 显示可用但必然不可用"的常态不一致。
+> - 重复 register 幂等（覆盖 + 日志），resolve/list/getAgentProviders 均以**最新注册**为准。
 
 > agentSpec 字段（provider/agent/model/subagentPolicy）数据结构已入 B1 schema（B1 契约），B4 消费解析，不重复定义。
 
@@ -151,11 +156,16 @@ B3 executeTask → 调度就绪 → 调 B4 ACPProvider.execute()
 | requestId | string | 是 | ACP request_permission 下发 id |
 | message | string | 是 | agent 审批消息（弹窗展示） |
 | queuePosition | integer | 是 | FIFO 排队位置（从 1 起） |
-| timeoutSeconds | integer | 是 | 30（超时自动 deny） |
+| deadlineAt | string | 是 | ISO 8601 UTC；推送时刻 + 30s | **超时截止时间（P1-B4-1）**——计时器归属 **B4 主进程**，deadlineAt 由主进程计算下发；B2 只据此展示倒计时，不自行起 30s 计时器 |
 
 ```json
-{ "boardId": "b_2f5a1c00-0000-4000-8000-000000000001", "taskId": "t_1a2b3c4d-0000-4000-8000-000000000001", "title": "实现看板拖拽流转", "requestId": "req_0001", "message": "允许执行 git push 到 origin/main？", "queuePosition": 1, "timeoutSeconds": 30 }
+{ "boardId": "b_2f5a1c00-0000-4000-8000-000000000001", "taskId": "t_1a2b3c4d-0000-4000-8000-000000000001", "title": "实现看板拖拽流转", "requestId": "req_0001", "message": "允许执行 git push 到 origin/main？", "queuePosition": 1, "deadlineAt": "2026-08-21T10:00:30.000Z" }
 ```
+
+> **审批超时计时器生命周期（P1-B4-1，必读）**：
+> 1. **计时器归属 = B4 主进程**，不依赖渲染层——pending 请求在主进程维护 deadlineAt（收到 request_permission 时刻 + 30s），到点由主进程执行 auto-deny + timeline 留痕 + 推送关弹窗；**B2 渲染层只读 deadlineAt 展示倒计时**（渲染延迟/崩溃不吃窗口）。
+> 2. **B2 崩溃/弹窗关闭**：pending 请求计时器仍由主进程跑，30s 到点照常 auto-deny——agent 不悬挂；B2 重连后通过 `getPendingApprovals`（B4 内部重推或快照）恢复弹窗展示。
+> 3. **壳重启**：pending 请求 → **立即 auto-deny + timeline 留痕**（对齐 B3 重启收敛 Q-017，主进程计时器随壳销毁无法延续，重启即判定超时拒绝）。
 
 ### selfCheck 判定规则（Q-015）
 
@@ -194,16 +204,17 @@ B3 executeTask → 调度就绪 → 调 B4 ACPProvider.execute()
 
 #### 事件负载
 
-见 Schema 章「审批事件负载」：boardId/taskId/title/requestId/message/queuePosition/timeoutSeconds。
+见 Schema 章「审批事件负载」：boardId/taskId/title/requestId/message/queuePosition/deadlineAt。
 
 ```json
-{ "boardId": "b_2f5a1c00-0000-4000-8000-000000000001", "taskId": "t_1a2b3c4d-0000-4000-8000-000000000001", "title": "实现看板拖拽流转", "requestId": "req_0001", "message": "允许执行 git push 到 origin/main？", "queuePosition": 1, "timeoutSeconds": 30 }
+{ "boardId": "b_2f5a1c00-0000-4000-8000-000000000001", "taskId": "t_1a2b3c4d-0000-4000-8000-000000000001", "title": "实现看板拖拽流转", "requestId": "req_0001", "message": "允许执行 git push 到 origin/main？", "queuePosition": 1, "deadlineAt": "2026-08-21T10:00:30.000Z" }
 ```
 
 #### 交互约束（B2 消费）
 
 - 弹窗**非阻塞**：不阻断看板操作；多个审批请求 FIFO 排队（queuePosition 提示）
-- 30s 倒计时：超时后 B4 自动 deny + 关弹窗（B2 监听 close 事件）；已超时请求不再可响应
+- **超时倒计时（P1-B4-1）**：计时器归属 **B4 主进程**（deadlineAt 主进程计算下发）；B2 只读 deadlineAt 展示倒计时，**不自行起 30s 计时器**；超时由主进程 auto-deny + timeline 留痕 + 推送关弹窗（B2 监听 close 事件）；已超时请求不再可响应
+- **B2 崩溃/重连**：pending 请求计时器仍由主进程跑，30s 到点照常 auto-deny（B2 崩溃不影响）；B2 重连后经 B4 内部快照重推恢复弹窗展示
 - 批准/拒绝 → 调 `kanban:approvalRespond`（对齐 B3 签名）
 
 #### 失败响应
@@ -212,8 +223,8 @@ B3 executeTask → 调度就绪 → 调 B4 ACPProvider.execute()
 
 #### 测试要点
 
-- 成功：request_permission → 弹窗触发，负载字段完整
-- 边界：多请求 FIFO queuePosition 正确；超时自动关弹窗
+- 成功：request_permission → 弹窗触发，负载字段完整（含 deadlineAt）
+- 边界：多请求 FIFO queuePosition 正确；超时自动关弹窗；**B2 崩溃后 30s 仍 auto-deny（P1-B4-1 A17）**；壳重启 pending 立即 auto-deny
 
 ### 2. approvalRespond
 
@@ -271,6 +282,7 @@ B3 executeTask → 调度就绪 → 调 B4 ACPProvider.execute()
 
 - 数据写入：决策写 timeline（system,user）——"审批 {approve/deny}: {message}"（Q-018）
 - 外部调用：ACP 响应（approve/deny + request id）；30s 超时自动 deny + 关弹窗
+- **message → reason 映射（P2-B4-1）**：approvalRespond.message（≤500 字符）映射为 ACP `session/request_permission` 响应帧的 `reason` 字段（`{ requestId, approved, reason }`）；message 为空时 reason 省略（approved 仍必填）
 
 #### 测试要点
 
@@ -288,6 +300,7 @@ B3 executeTask → 调度就绪 → 调 B4 ACPProvider.execute()
 - 共识：CON-R021 + Q-022
 - 验收：B4 验收（AC 修订流程）
 - 边界说明：**非 running** 状态编辑 AC 走 B1 `kanban:updateTask` 普通编辑（不触发中断）；本接口仅承接 running 中修订
+- **B2 按状态分流（P2-B4-3）**：B2 编辑 AC 前查 Task.executionStatus——`running` → 走本接口（editAcceptanceCriteria，弹窗警示"将中断当前执行"）；`非 running`（idle/queued/paused/interrupted/failed/succeeded）→ 走 B1 `kanban:updateTask` 普通编辑（不中断执行、无 diff 留痕要求）；本接口对非 running 请求统一回 `exec-not-running` 兜底（双保险）
 
 #### 请求
 
@@ -396,7 +409,7 @@ B3 executeTask → 调度就绪 → 调 B4 ACPProvider.execute()
 
 | 系统 | 调用 | 超时 | 重试 | 幂等/结果确认 |
 |---|---|---|---|---|
-| dsh ACP 子进程 | JSON-RPC over stdio（newSession/prompt/session.cancel/request_permission/agent_message_chunk） | 审批 30s 超时自动 deny；心跳超时（B3，maxExecutionIdleMinutes=30） | 通道失败不自动重试（exec-provider-unavailable，用户重试） | session/cancel；requestId 幂等；完成以 ExecutionResult 回传 |
+| dsh ACP 子进程 | JSON-RPC over stdio（newSession/prompt/session.cancel/request_permission/agent_message_chunk） | 审批 30s 超时自动 deny（**主进程计时器，deadlineAt 起算**）；心跳超时（B3，maxExecutionIdleMinutes=30） | 通道失败不自动重试（exec-provider-unavailable，用户重试） | session/cancel；requestId 幂等；完成以 ExecutionResult 回传；**子进程意外退出 → failed + exec-provider-unavailable（P2-B4-2）** |
 | executions log | 写 `<userData>/kanban/executions/e_<uuid>.log` | — | — | 随卡片删除级联清理（Q-019） |
 | B1 store 直调 | 同主进程直调（不经 IPC） | — | — | 幂等见各 IPC |
 
@@ -408,7 +421,7 @@ B3 executeTask → 调度就绪 → 调 B4 ACPProvider.execute()
 | A2 | ACP 能力边界 | dsh 就绪 | 流式观察 | 仅 agent_message_chunk（已提交文本）；无推理/工具实时视图 | — | CON-R019 |
 | A3 | 审批流批准 | ACP 发 request_permission | onPermissionRequest → approvalRespond{decision:'approve'} | 弹窗触发 → ACP 响应 approve → 执行继续 | timeline"审批 approve"（system,user） | Q-018 |
 | A4 | 审批流拒绝 | ACP 发 request_permission | approvalRespond{decision:'deny'} | ACP 响应 deny → 执行按 agent 处理 | timeline"审批 deny" | Q-018 |
-| A5 | 审批 30s 超时 | 弹窗无响应 | 等待 >30s | 自动 deny + 关弹窗 + timeline"审批超时自动拒绝" | timeline 留痕 | Q-018 |
+| A5 | 审批 30s 超时 | 弹窗无响应 | 等待 >30s | 主进程到 deadlineAt 自动 deny + 关弹窗 + timeline"审批超时自动拒绝" | timeline 留痕；deadlineAt 起算 | Q-018 |
 | A6 | 审批 FIFO 多请求 | 3 个并发 request_permission | 依次响应 | queuePosition 1/2/3 正确；先到先响应；互不阻塞 | 多请求按任务平铺 | Q-018 |
 | A7 | 审批已响应冲突 | request 已响应/已超时 | 再次 approvalRespond | **exec-approval-not-pending**（提示"审批已处理"） | 不重复响应 ACP | Q-018 |
 | A8 | selfCheck true | auto 任务 + mock | 完成注入 passed=true | → succeeded + 列→verify（自动流转 CON-R029） | execution 记录 selfCheck | Q-015 |
@@ -420,6 +433,10 @@ B3 executeTask → 调度就绪 → 调 B4 ACPProvider.execute()
 | A14 | AC 修订非 running | idle/succeeded 任务 | editAcceptanceCriteria | **exec-not-running**（提示走 B1 updateTask 普通编辑） | 不中断 | CON-R021 |
 | A15 | AC 修订缺必填 | running auto 任务 | editAcceptanceCriteria{AC 缺 verify} | **validation-error**（field=verify） | 不中断不落盘 | CON-R018 |
 | A16 | dsh 未就绪 | dsh ACP 不可用 | executeTask | **exec-provider-unavailable**（执行通道未就绪提示） | 不 spawn | CON-R019 |
+| A17 | 审批计时器归属主进程（P1-B4-1） | pending 审批请求 + **B2 渲染层崩溃** | 等待 >30s（B2 已崩溃） | 主进程仍到 deadlineAt auto-deny + timeline 留痕——agent 不悬挂 | timeline"审批超时自动拒绝" | Q-018 |
+| A18 | 重复 register 幂等（P1-B4-2） | 'dsh' 已注册 | 再次 register('dsh', 新 factory) | 覆盖旧 factory + 写日志；resolve/list 以最新为准，不报错 | 注册表单条 'dsh' | CON-R030 |
+| A19 | resolve 未注册 provider（P1-B4-2） | registry 无 'other' | getAgentProviders 显示 'other' 或 agentSpec.provider='other' 执行 | getAgentProviders available=false；executeTask → **exec-provider-unavailable** | UI 与执行口径一致 | CON-R030 |
+| A20 | 执行中 dsh 崩溃（P2-B4-2） | running 执行中 ACP 子进程意外退出 | 子进程 exit 非 0 / spawn 端到端断开 | 执行 → failed（"执行通道异常"）+ execution 记录 finishedAt 补写 + onExecutionUpdate；重试时 **exec-provider-unavailable**（通道未就绪） | system 事件 + failed 记录 | Q-015 |
 
 ## 开放问题
 
@@ -433,6 +450,7 @@ B3 executeTask → 调度就绪 → 调 B4 ACPProvider.execute()
 |---|---|---|---|---|
 | B4↔B3 边界 | B4 提供 ACP Provider（B3 `execute()` 默认实现）+ 审批事件 + AC 修订入口；B3 提供调度/状态机/执行控制 IPC——不重复定义状态机与调度 | phper666 | B4 契约 | 已定 |
 | approvalRespond 对齐 | B3 已定义 `kanban:approvalRespond` 控制 IPC，B4 审批流消费并补 30s 超时/FIFO/timeline 语义——签名一致不冲突 | phper666 | 本契约 | 已定 |
+| 审批计时器归属 | **B4 主进程**持有 pending deadlineAt，B2 只读展示倒计时（P1-B4-1）；壳重启 pending 立即 auto-deny（对齐 B3 Q-017） | phper666 | 本契约 | 已定 |
 | AC 修订入口归属 | B4 提供 `kanban:editAcceptanceCriteria`（running 门控）；非 running AC 编辑走 B1 `kanban:updateTask`——B2 按状态分流 | phper666 | B2 契约 | 已定 |
 | B2 消费 | B2 消费 onPermissionRequest 弹窗 + approvalRespond + editAcceptanceCriteria 入口 + getAgentProviders agentSpec 选择；IPC channel 前缀 `kanban:`（沿用 B1/B3） | phper666 | B2 契约 | 待定 |
 | 错误码对齐 | B4 复用 B3 `KANBAN_EXEC_ERROR`（exec-* 集），不重复定义全集；validation-error/store-not-found 命名对齐 | phper666 | 本契约 | 已定 |
@@ -457,17 +475,21 @@ B3 executeTask → 调度就绪 → 调 B4 ACPProvider.execute()
 - 多 agent 注册表先行（CON-R030）：M2 仅 'dsh' 注册，provider 抽象 + 注册表预留 U-002 接入第二平台；subagentPolicy='auto' 时 dsh 作 ACP client 可编排跨平台子 agent。
 - selfCheck 判定信号明确可测（Q-015）：不用"无异常即通过"——passed 显式 true/false，false/超时/异常→failed。
 - AC 修订边界：editAcceptanceCriteria 仅承接 running 中修订（终止 ACP + interrupted + diff 留痕）；非 running 普通编辑走 B1 updateTask——避免两个入口语义混淆。
+- 审批计时器归属主进程（ora-1 修复，P1-B4-1）：pending 请求由 B4 主进程持 deadlineAt 并计时，B2 只读展示倒计时——渲染层崩溃不吃窗口、不悬挂 agent；壳重启 pending 立即 auto-deny（对齐 B3 重启收敛 Q-017）。复用场景：任何"机器请求→人工确认"超时设计。
+- ProviderRegistry 失败语义（ora-1 修复，P1-B4-2）：register 幂等（重复注册覆盖 + 日志）；resolve 未注册/就绪失败 → exec-provider-unavailable；getAgentProviders.available 与 executeTask 实际可用口径一致（注册 + 就绪双判）。复用场景：任何可插拔执行平台注册表。
+- 执行中 dsh 崩溃（ora-1 修复，P2-B4-2）：ACP 子进程意外退出 → 执行 failed + 记录 finishedAt + 重试时 exec-provider-unavailable；不能挂起不收敛。
 
 ## 变更记录
 
 | 时间 | 类型 | 摘要 |
 |---|---|---|
 | 2026-08-21 | 初次生成 | 基于 t100104（B4）和共识 v1.4（§7.4/§8/§10/§13/§14.1 + Q-015/018/022/024）生成契约草案，构建于 B3 执行引擎契约之上 |
+| 2026-08-21 | 复核修复 | ora-1 退回修复：P1-B4-1 审批计时器归属定死主进程（deadlineAt 主进程计算、B2 只读倒计时、B2 崩溃 30s 仍 auto-deny、壳重启 pending 立即 auto-deny 对齐 B3 Q-017）；P1-B4-2 ProviderRegistry 失败语义（register 幂等覆盖+日志、resolve 未注册/就绪失败→exec-provider-unavailable、available 与 executeTask 口径一致）；P2-B4-1 approvalRespond.message→ACP reason 映射；P2-B4-2 执行中 dsh 崩溃→failed+exec-provider-unavailable；P2-B4-3 B2 按状态分流（running→editAcceptanceCriteria，否则→updateTask）注明；测试补 A17~A20 + 改 A5；契约状态改待评审（第二轮复核） |
 
 ## 自检记录
 
-- 追踪完整性：PASS（B4→CON-R018/019/021/029/030 + Q-015/017/018/022/024/026→验收，追踪矩阵全覆盖；与 B3 边界不重复）
+- 追踪完整性：PASS（B4→CON-R018/019/021/029/030 + Q-015/017/018/022/024/026→验收，追踪矩阵全覆盖；与 B3 边界不重复；ora-1 修复后补 P1-B4-1/P1-B4-2/P2 追踪）
 - OpenAPI 一致性：不适用（本地执行集成契约，无 OpenAPI yaml；ACP JSON-RPC 帧契约 + ExecutionProvider 即字段事实源）
-- 示例与错误场景：PASS（16 个联调场景 A1~A16 含成功/失败/边界 + 公共异常集复用 KANBAN_EXEC_ERROR + 审批事件示例）
+- 示例与错误场景：PASS（20 个联调场景 A1~A20 含成功/失败/边界 + 公共异常集复用 KANBAN_EXEC_ERROR + 审批事件示例）
 - 安全与敏感字段：PASS（无敏感字段；DSH_HOME 零接触；审批 message ≤500 字符无敏感数据要求）
 - 链接与格式：PASS
