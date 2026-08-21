@@ -3,10 +3,10 @@
 ## 契约信息
 
 - 工作项：B2 看板 UI 与交互（飞书 dsh-hull-desktop 清单，t100102）
-- 契约状态：待评审
+- 契约状态：待评审（修复后第三轮）
 - 版本：v0.1
 - 适用版本：M2（共识 v1.4）
-- 最后更新：2026-08-20
+- 最后更新：2026-08-21
 - 说明：桌面壳前端 UI + IPC 消费契约——定义壳 UI 如何消费 B1 数据原语（16 IPC）+ 视图交互 + UI 状态。B2 消费 B1 全部数据原语，新增 UI 专属行为（视图切换/拖拽/筛选/空态/归档区/多项目看板）。B1 契约（feishu-b1-m2-kanban-api-contract.md）为数据层事实源。
 
 ## 需求与共识追踪
@@ -56,14 +56,18 @@
 冲突场景（拖 Done 执行中/子任务未完成）→ 确认弹窗 → 可强制通过
 ```
 
+> **getTasks 过滤语义（P1-B2-1 定稿）**：`getTasks` 返回**全量任务（含 archivedAt 字段，B1 冻结语义）**，不含归档过滤。B2 三视图各自基于 `archivedAt` 过滤渲染同一份 tasks 数据——看板/列表视图过滤 `archivedAt == null`（归档卡不显示）；归档视图过滤 `archivedAt != null`（仅归档区显示）。B2 不做第二次取数，视图切换即同一内存态换过滤条件重渲染（P2-B2-2 一致性断言）。
+
 ### 状态转换（UI 视图状态）
 
 | 当前视图 | 动作 | 目标视图 | 前置条件 | 冲突行为 | 依据 |
 |---|---|---|---|---|---|
 | 看板视图 | 切换列表 | 列表视图 | 同看板数据 | 无 | 决策 3 |
 | 看板/列表 | 切换归档 | 归档视图 | 只读，archivedAt 非空 | 恢复/彻底删除需确认 | CON-R033 |
-| 归档 | 恢复 | 看板视图（Done/原列） | restoreTask 成功 | 清归档字段 | CON-R033 |
+| 归档 | 恢复 | 看板视图（Done/原列） | restoreTask 成功 | 清归档字段；恢复后看板/列表视图重新显示该卡（archivedAt 已清） | CON-R033 |
 | 任意视图 | 切换看板 | 目标看板视图 | createBoard/getBoards | 各 Board 独立 | CON-R031 |
+
+> **恢复目标列规则（P1-B2-2 定稿）**：恢复时 B2 不传 `toColumnId`（走 B1 缺省）——默认回 `archivedFromColumnId`（原列）；若原列已删除或隐藏则回 Done（与 Blocked 解除同构，B1 restoreTask 缺省语义）。B2 UI 恢复按钮语义即"回原列/回 Done"，不暴露目标列选择。
 
 ## 接口清单
 
@@ -89,6 +93,7 @@
 |---|---|---|
 | currentView | string | kanban / list / archive（决策 3 视图切换） |
 | currentBoardId | string | 当前看板 id（默认/上次） |
+| archiveFilter | string | archive / active（当前视图的任务过滤：归档视图=archive（archivedAt!=null）；看板/列表=active（archivedAt==null）） |
 | filters | object | 搜索/优先级/状态/标签筛选（工具栏） |
 | sortField | string | 列表视图排序字段（白名单：title/priority/dueDate/updatedAt/order） |
 | dragState | object | 拖拽中状态（draggingCardId/ghostColumnId/冲突待确认） |
@@ -112,21 +117,22 @@
 - 布局：左侧 Hull 导航（dsh web/设置/升级/任务看板）+ 右侧看板视图
 - 顶部：视图切换器（看板/列表/归档）+ 多项目看板切换器 + 创建看板按钮 + 工具栏（搜索/优先级/状态/标签筛选/清除/管理列/新建任务）
 - 列区：列（300px，列头色带=列颜色，卡片数徽标）；卡片（优先级色条/模式徽标/父引用徽标/标签/进度条+展开子任务/截止/负责人/执行状态徽标/←/→/agent 按钮）
-- 消费：`getBoards` + `getTasks`（加载）；`moveTask`（拖拽）；`createTask`（新建）
+- 消费：`getBoards` + `getTasks`（加载，**getTasks 返回全量含 archivedAt**）；`moveTask`（拖拽）；`createTask`（新建）
+- 视图过滤：看板/列表视图仅渲染 `archivedAt == null` 任务（P1-B2-1）；归档卡不显示
 - 错误处理：store-not-found → 提示"数据已删除，自动刷新"；store-io-error → 提示保存失败重试
 - 拖拽语义（CON-R020）：人工拖拽直接生效不自动矫正；冲突弹窗（拖 Done 执行中/未执行→"任务未完成执行，确认跳过？"；父卡拖 Done 子任务未完成→"子任务未全部完成，确认？"；执行中拖其他列→执行不终止，列以人工为准）；拖拽写 timeline（B1 store 自动，from→to/user）
 
 ### UI 场景 2：列表视图（决策 3）
 
-- 表格渲染同看板 tasks 数据（不改数据模型）：列=标题/优先级/状态/截止/负责人/执行状态/操作
+- 表格渲染同看板 tasks 数据（不改数据模型）：列=标题/优先级/状态/截止/负责人/执行状态/操作；**仅渲染 archivedAt==null 任务（P1-B2-1）**
 - 排序：sortField 白名单（title/priority/dueDate/updatedAt/order）；筛选：复用工具栏 filters
 - 空态：筛选无结果 → "无匹配卡片" + 清除筛选
 - 操作：行内 编辑/移动/删除/归档（复用卡片操作）
 
 ### UI 场景 3：归档区视图（CON-R033）
 
-- 只读：已归档 ticket 列表（archivedAt 非空）
-- 恢复：`restoreTask`（回 Done 或原列 archivedFromColumnId，二次确认）
+- 只读：已归档 ticket 列表（**渲染 archivedAt != null 任务，P1-B2-1**）
+- 恢复：`restoreTask`（**不传 toColumnId，走 B1 缺省 = 回 archivedFromColumnId 原列，原列已删/隐藏则回 Done，P1-B2-2**，二次确认）
 - 彻底删除：`purgeTask`（级联清 timeline/附件/executions log，二次确认）
 - 错误处理：validation-error（未归档不可 purge）→ 提示
 
@@ -155,8 +161,8 @@
 
 ### UI 场景 7：归档操作
 
-- 归档：`archiveTask`（仅 Done 可归档；非 Done→validation-error 提示"仅 Done 可归档"）
-- 恢复：`restoreTask`（回 Done/原列）
+- 归档：`archiveTask`（**"仅 Done 可归档"校验由 B1 store 执行**——非 Done → validation-error "仅 Done 可归档"；B2 前置置灰非 Done 卡的归档按钮，置灰仅 UX 引导，不替代 B1 校验）
+- 恢复：`restoreTask`（不传 toColumnId，回原列/回 Done，P1-B2-2）
 - 彻底删除：`purgeTask`（仅归档区，二次确认）
 
 ## 数据库与外部系统影响
@@ -180,13 +186,14 @@
 | U11 | 列管理 | 自定义列 | 新增/改名/排序/颜色/隐藏 | 即时生效持久化 | boards.json | B2 验收 |
 | U12 | 删除自定义列 | 自定义列含卡 | deleteColumn | 列内卡片移入 Todo | 卡片 columnId=Todo | B2 验收 |
 | U13 | 删除模板列 | 默认看板 | deleteColumn c_done | validation-error（模板列不可删） | 列保留 | B2 验收 |
-| U14 | 归档 Done | Done 卡 | archiveTask | 入归档区（archivedAt） | 归档字段 | B2 验收 |
-| U15 | 归档非 Done | Todo 卡 | archiveTask | validation-error（仅 Done 可归档） | 不归档 | B2 验收 |
-| U16 | 恢复归档 | 归档区卡 | restoreTask | 回 Done/原列，清归档字段 | system 事件 | B2 验收 |
-| U17 | 彻底删除 | 归档区卡 | purgeTask | 级联清 timeline/附件/executions | 无残留 | B2 验收 |
+| U14 | 归档 Done | Done 卡 | archiveTask | 入归档区（archivedAt）；**归档后看板视图不显示该卡、归档视图显示**（P1-B2-1） | 归档字段 + 视图过滤正确 | B2 验收 |
+| U15 | 归档非 Done | Todo 卡 | archiveTask | validation-error（仅 Done 可归档，B1 校验；B2 前置置灰） | 不归档 | B2 验收 |
+| U16 | 恢复归档 | 归档区卡（原列 In Progress） | restoreTask（不传 toColumnId） | **回 archivedFromColumnId 原列（In Progress）**，清归档字段；看板视图重新显示该卡（P1-B2-2） | system 事件 + 目标列=原列 | B2 验收 |
+| U16a | 恢复归档（原列已删/隐藏） | 归档区卡（原列已删除） | restoreTask（不传 toColumnId） | **回 Done**（B1 缺省，P1-B2-2） | 目标列=Done | B2 验收 |
+| U17 | 彻底删除 | 归档区卡 | purgeTask | 级联清 timeline/附件/executions；归档视图不再显示 | 无残留 | B2 验收 |
 | U18 | 评论增删 | user 评论 | addComment→deleteComment | 增删成功 + 附件清理 | 重启不复活 | B2 验收 |
 | U19 | 删 agent 评论 | agent 评论 | deleteComment | validation-error（Q-028 只读） | 不可删 | B2 验收 |
-| U20 | 视图切换 | — | 看板/列表/归档 | 同数据多视图渲染 | 无写 | B2 验收 |
+| U20 | 视图切换 | — | 看板/列表/归档 | 同数据多视图渲染；**切换不重新取数（同一内存态换过滤条件），active/archive 集合互补且数据一致**（P2-B2-2） | 无写 | B2 验收 |
 | U21 | 列表排序筛选 | 多卡 | 排序/筛选 | 白名单排序 + 筛选生效 | 无写 | B2 验收 |
 | U22 | 编辑 auto 缺 AC | auto 卡 | 保存缺 AC | 标红拦截（CON-R018 门控） | 不落盘 | B2 验收 |
 | U23 | 删除执行中卡 | running 卡 | deleteTask | store-task-executing（执行中不可删） | 不可删 | B2 验收 |
@@ -204,7 +211,7 @@
 
 | 事项 | 跨模块/第三方 | 责任人 | 截止时间 | 状态 |
 |---|---|---|---|---|
-| preload 桥 | B2 renderer 经 preload 调 B1 IPC（channel 命名对齐 B1 契约） | phper666 | B2 实现 | 待定 |
+| preload 桥 | B2 renderer 经 preload 调 B1 IPC；channel 命名对齐 B1 契约 16 原语（`kanban:` 前缀） | phper666 | 已定（B1 冻结） | 已闭环 |
 | 列表/归档视图渲染 | 视图切换在 B2 UI 层（不改数据模型），需与 B3 状态视图协同 | phper666 | B3 契约 | 待定 |
 | 拖拽冲突确认 | 冲突弹窗后 moveTask 由 B2 触发（B1 只落 columnId） | phper666 | 已定 | 已闭环 |
 | 归档 UI | archive/restore/purge 由 B2 调用（B1 提供原语） | phper666 | 已定 | 已闭环 |
@@ -224,17 +231,20 @@
 
 - 前端 UI 契约形态：B2 无新增数据接口，全部消费 B1 16 IPC 原语 + 7 错误码；契约核心 = UI 场景清单 + IPC 消费映射 + UI 专属状态（视图切换/筛选/拖拽冲突/空态）。复用场景：B2 类纯 UI 消费子需求契约同构。
 - 视图切换为 UI 层行为（决策 3）：看板/列表/归档同 tasks 数据多视图渲染，不改数据模型，避免数据分叉。
+- 归档区取数（P1-B2-1）：getTasks 全量返回含 archivedAt，B2 视图层按 archivedAt 过滤——B1 不区分归档取数通道，避免双通道数据分叉；归档/活动过滤是 B2 UI 状态（archiveFilter）非数据查询。
+- 恢复目标列（P1-B2-2）：B2 不暴露 toColumnId，走 B1 缺省（原列 archivedFromColumnId，已删/隐藏则 Done）——与 Blocked 解除同构，单侧规则可测。
 
 ## 变更记录
 
 | 时间 | 类型 | 摘要 |
 |---|---|---|
 | 2026-08-20 | 初次生成 | 基于 t100102（B2）和共识 v1.4 §12 + B1 契约 16 原语生成契约草案 |
+| 2026-08-21 | 复核修复 | ora-1：P1-B2-1 getTasks 全量过滤语义（三视图按 archivedAt 各自过滤，补 U14/U17 断言）；P1-B2-2 恢复目标列定死（B2 不传 toColumnId，走 B1 缺省回原列/已删隐藏则 Done，补 U16/U16a 断言）；P2-B2-1 "仅 Done"校验归属 B1、B2 前置置灰；P2-B2-2 视图切换一致性断言（U20）；P2-B2-3 preload 桥闭环 |
 
 ## 自检记录
 
 - 追踪完整性：PASS（B2→CON-R020/022/026/031/033 + Q-021/027/028→验收，追踪矩阵全覆盖）
 - OpenAPI 一致性：不适用（本地 UI + IPC 消费契约，无 OpenAPI yaml）
-- 示例与错误场景：PASS（26 个 UI 场景 U1~U26 含成功/失败/边界 + 7 错误码消费）
+- 示例与错误场景：PASS（27 个 UI 场景 U1~U26 + U16a 含成功/失败/边界 + 7 错误码消费）
 - 安全与敏感字段：PASS（无敏感字段；UI 只消费 IPC，不触 DSH_HOME）
 - 链接与格式：PASS
