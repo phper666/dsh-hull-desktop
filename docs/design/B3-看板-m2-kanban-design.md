@@ -1,8 +1,8 @@
 # B3 执行引擎与状态机 技术方案
 
 > 工作项：B3 执行引擎与状态机（飞书 dsh-hull-desktop 清单，t100103）
-> 状态：draft（评审通过后置 frozen）
-> 版本：0.1 · 2026-08-21
+> 状态：**frozen（评审通过·冻结，可进实现）**——ora-1 有条件通过，P1-1/P1-2 补齐后置 frozen（2026-08-21）
+> 版本：0.2 · 2026-08-21
 > 事实源：契约 `docs/api/feishu-b3-m2-kanban-api-contract.md` v0.2（冻结）；共识 `docs/spec/共识-Hull桌面壳-M2看板.md` v1.4（§5/§10/§13 + CON-R019/021/023/027/029）；PRD `docs/prd/2026-08-19-m2-kanban-prd.md`；M1 方案 `docs/design/S1-壳骨架-m1-design.md`（格式与工程基线参照）
 > 判级：**复杂**。理由：状态机 + 并行调度 + ExecutionProvider 抽象 + ACP 外部系统集成（子进程 JSON-RPC）跨多子系统，契约含状态机全迁移矩阵与并行闭环（skill 判级矩阵"状态机 + 外部系统集成"）。
 
@@ -25,7 +25,7 @@
 
 **非目标**（契约 §非目标）：ACP 真实接入/审批弹窗 UI/agent 会话管理（B4，B3 仅提供控制 IPC）；看板 UI（B2）；数据模型/持久化（B1，B3 直调 store）；导出导入（B5）；插件独立发布（O-5）、任务级 agent 选择 UI（O-10）、依赖图可视化（U-003）、多 agent 第二平台落地（U-002）。
 
-**交付验收**：契约测试场景 E1~E30（状态机迁移/并行/依赖/失败传播/死锁/重启收敛/心跳/selfCheck/父卡展开/confirmVerify/mock 桩）。
+**交付验收**：契约测试场景 E1~E32（状态机迁移/并行/依赖/失败传播/死锁/重启收敛/心跳/selfCheck/父卡展开/confirmVerify/mock 桩 + 心跳与 paused 冲突 E31 + 调度并发竞态 E32）。
 
 **范围剪裁说明（YAGNI）**：不引状态机库/队列库；AC 真伪环检测留 P2（Q-014）；依赖图可视化排后（U-003）；心跳窗口定时器不做持久化（重启收敛即清）。
 
@@ -134,15 +134,24 @@ Scheduler 主循环:
                          全 succeeded→父 succeeded；父 currentExecutionId 恒空（Q-016）
 ```
 
+- **单飞调度循环 + 原子结算段（P1-2，ora-1 评审条件项，必读）**：主循环与 `provider.execute()` 异步回调同事件循环——完成回调可能在主循环 await provider 期间进入，两任务同时完成 → 释放 2 池位 → 重算可能超 maxParallel。实现形态：
+  - **单飞调度循环**：调度器内部唯一 async 循环（单飞模式），`await` 自身循环体保证同一时刻只有一个调度段在跑；循环体每轮做「结算 → 重算就绪 → 入池」。
+  - **状态变更统一入口**：所有状态变更（任务完成/失败/取消/释放池位）不经回调直接改池，而是**标记 pending 事件 → 触发调度循环的下一轮结算**（microtask/队列模式）；「释放池位→重算就绪集→入池」为**原子段**（循环体内同步执行，无 await 中断），从根上消除"完成回调期间池位被误算"竞态。
+  - 兜底断言：池位计数以同步快照为准（`runningCount` 单字段增减），完成回调仅 `enqueue(settleEvent)`，主循环统一结算——即使两个完成回调同时到达，结算段逐个处理，峰值恒 ≤3。
 - **并行观测（Q-025）**：执行开始即写 execution 记录（startedAt），完成补 finishedAt；`getExecutionSnapshot` + `onExecutionUpdate.parallel`（running=实际执行数≤3 不含 paused、queued=排队数、父子不重复计，P2-B3-2）供双界断言（≥2 且 ≤3）
 - **单卡单执行守卫**：exec-state-conflict（running/queued 中重复 executeTask）
+- **测试 E32（P1-2）**：两任务同时完成 → 结算段逐个处理 → 释放 2 池位 → 重算后入池仍 ≤3（峰值双界断言 ≥2 且 ≤3 不破）
 
 ### 4.3 心跳超时（maxExecutionIdleMinutes=30 连续无活动）
 
 - `HeartbeatMonitor`：running 任务绑定 idle 计时器（30min，SettingsProvider 可配）；`agent_message_chunk` 流式事件 = 活动心跳 → 重置计时器（**非总时长**——持续输出长任务不超时，Q-026）
+- **计时器生命周期与 paused/interrupted 冲突（P1-1，ora-1 评审条件项，必读）**：
+  - 计时器**仅绑定 running 态**；任务迁移出 running（→ paused / interrupted / succeeded / failed / cancelled）→ **销毁心跳计时器**（暂停即停止计时，避免长时间 paused 触发"疑似卡死"failed 与 O-11"暂停保任务态可恢复"矛盾）
+  - resume（paused→running 重新执行）/ 重跑（interrupted/failed→queued→running）/ 重试转 running 时 → **重新绑定计时器**（全新 30min 窗口）
+  - `extendExecution` 仅对 running 生效（exec-not-running 拦截），重置当前 running 窗口
 - 计时器到点 → `failed("疑似卡死")` + kill ACP 进程 + `exec-timeout-heartbeat` 回写 failed 记录
-- `extendExecution`：用户手动重置 idle 窗口（idleResetAt）
 - 计时器仅内存态，不持久化（壳重启由收敛兜底）
+- **测试 E31（P1-1）**：paused 超 30min → 不 failed（计时器已销毁）；恢复转 running → 重新绑定计时器（新 30min 窗口）
 
 ### 4.4 壳重启收敛（Q-017）
 
@@ -154,6 +163,7 @@ Scheduler 主循环:
 ```
 
 - 收敛在 KanbanStore 加载完成后、IPC 就绪前执行（防 UI 读到未收敛态）
+- **与 B1 损坏重建时序（P2-2）**：B1 store 加载可能走「损坏备份重建」路径（store-corrupt → 重建默认看板）——收敛只作用于**加载成功后**的内存态（重建后的空看板无执行记录可收敛，天然幂等）；重建失败 → store 层报错、不触发收敛（无有效数据可收敛），避免对不完整数据做状态改写
 - 幂等：重复收敛对已 failed 任务无操作
 
 ### 4.5 confirmVerify（Verify→done 把关，CON-R028）
@@ -163,8 +173,8 @@ Scheduler 主循环:
 
 ### 4.6 pause O-11（kill 进程 + 结果丢弃 + 恢复重新执行）
 
-- `pauseExecution`：kill ACP 进程 + 结果丢弃（partial 标"已废弃（暂停）"）+ 标记 paused + 补 finishedAt + previousExecutionId（P1-B3-3）
-- `resumeExecution`：**重新执行**——重新 spawn ACP + newSession + prompt，新 execution 记录（newExecutionId）（O-11 无会话恢复，不承诺"从现场继续"）
+- `pauseExecution`：kill ACP 进程 + 结果丢弃（partial 标"已废弃（暂停）"）+ 标记 paused + 补 finishedAt + previousExecutionId（P1-B3-3）+ **销毁心跳计时器（P1-1，暂停即停止计时）**
+- `resumeExecution`：**重新执行**——重新 spawn ACP + newSession + prompt，新 execution 记录（newExecutionId）+ **重新绑定心跳计时器（P1-1）**（O-11 无会话恢复，不承诺"从现场继续"）
 - 与 cancel 区分：paused 保留任务态可恢复；cancelled 终止不可恢复
 
 ### 4.7 selfCheck 判定（Q-015）
@@ -190,13 +200,18 @@ Scheduler 主循环:
 | `kanban:onExecutionUpdate`（event） | 状态/并行池/审批/心跳/收敛推送 | — |
 
 - 错误码统一 `KANBAN_EXEC_ERROR`（exec-* 集，errors.ts 具名错误，kebab 对齐 B1）
-- preload 桥：主进程注册 + preload contextBridge 暴露（复用 M1 preload 模式，白名单 channel）
+- **preload 白名单 channel 集中维护（P2-5）**：执行控制 10 channel 与 B1 的 16 数据原语共存于同一 preload（约 32 channel 共面）——白名单清单集中维护于 `src/shared/ipc-channels.ts`（唯一常量源，B1/B2/B3/B4 共用），preload 按清单逐条 `contextBridge.exposeInMainWorld`，禁止散落硬编码；新增 channel 必须更新该清单（评审 checklist 项）
 
 ### 4.9 两级 mock 桩（Q-024）
 
 - ① `MockProvider`：实现 ExecutionProvider；确定性事件注入（权限/超时/cancel/流式/selfCheck false）+ 可控延迟（hold N ms 保证并行峰值 ≥2，P2-B3-1）
 - ② `JsonRpcClient` 帧桩：仅验证 JSON-RPC 帧编解码（newSession/prompt/session.cancel 出入帧）
 - `HULL_EXEC_PROVIDER=mock` 仅 debug/test 生效；生产忽略回落 ACP（ProviderManager 判定）
+
+### 4.10 依赖注入与 spawn 参数复用（P2）
+
+- **KanbanStore 依赖注入（P2-1）**：ExecutionEngine/Scheduler/Convergence/VerifyGate 的 store 依赖一律**构造入参注入**（`constructor(store: KanbanStore)`），禁止静态导入单例——单测可注入内存假 store 隔离，集成测试注真实 store；B1 store 提供接口类型（`IKanbanStore`），B3 只依赖接口不依赖实现
+- **spawn 参数复用 M1（P2-3）**：ACP 子进程 spawn 的 dsh 可执行路径解析复用 M1 `src/runtime/spawnArgs.ts`（env → 捆绑路径探测 → PATH 解析链）——dsh 就绪探测与 ACP spawn 用同一可执行路径解析，不重复实现；ACP spawn 额外参数（JSON-RPC 模式标志）在 ACPProvider 内收敛
 
 ---
 
@@ -260,11 +275,12 @@ tests/
 | ACP 仅已提交文本/无推理/工具实时视图 | 用户不可见中间过程 | 契约能力边界明确（§ACP 能力）；流式 text_chunk 作心跳与进度信号；B4 审批流承接 request_permission | B3+B4 |
 | ACP 无会话恢复（O-11） | 暂停/重启无法续跑现场 | pause=kill+结果丢弃+恢复重新执行（P1-B3-3 定死）；重启收敛（Q-017）兜底 | B3 |
 | dsh ACP 子进程意外崩溃 | 执行挂起不收敛 | exit 非 0/断连 → 执行 failed + finishedAt 补写 + exec-provider-unavailable；心跳超时兜底 | B3+B4 |
-| 并行竞态（依赖判据/池位释放） | 超过 maxParallel 或依赖违反 | 调度单线程主循环（Node 单进程）+ 就绪集判定原子化；Q-025 时序断言（后置 startedAt ≥ 前驱 finishedAt）守护 | B3 |
+| 并行竞态（依赖判据/池位释放） | 超过 maxParallel 或依赖违反 | **单飞调度循环 + 状态变更统一入口 + 原子结算段（P1-2）**；Q-025 时序断言（后置 startedAt ≥ 前驱 finishedAt）守护 | B3 |
 | 心跳误判（持续输出任务被超时） | 长任务误杀 | 活动心跳语义：agent_message_chunk 重置计时器，非总时长；extendExecution 手动延长 | B3 |
 | 重启收敛数据一致性（半写执行记录） | 记录不完整 | 收敛补 finishedAt + 清 currentExecutionId + system 事件；幂等收敛；收敛在 IPC 就绪前执行 | B3 |
 | 父卡展开语义误判（就绪判定） | 漏执行/重复执行 | 就绪三判（AC/依赖/非 running-queued）逐子任务独立；skipped[] 旁路可见 | B3 |
 | 状态机非法迁移 | 状态脏 | 迁移表驱动 + dev throw/prod log（复用 M1 D7） | B3 |
+| onExecutionUpdate 事件风暴（P2-4） | 高频流式事件（text_chunk 心跳）刷屏 IPC/B2 渲染 | **节流/合并推送**：流式 text_chunk 不逐条推送——状态变更（8 态迁移）+ 并行池计数（parallel）+ 心跳窗口（idleResetAt）合并为低频 onExecutionUpdate；流式进度走 getExecutionSnapshot 拉取；推送节流 ≤1 次/500ms（对齐 B1 写盘防抖口径） | B3+B2 |
 
 ---
 
@@ -272,8 +288,8 @@ tests/
 
 | 项 | 结果 |
 |:---|:-----|
-| 状态 | draft（评审通过后置 frozen） |
-| 评审 | —（待评审，机制 + 日期 + 结论） |
+| 状态 | **frozen**（评审通过，可进实现） |
+| 评审 | ora-1 有条件通过（2026-08-21）——2 个 P1 条件：P1-1 心跳计时器粒度与 paused 冲突（§4.3/§4.6 补销毁/重建，E31）、P1-2 调度器异步边界与并发竞态（§4.2 补单飞循环+原子结算段，E32）+ P2 顺手 5 项（P2-1~P2-5 合入 §4.4/§4.8/§4.10/§7）；条件达成后置 frozen |
 | 实现偏离 | —（实现 vs 方案，交付核验时填） |
 
-> 冻结门：本方案评审通过后，状态置 frozen，方可进实现（skill 纪律：评审不过不得带病进实现）。
+> 冻结门：ora-1 评审条件（P1-1/P1-2）已补齐并落实 E31/E32 测试，方案冻结，可进实现（skill 纪律：实现偏离须显式更新本方案，架构级偏离回 draft 重评）。
