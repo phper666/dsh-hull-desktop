@@ -1,5 +1,6 @@
 /**
- * E2E-07 设置页场景组（S7 契约）：T6-01 registry 持久化 / T6-03 关闭即退出 / T6-05 校验提示。
+ * E2E-07 设置页场景组（S8' S6' 重构：独立窗口 → 壳内 section#settings）：
+ * T6-01 registry 持久化 / T6-03 关闭即退出 / T6-05 校验提示。
  */
 import { test, expect, type ElectronApplication } from '@playwright/test';
 
@@ -26,27 +27,33 @@ test.describe('E2E-07 设置页', () => {
 
       // T6-01 registry 持久化：填写 → 落盘 → 关闭重开 → 值保留
       const customRegistry = 'https://registry.npmmirror.com';
-      const settings = await openSettings(app);
-      await settings.fill('#registry', customRegistry);
-      await settings.locator('#registry').blur();
+      const shell = await openSettings(app);
+      // 设置 section 可见（view=placeholder:settings）
+      await expect(shell.locator('#settings')).toBeVisible();
+      await expect(shell.locator('#settings h1')).toHaveText('Hull 设置');
+      await shell.fill('#registry', customRegistry);
+      await shell.locator('#registry').blur();
       await waitForSettingsRegistry(tmp.dir, customRegistry);
-      await settings.close();
-      const settings2 = await openSettings(app);
-      await expect(settings2.locator('#registry')).toHaveValue(customRegistry);
+      // 切走再切回（重渲染）→ 值保留
+      await shell.click('#nav-web');
+      await expect(shell.locator('#settings')).toBeHidden();
+      await shell.click('#nav-settings');
+      await expect(shell.locator('#settings')).toBeVisible();
+      await expect(shell.locator('#registry')).toHaveValue(customRegistry);
 
       // T6-05 校验提示：非法 registry → 错误提示可见
-      await settings2.fill('#registry', 'not-a-url');
-      await settings2.locator('#registry').blur();
-      await expect(settings2.locator('#registry-error')).toBeVisible();
-      await expect(settings2.locator('#registry-error')).not.toHaveText('');
+      await shell.fill('#registry', 'not-a-url');
+      await shell.locator('#registry').blur();
+      await expect(shell.locator('#registry-error')).toBeVisible();
+      await expect(shell.locator('#registry-error')).not.toHaveText('');
       // 恢复合法值（避免污染后续断言）
-      await settings2.fill('#registry', customRegistry);
-      await settings2.locator('#registry').blur();
+      await shell.fill('#registry', customRegistry);
+      await shell.locator('#registry').blur();
       await waitForSettingsRegistry(tmp.dir, customRegistry);
 
       // T6-03 关闭即退出：开 closeToQuit → 关主窗口 → 应用退出
-      await settings2.click('#closeToQuit');
-      await expect(settings2.locator('#closeToQuit')).toHaveAttribute('aria-checked', 'true');
+      await shell.click('#closeToQuit');
+      await expect(shell.locator('#closeToQuit')).toHaveAttribute('aria-checked', 'true');
       await closeMainWindow(app);
       await app.waitForEvent('close');
       app = null; // 已退出

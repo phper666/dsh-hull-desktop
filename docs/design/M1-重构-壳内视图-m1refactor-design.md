@@ -313,3 +313,5 @@ dsh-hull-desktop/
 **S5 契约变更传播**：Hull 通道 UI 载体收进 upgrade 视图——归实现波补 S5 契约注记。
 
 **核验记录**（交付核验时填写）：_预留——实现 vs 方案偏离清单 + 处理结论_
+
+> 2026-08-22 实现完成：偏离清单与红线核对见 `docs/records/M1-重构-m1refactor-record.md` §核验记录（4 偏离点：runCheck auto 参数扩展 / 死代码 runUpgrade+runHullDownload 删除 / 单测 467 保持（方案 YAGNI）/ openSettings helper 定位适配；红线 R001/R002/R003/R004/R005 全部不破）。测试：467 unit + 8 集成 + 12 e2e 全绿；typecheck + build 干净。

@@ -16,7 +16,6 @@ import {
   navStatus,
   officialPage,
   officialViewState,
-  openSettings,
   psCommandLines,
   seedFakeDsh,
   seedSettings,
@@ -87,10 +86,10 @@ test.describe('E2E-01 冷启动', () => {
       seedSettings(tmp.dir, { registry: reg.url });
       app = await launchApp({ userData: tmp.dir, registry: reg.url });
       const shell = await waitForReady(app);
-      // 设置 → hull:openSettings → 设置窗出现
+      // 设置 → hull:showSettings → 壳内 settings section 显示（view=placeholder:settings）
       await shell.click('#nav-settings');
-      const settings = await openSettings(app);
-      await expect(settings.locator('h1')).toHaveText('Hull 设置');
+      await expect(shell.locator('#settings')).toBeVisible();
+      await expect(shell.locator('#settings h1')).toHaveText('Hull 设置');
       // 看板 → 已启用（B2）：点击 → 看板面板显示（placeholder:board）
       await expect(shell.locator('#nav-board')).toBeEnabled();
       await shell.click('#nav-board');
@@ -98,7 +97,7 @@ test.describe('E2E-01 冷启动', () => {
       // 回官方 view（showWeb 对称恢复）
       await shell.click('#nav-web');
       await expect(shell.locator('#board')).toBeHidden();
-      // 升级 → runCheck → updater.check 命中 registry（无更新 → 静默，无 dialog）
+      // 升级 → showUpgrade + checkDshUpdate → updater.check 命中 registry（无更新 → 静默，无 dialog）
       await shell.click('#nav-upgrade');
       await waitForRegistryHits(reg, 1, 15_000);
       const status = await navStatus(app);
@@ -156,7 +155,7 @@ test.describe('E2E-06 托盘', () => {
       seedFakeDsh(tmp.dir);
       seedSettings(tmp.dir, { registry: reg.url }); // 升级走假 registry
       app = await launchApp({ userData: tmp.dir, registry: reg.url });
-      await waitForReady(app);
+      const shell = await waitForReady(app);
       // 托盘菜单存在（5 菜单项 + 分隔符 = 6）
       const items0 = await trayMenuItems(app);
       expect(items0.length).toBe(6);
@@ -168,13 +167,14 @@ test.describe('E2E-06 托盘', () => {
       await app.evaluate(() => (globalThis as { __hullTest?: { openMain(): void } }).__hullTest?.openMain());
       await sleep(500);
       expect(await mainWindowVisible(app)).toBe(true);
-      // 设置入口：openSettings → 设置页出现
-      const settings = await openSettings(app);
-      await expect(settings.locator('h1')).toHaveText('Hull 设置');
-      // 升级中禁用（T6-04）：设置页触发升级 → installing 段托盘「检查更新…」禁用 → 完成后恢复
-      await settings.click('#check-dsh');
-      await settings.waitForSelector('#modal.show');
-      await settings.click('#modal-actions .btn.primary');
+      // 设置入口：nav-settings → 壳内 settings section（S8' 独立窗口移除）
+      await shell.click('#nav-settings');
+      await expect(shell.locator('#settings')).toBeVisible();
+      await expect(shell.locator('#settings h1')).toHaveText('Hull 设置');
+      // 升级中禁用（T6-04）：upgrade 视图确认 → installing 段托盘「检查更新…」禁用 → 完成后恢复
+      await shell.click('#nav-upgrade');
+      await shell.waitForSelector('#up-dsh-yes', { timeout: 15_000 });
+      await shell.click('#up-dsh-yes');
       await waitForTrayItemEnabled(app, '检查更新…', false, 30_000);
       await waitForOkPage(app, 60_000);
       await waitForTrayItemEnabled(app, '检查更新…', true, 30_000);

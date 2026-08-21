@@ -30,7 +30,7 @@ export interface TrayControllerOptions {
   queue: UpgradeQueue;
   /** 打开主窗口（show + focus） */
   onOpenMain: () => void;
-  /** 打开设置页（S6 启用） */
+  /** 打开设置视图（S8' D5：聚焦主窗口 + 切 settings 视图；S6 启用） */
   onOpenSettings: () => void;
   /** 检查 dsh 更新（托盘入口 → main 编排 dialog） */
   onCheckUpdates: () => void;

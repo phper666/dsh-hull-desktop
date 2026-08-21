@@ -1,7 +1,8 @@
 /**
- * E2E-03 升级全流程 / E2E-04 坏版本注入（S7 契约场景）。
+ * E2E-03 升级全流程 / E2E-04 坏版本注入（S8' S3' 重构：原生 dialog → 壳内 section#upgrade 确认/进度/失败）。
  * 升级走本地假 registry（注入模拟，任务允许）：tiny tarball → npm install 秒级完成，
  * 全编排（check→confirm→install→swap→verify→rollback）真实执行，仅包内容为 fake。
+ * 确认流（§4.5 M1）：nav 升级 → showUpgrade + checkDshUpdate → phase=confirm → 确认卡片 → 立即升级。
  */
 import { test, expect, type ElectronApplication } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -11,14 +12,24 @@ import {
   launchApp,
   mainWindowUrl,
   makeTempUserData,
-  openSettings,
   seedFakeDsh,
   seedSettings,
   startFakeRegistry,
   waitForDshVersion,
+  waitForMainWindow,
   waitForOkPage,
   waitForReady,
 } from './helpers';
+
+/** 经壳导航进入 upgrade 视图 + 触发检查 + 确认升级（升级视图确认卡片，非原生 dialog） */
+async function confirmUpgrade(app: ElectronApplication): Promise<void> {
+  const shell = await waitForMainWindow(app);
+  await shell.click('#nav-upgrade');
+  // 升级视图显示 + dsh 确认卡片（phase=confirm → hull:status 渲染）
+  await shell.waitForSelector('#upgrade:not(.hidden)', { timeout: 15_000 });
+  await shell.waitForSelector('#up-dsh-yes', { timeout: 15_000 });
+  await shell.click('#up-dsh-yes');
+}
 
 test.describe('E2E-03 升级全流程', () => {
   test('版本变化 + 数据无损', async () => {
@@ -31,11 +42,7 @@ test.describe('E2E-03 升级全流程', () => {
       writeFileSync(join(tmp.dir, 'user-marker.txt'), 'keep-me'); // 数据无损标记
       app = await launchApp({ userData: tmp.dir, registry: reg.url });
       await waitForReady(app);
-      // 设置页触发升级（DOM modal，非原生 dialog）
-      const settings = await openSettings(app);
-      await settings.click('#check-dsh');
-      await settings.waitForSelector('#modal.show');
-      await settings.click('#modal-actions .btn.primary');
+      await confirmUpgrade(app);
       // 等待升级完成：版本 0.1.0-rc.7 → 9.9.9 → 官方 UI 恢复可交互（新版本运行）
       await waitForDshVersion(tmp.dir, '9.9.9', 60_000);
       await waitForOkPage(app, 60_000);
@@ -72,10 +79,7 @@ test.describe('E2E-04 坏版本注入', () => {
       await app.evaluate(() => {
         process.env.HULL_PROBE_TARGET = 'http://127.0.0.1:1';
       });
-      const settings = await openSettings(app);
-      await settings.click('#check-dsh');
-      await settings.waitForSelector('#modal.show');
-      await settings.click('#modal-actions .btn.primary');
+      await confirmUpgrade(app);
       // 升级 → verify 失败（15s 探测窗口）→ 自动回滚：版本 9.9.9 → 0.1.0-rc.7 → 官方 UI 恢复
       await waitForDshVersion(tmp.dir, '9.9.9', 60_000);
       await waitForDshVersion(tmp.dir, '0.1.0-rc.7', 90_000);
