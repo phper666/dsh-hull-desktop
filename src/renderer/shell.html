@@ -32,6 +32,7 @@
   #nav-status .row { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
   #nav-status .row:last-child { margin-bottom: 0; }
   #nav-status .val { color: #c6d0dd; text-align: right; word-break: break-all; }
+  #nav-status .bar { width: 100%; height: 6px; margin: 4px 0 0; } /* nav 内窄条（覆盖 .bar 280px） */
   /* 右侧内容区：official view 叠加容器（WebContentsView 浮于其上，z-order 无冲突 D2）+ 占位四区块 */
   #content { flex: 1; position: relative; overflow: hidden; }
   #official-container { position: absolute; inset: 0; }
@@ -65,6 +66,7 @@
       <div class="row"><span>dsh 状态</span><span id="status-phase" class="val">…</span></div>
       <div class="row"><span>版本</span><span id="status-version" class="val">…</span></div>
       <div class="row"><span>升级</span><span id="status-upgrade" class="val">…</span></div>
+      <div id="status-upgrade-bar" class="bar hidden"><div id="status-upgrade-fill" class="bar-fill"></div></div>
     </div>
   </nav>
   <main id="content">
@@ -166,7 +168,18 @@
     document.getElementById('status-phase').textContent = phaseNames[runtime.phase] || runtime.phase || '…';
     document.getElementById('status-version').textContent = payload.currentVersion || '未安装';
     const upgrade = payload.upgrade || {};
-    document.getElementById('status-upgrade').textContent = upgradeNames[upgrade.phase] || upgrade.phase || '…';
+    const upPhase = upgradeNames[upgrade.phase] || upgrade.phase || '…';
+    const upPct = typeof upgrade.pct === 'number' ? Math.round(upgrade.pct) : 0;
+    // P1 补丁：installing 显示 pct 进度条（50→90→95→100）；其他 phase 仅文本
+    const upBar = document.getElementById('status-upgrade-bar');
+    if (upgrade.phase === 'installing') {
+      document.getElementById('status-upgrade').textContent = `${upPhase} ${upPct}%`;
+      document.getElementById('status-upgrade-fill').style.width = upPct + '%';
+      upBar.classList.remove('hidden');
+    } else {
+      document.getElementById('status-upgrade').textContent = upPhase;
+      upBar.classList.add('hidden');
+    }
     setView(payload.view);
     // 占位消息（failed/not-installed；starting 亦可承载）
     const msgId = payload.view === 'placeholder:failed' ? 'failed-msg'
@@ -181,7 +194,10 @@
     for (const el of document.querySelectorAll('.nav-item')) el.classList.remove('active');
     document.getElementById(id).classList.add('active');
   }
-  document.getElementById('nav-web').addEventListener('click', () => setActive('nav-web'));
+  document.getElementById('nav-web').addEventListener('click', async () => {
+    setActive('nav-web');
+    if (bridge) await bridge.showWeb(); // 恢复官方 view（与 showBoard 对称）
+  });
   document.getElementById('nav-settings').addEventListener('click', async () => {
     setActive('nav-settings');
     if (bridge) await bridge.openSettings();

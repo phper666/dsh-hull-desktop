@@ -5,7 +5,7 @@
 import { test, expect } from '@playwright/test';
 import { join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { makeTempUserData, seedFakeDsh, seedSettings, launchApp, sleep } from './helpers';
+import { makeTempUserData, seedFakeDsh, seedSettings, launchApp, sleep, officialViewState } from './helpers';
 
 function seedBoard(userData: string): void {
   const kanbanDir = join(userData, 'kanban');
@@ -115,6 +115,28 @@ test.describe('B2 看板 UI', () => {
     // 切到 Beta（有看板无任务 → 空列态）
     await shell.locator('#kb-board-select').selectOption('b_beta');
     await expect(shell.locator('#board-root .kb-empty-col').first()).toBeVisible();
+    await app.close();
+    tmp.cleanup();
+  });
+
+  test('nav-web 恢复官方 view（showBoard → showWeb 对称）', async () => {
+    const tmp = makeTempUserData();
+    seedFakeDsh(tmp.dir);
+    seedSettings(tmp.dir);
+    seedBoard(tmp.dir);
+    const app = await launchApp({ userData: tmp.dir, fakeDshMode: 'ready' });
+    const shell = await app.firstWindow();
+    await expect(shell.locator('#nav-web')).toBeVisible();
+    // 初始：fake dsh ready → official view 可见
+    await expect.poll(() => officialViewState(app)).toMatchObject({ visible: true });
+    // 进看板 → official view 隐藏（board 面板显示）
+    await shell.locator('#nav-board').click();
+    await expect(shell.locator('#board')).not.toHaveClass(/hidden/);
+    await expect.poll(() => officialViewState(app)).toMatchObject({ visible: false });
+    // 回 dsh web → official view 恢复可见，board 面板隐藏
+    await shell.locator('#nav-web').click();
+    await expect(shell.locator('#board')).toHaveClass(/hidden/);
+    await expect.poll(() => officialViewState(app)).toMatchObject({ visible: true });
     await app.close();
     tmp.cleanup();
   });

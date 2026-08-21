@@ -42,6 +42,8 @@ contextBridge.exposeInMainWorld('hull', {
   checkDshUpdate: () => ipcRenderer.invoke('hull:promptDshUpdate'),
   /** B2：壳导航任务看板入口 → main 切 view 到 placeholder:board（官方 UI 隐藏，看板面板显示） */
   showBoard: () => ipcRenderer.invoke('hull:showBoard'),
+  /** B2 补丁：壳导航 dsh web 入口 → main 恢复官方 view（Ready 复用/重载，否则占位态） */
+  showWeb: () => ipcRenderer.invoke('hull:showWeb'),
 });
 
 // ─────────────────────────── B1 看板桥（M2） ───────────────────────────

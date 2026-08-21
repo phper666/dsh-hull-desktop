@@ -601,6 +601,21 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     winMgr.showPlaceholder('board', '');
     return { ok: true };
   });
+  // B2 补丁：壳导航 dsh web 入口 → 恢复官方 view（与 showBoard 对称；无新通道）
+  // 语义照 onStatus 映射：Ready → loadOfficialUrl（officialDirty 则重载，否则复用）；
+  // Failed → failed 占位；其余（idle/starting）→ starting 占位
+  ipcMain.handle('hull:showWeb', async () => {
+    if (quitting) return { ok: false, message: '正在退出' };
+    const s = runtime.snapshot();
+    if (s.phase === RuntimePhase.Ready && s.url) {
+      winMgr.loadOfficialUrl(s.url);
+    } else if (s.phase === RuntimePhase.Failed) {
+      winMgr.showPlaceholder('failed', s.message);
+    } else {
+      winMgr.showPlaceholder('starting', '');
+    }
+    return { ok: true };
+  });
   ipcMain.handle('hull:checkDshUpdate', async () => {
     if (quitting) return { hasUpdate: false, current: null, latest: null, phase: UpgradePhase.Idle };
     return updater.check();
