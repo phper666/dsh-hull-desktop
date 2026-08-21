@@ -1,0 +1,84 @@
+/**
+ * B1 看板 IPC 注册（feishu-b1-m2-kanban-api-contract.md §接口清单 16 原语）
+ * main 侧：ipcMain.handle('kanban:xxx') → KanbanStore 方法。错误统一转
+ * { ok:false, code, message }（code 取 HullError.code，7 错误码）。
+ * renderer 经 preload 桥（src/preload/kanban.ts）消费。
+ */
+import { ipcMain } from 'electron';
+import { HullError } from '../shared/errors';
+import { KanbanStore, type AddCommentInput, type CreateTaskInput, type UpdateTaskPatch } from './KanbanStore';
+
+/** 16 个 IPC channel 白名单（B1 契约） */
+export const KANBAN_IPC_CHANNELS = [
+  'kanban:getBoards',
+  'kanban:createBoard',
+  'kanban:updateBoard',
+  'kanban:deleteBoard',
+  'kanban:getTasks',
+  'kanban:createTask',
+  'kanban:updateTask',
+  'kanban:moveTask',
+  'kanban:deleteTask',
+  'kanban:addComment',
+  'kanban:deleteComment',
+  'kanban:updateColumn',
+  'kanban:deleteColumn',
+  'kanban:archiveTask',
+  'kanban:restoreTask',
+  'kanban:purgeTask',
+] as const;
+
+export type KanbanIpcChannel = (typeof KANBAN_IPC_CHANNELS)[number];
+
+/** IPC 统一响应包裹 */
+export type KanbanIpcResult<T> = { ok: true; data: T } | { ok: false; code: string; message: string };
+
+function toResult<T>(fn: () => T): KanbanIpcResult<T> {
+  try {
+    return { ok: true, data: fn() };
+  } catch (err) {
+    const code = err instanceof HullError ? err.code : 'unknown';
+    return { ok: false, code, message: (err as Error).message };
+  }
+}
+
+export function registerKanbanIpc(store: KanbanStore): void {
+  ipcMain.handle('kanban:getBoards', () => toResult(() => store.getBoards()));
+  ipcMain.handle('kanban:createBoard', (_e, name: string) => toResult(() => store.createBoard(name)));
+  ipcMain.handle('kanban:updateBoard', (_e, boardId: string, patch: { name?: string; order?: number }) =>
+    toResult(() => store.updateBoard(boardId, patch))
+  );
+  ipcMain.handle('kanban:deleteBoard', (_e, boardId: string) => toResult(() => store.deleteBoard(boardId)));
+  ipcMain.handle('kanban:getTasks', (_e, boardId: string) => toResult(() => store.getTasks(boardId)));
+  ipcMain.handle('kanban:createTask', (_e, boardId: string, input: CreateTaskInput) =>
+    toResult(() => store.createTask(boardId, input))
+  );
+  ipcMain.handle('kanban:updateTask', (_e, boardId: string, taskId: string, patch: UpdateTaskPatch) =>
+    toResult(() => store.updateTask(boardId, taskId, patch))
+  );
+  ipcMain.handle('kanban:moveTask', (_e, boardId: string, taskId: string, toColumnId: string) =>
+    toResult(() => store.moveTask(boardId, taskId, toColumnId))
+  );
+  ipcMain.handle('kanban:deleteTask', (_e, boardId: string, taskId: string) =>
+    toResult(() => store.deleteTask(boardId, taskId))
+  );
+  ipcMain.handle('kanban:addComment', (_e, input: AddCommentInput) => toResult(() => store.addComment(input)));
+  ipcMain.handle('kanban:deleteComment', (_e, boardId: string, taskId: string, commentId: string) =>
+    toResult(() => store.deleteComment(boardId, taskId, commentId))
+  );
+  ipcMain.handle('kanban:updateColumn', (_e, boardId: string, columnId: string, patch: { name?: string; order?: number; color?: string; hidden?: boolean }) =>
+    toResult(() => store.updateColumn(boardId, columnId, patch))
+  );
+  ipcMain.handle('kanban:deleteColumn', (_e, boardId: string, columnId: string) =>
+    toResult(() => store.deleteColumn(boardId, columnId))
+  );
+  ipcMain.handle('kanban:archiveTask', (_e, boardId: string, taskId: string) =>
+    toResult(() => store.archiveTask(boardId, taskId))
+  );
+  ipcMain.handle('kanban:restoreTask', (_e, boardId: string, taskId: string, toColumnId?: string) =>
+    toResult(() => store.restoreTask(boardId, taskId, toColumnId))
+  );
+  ipcMain.handle('kanban:purgeTask', (_e, boardId: string, taskId: string) =>
+    toResult(() => store.purgeTask(boardId, taskId))
+  );
+}

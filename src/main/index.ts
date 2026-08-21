@@ -23,6 +23,8 @@ import { SettingsWindow } from '../window/SettingsWindow';
 import { TrayController } from '../tray/TrayController';
 import { SettingsProvider } from '../settings/SettingsProvider';
 import { ChannelService } from '../channel/ChannelService';
+import { KanbanStore } from '../kanban/KanbanStore';
+import { registerKanbanIpc } from '../kanban/KanbanIpc';
 import { Logger } from '../log/Logger';
 
 /**
@@ -54,6 +56,14 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   logger.info('启动流程开始（单实例锁已获取，兜底清理完成）');
   const settings = new SettingsProvider({ userDataPath, logger });
   settings.migrate(); // S6 B5：schemaVersion < 3 字段补齐（设置页首次运行触发）
+  // B1：看板数据层（boards.json 原子写/损坏重建/迁移）+ 16 IPC 原语注册
+  const kanbanStore = new KanbanStore({
+    userDataPath,
+    logger,
+    // CON-R024：附件上限从 settings 读取（默认 10；B2 设置 UI 接线后进 SettingsProvider）
+    maxAttachmentSizeMB: 10,
+  });
+  registerKanbanIpc(kanbanStore);
   const runtime = new RuntimeManager({ userDataPath, logger });
   // S2：overlay 管理栈（首装自动触发 / ensure 三态 / 取消）
   const bundledNode = join(userDataPath, 'node', 'bin', 'node');
