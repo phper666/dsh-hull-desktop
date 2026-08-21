@@ -33,7 +33,7 @@
 
 **非目标**：官方 UI 内集成（M2+）；升级执行逻辑（S3/S5 提供）；任务看板功能（M2 已完成，S8' 仅 view 态扩展）；快捷键导航。
 
-**交付验收**（契约层）：既有 471 单元 + 8 集成 + 12 e2e 全绿回归；S8 既有验收口径（E2E-01 冷启动、E2E-06 托盘）保持；新增 e2e 断言——nav 设置/升级入口切视图、设置 section 可见可操作、升级确认/进度/失败壳内呈现、原生 dialog 不再弹出（`dialog.showMessageBox` 调用点归零）。
+**交付验收**（契约层）：既有 471 单元 + 8 集成 + 12 e2e 全绿回归；S8 既有验收口径（E2E-01 冷启动、E2E-06 托盘）保持；新增 e2e 断言——nav 设置/升级入口切视图、设置 section 可见可操作、升级确认/进度/失败壳内呈现、升级/设置域原生 dialog 不再弹出（`dialog.showMessageBox` 调用点归零，**崩溃域 1 处保留**，见 §4.5）。
 
 **变更传播面**（本设计必列，归实现波）：
 - ① S6 契约 v0.4 已注记（preload 桥并入壳 preload、DOM modal 确认流 + 250ms 轮询在 shell.html 设置 section 内重做）
@@ -98,7 +98,7 @@
 | `src/window/SettingsWindow.ts` | 删除 | 独立设置窗口移除（D1），壳导航/托盘入口改切 view |
 | `src/renderer/shell.html` | 重构 | nav 高亮回写（view 字段驱动）；新增 `section#settings`（重渲染自 settings.html，四卡 + DOM modal 确认流 + 250ms 轮询）+ `section#upgrade`（dsh/Hull 双通道确认/进度/失败/回滚/重启安装提示统一视图）；`sections` 数组扩 2；main 内联 script 扩双通道编排调用 |
 | `src/renderer/settings.html` | 删除 | 内容迁 shell.html `section#settings`（视觉 token 沿用：背景 `#f6f6f4`/卡片 `#fff`/强调 `#4c6ef5`） |
-| `src/main/index.ts` | 重构 | 原生 dialog 调用归零（runCheck/runUpgrade/runHullCheck/runHullDownload/crash/preventive-prompt 约 10 处 → 推送 view + payload 由 shell.html 渲染）；托盘菜单改切视图（D5）；`hull:promptDshUpdate` 语义改（升级入口 → 切 upgrade 视图 + 触发 check）；确认流确认/取消/稍后再说调既有 IPC（upgradeDsh/cancelDshUpgrade/dismissDshUpdate/rollbackDsh/checkHullUpdate/downloadHullUpdate/cancelHullUpdate/dismissHullUpdate） |
+| `src/main/index.ts` | 重构 | 升级/设置域 `showMessageBox` 调用归零（9 处：runCheck×2/runUpgrade×2/runHullCheck×2/runHullDownload×2/preventive-prompt → 推送 view + payload 由 shell.html 渲染）；**crash dialog 保留原生**（紧急系统级，不属升级/设置域，见 §4.5）；托盘菜单改切视图（D5）；`hull:promptDshUpdate` 语义与去留见 §4.3（H1 修订：托盘走 runCheck 直连，不经 promptDshUpdate）；确认流确认/取消/稍后再说调既有 IPC（upgradeDsh/cancelDshUpgrade/dismissDshUpdate/rollbackDsh/checkHullUpdate/downloadHullUpdate/cancelHullUpdate/dismissHullUpdate） |
 | `src/tray/TrayController.ts` | 小改 | 设置菜单 → 聚焦主窗口 + 切 settings 视图；检查 dsh 更新 → 聚焦主窗口 + 切 upgrade 视图（D5）；升级中禁用不变 |
 | `tests/e2e/settings.spec.ts` | 重构 | 独立窗口定位 → 壳内 `section#settings` 断言 |
 | `tests/e2e/upgrade.spec.ts` | 重构 | 原生 dialog 断言 → 壳内 `section#upgrade` 确认/进度/失败断言 |
@@ -151,7 +151,13 @@
 | 壳桥 `checkDshUpdate` | `hull:promptDshUpdate` | 触发 main runCheck → 原生 dialog（待移除） |
 | settings 桥 `checkDshUpdate` | `hull:checkDshUpdate` | 返回 {hasUpdate, current, latest, phase} 无 dialog，DOM modal 确认流 |
 
-S8' 定案：**统一为一个 `checkDshUpdate` 方法，映射 `hull:checkDshUpdate`**（无 dialog 返回结果），`hull:promptDshUpdate` 通道保留但语义改为「切 upgrade 视图 + 触发 check」（托盘入口用）。壳导航「升级」点击 → `showUpgrade()`（主进程侧）+ `checkDshUpdate()`（渲染侧触发检查渲染确认 UI）——两段职责分离：主进程切视图（view 单一事实源），渲染侧触发检查并渲染确认卡片。`hull:checkDshUpdate` handler 已返回 `{ok, phase, latest, current}`（S3 契约 #1），无需新增通道。
+S8' 定案：**统一为一个 `checkDshUpdate` 方法，映射 `hull:checkDshUpdate`**（无 dialog 返回结果）。两条路由的 view 切换归属（H1 修订，评审证据：`TrayController.ts:100` + `main/index.ts:217` 托盘走 `runCheck()` 直连；`preload/index.ts:42` 壳导航走 `hull:promptDshUpdate`）：
+
+- **壳导航「升级」**：点击 → `showUpgrade()`（新 IPC，主进程切视图）→ `checkDshUpdate()`（渲染侧触发检查渲染确认 UI）——两段职责分离：主进程切视图（view 单一事实源），渲染侧触发检查并渲染确认卡片。
+- **托盘「检查 dsh 更新」**：`runCheck()` 内新增「若发现新版本 → `winMgr.showUpgrade()` + 推送」，托盘**不经 promptDshUpdate**。
+- **`hull:promptDshUpdate` 去留**：壳导航改用 `showUpgrade` + `checkDshUpdate` 后，promptDshUpdate 成为孤儿通道 → **删除**（不保留给托盘）。`runCheck()` 三处调用方（托盘 / 启动 maybeAutoCheck `index.ts:431` / 崩溃后重查 `index.ts:375`）在 dialog 移除后统一走「发现新版 → 切 upgrade 视图 + 推送」，详见 §4.5。
+
+`hull:checkDshUpdate` handler 已返回 `{ok, phase, latest, current}`（S3 契约 #1），无需新增通道。
 
 ### 4.4 nav 高亮回写（S8'，从「本地假象」升级为「view 字段驱动回写」）
 
@@ -170,11 +176,12 @@ const navActiveByView = {
 
 - 主进程 view 字段是唯一事实源：nav 点击只触发 IPC（showBoard/showSettings/showUpgrade/切官方），渲染侧收到新 hull:status 后按 view 置 active。
 - `official`（含各占位过渡态）→ nav-web active（dsh web 是默认主视图）。
+- **升级进行中例外（M3 修订）**：`placeholder:upgrade` 且 upgrade.phase ∈ {checking/confirm/installing/swapping/verifying} → **保持 nav-upgrade 高亮**（用户在 upgrade 视图看进度，不应闪回 nav-web）；仅 upgrade.phase=idle 时按默认规则回落 nav-web。
 - nav 点击后立即本地置 active 保留（响应即时性），但随后的 hull:status 推送会校正——最终态一致（主进程事实源兜底，防连点竞态）。
 
 ### 4.5 升级确认流壳内化（dialog → DOM）（S3' + S6 面）
 
-**main/index.ts dialog 调用归零清单**（约 10 处 → 删除或改推送）：
+**main/index.ts `showMessageBox` 归零清单（9 处 → 升级/设置域 8 处删除或改推送 + crash 1 处保留）**（L2 修正：实为 9 处，非"约 10 处"）：
 
 | 调用点 | 现状 | S8' 后 |
 |:-----|:-----|:-----|
@@ -182,11 +189,17 @@ const navActiveByView = {
 | runCheck checkFailed | dialog 错误框 | upgrade 视图失败卡片（按钮下方红字，S3 契约 T3-05 语义） |
 | runUpgrade 失败 | dialog 错误框 [重新检查/关闭] | upgrade 视图失败卡片 + 重新检查按钮（`updater.snapshot().error` 渲染） |
 | runUpgrade 自动回滚成功 | dialog「已回滚」 | upgrade 视图回滚结果卡片（非失败语义） |
-| crash 提示 | dialog [重启/忽略] | **保留原生 dialog**（崩溃是紧急系统级提示，与「设置/升级」壳内功能不同域；确认保留范围以共识 §4.1「弹窗（升级中保留）——升级原子性关键确认等不可跳过强制确认项」为界；dsh 崩溃重启确认属关键确认，保留）。**边界待评审**（见 §8 偏离候选） |
-| preventive-prompt（Hull 更新后打开引导） | dialog 提示 | 保留或迁 upgrade 视图（评审定；倾向迁 upgrade 视图重启安装提示区，因属 Hull 通道提示） |
+| crash 提示 | dialog [重启/忽略] | **保留原生 dialog**（H2 裁决：崩溃是紧急系统级提示，官方 view 已坏、壳内 section 载体未必可用；不在「设置/升级/视图机制」三子需求范围；保留符合 Electron 标准崩溃弹窗模式。此保留与 §1 验收「升级/设置域 showMessageBox 归零」口径一致——崩溃域不在归零范围） |
+| preventive-prompt（Hull 更新后打开引导） | dialog 提示 | **迁 upgrade 视图重启安装提示区**（H2 裁决 2：对齐 S3 契约 v0.3「重启安装提示收进壳内统一模式」；`main/index.ts:455` 改推送 upgrade 视图提示卡片，`showMessageBox` 移除） |
 | runHullCheck 确认 | dialog [立即下载/稍后再说] | upgrade 视图 Hull 确认卡片；稍后再说 → `dismissHullUpdate` + `dismissToday('hull')` |
 | runHullCheck checkFailed | dialog 错误框 | upgrade 视图 Hull 失败卡片 |
 | runHullDownload 失败 | dialog 错误框 | upgrade 视图 Hull 失败卡片 |
+
+> 注（L1 澄清）：`showSaveDialog`/`showOpenDialog`（KanbanTransfer.ts:72 看板导出/导入文件对话框）属 CON-R004 壳内功能，**保留**；归零仅限升级/设置域的 `showMessageBox`。
+
+**runCheck 确认流机制（M1 修订，契约 S3 #2 UpgradeStatus.phase 承载）**：`runCheck()` → `Updater.check()` → phase=confirm → `hull:status` 推送（payload.upgrade.phase=confirm + latest/current）→ renderer upgrade 视图收到后渲染确认卡片 → 用户点「立即升级」→ 渲染侧调 `hull:upgradeDsh` → 主进程 runUpgrade。全程无原生 dialog，确认卡片由 hull:status 驱动渲染。
+
+**自动检查确认流（M2 修订）**：启动 `maybeAutoCheck`（index.ts:431）自动检查发现新版 → **不强制切 upgrade 视图**，仅 nav「升级」入口打标/高亮（提示有更新）；手动触发（托盘/壳导航/设置区块检查）→ 切 upgrade 视图渲染确认。理由：自动检查不应把用户从 dsh web 强制导航走。
 
 **upgrade 视图 section#upgrade 形态**：双通道并排/分段渲染，各自独立状态（dsh 用 `hull:getDshStatus` 的 `upgrade` 字段，Hull 用 `getHullUpdateStatus`）；250ms 轮询保留（dsh 进度 + Hull 进度）；确认/进度/失败/回滚/重启安装提示统一卡片样式（视觉 token 沿用 settings 卡 + 状态色：成功 `#2f9e44` / 警告 `#f08c00` / 错误 `#e03131`）。
 
@@ -194,7 +207,7 @@ const navActiveByView = {
 - `section#settings` dsh 区块「检查更新」→ 调 `checkDshUpdate`，发现新版 → **跳 upgrade 视图**渲染确认（导航切换由主进程 showUpgrade 驱动）。
 - 设置区块保留：registry / closeToQuit / autoCheckDsh / autoCheckHull / channel / pinnedVersion / 诊断 / 版本信息 / Hull 自动检查开关 / rollback 按钮（canRollback 禁用态不变）。
 - upgrade 视图承载：确认 / 进度 / 失败 / 回滚结果 / 重启安装提示（dsh + Hull 双通道）。
-- **回滚按钮双入口**：settings section（canRollback 禁用态）+ upgrade 视图均可触发 `rollbackDsh`——主进程 `hull:rollbackDsh` 幂等（S3 契约 #4），无冲突。
+- **回滚按钮双入口**：settings section（canRollback 禁用态）+ upgrade 视图均可触发 `rollbackDsh`——冲突由 **queue 互斥 + phase 门控兜底**（非 idle 时 upgrade 忽略，L3 修订：非 rollback 本身幂等，依据 S3 契约 #4 + queue 互斥），无冲突。
 
 ### 4.6 设置持久化与 settings 轮询（S6'，CON-R002 不破）
 
@@ -240,7 +253,10 @@ dsh-hull-desktop/
 │   │   ├── shell.html                # 改：nav 高亮回写 + section#settings + section#upgrade + 双通道编排
 │   │   └── settings.html             # 删（内容迁 shell.html section#settings）
 │   ├── main/
-│   │   └── index.ts                  # 改：dialog 调用归零/降级 + 托盘切视图 + promptDshUpdate 语义
+│   │   └── index.ts                  # 改：升级/设置域 showMessageBox 归零（8 处壳内化）+ crash 1 处保留 + 托盘切视图
+│   │                                  #     + `hull:checkDshUpdate` handler（line 619）语义：切 upgrade 视图 + 触发 check（H1 修订）
+│   │                                  #     + `hull:promptDshUpdate` handler（line 587）删除（壳导航改 showUpgrade+checkDshUpdate，孤儿通道）（H1 修订）
+│   │                                  #     + runCheck 三调用方（托盘/启动 maybeAutoCheck/崩溃后重查）统一「发现新版→切 upgrade 视图+推送」（§4.5）
 │   └── tray/
 │       └── TrayController.ts         # 小改：入口改聚焦主窗口 + 切视图（D5）
 └── tests/
@@ -274,13 +290,26 @@ dsh-hull-desktop/
 
 ## 8. 状态
 
-**状态：draft（待评审）**
+**状态：frozen（评审通过，可进实现）**
 
-**待评审开放项**：
-1. **R7 崩溃 dialog 边界**：dsh 崩溃重启确认保留原生 dialog（紧急系统级，共识「升级原子性关键确认等不可跳过强制确认项」为界）；preventive-prompt（Hull 更新后打开引导）倾向迁 upgrade 视图重启安装提示区。两处待评审确认。
-2. **设置区块「检查更新」跳 upgrade 视图**（§4.5）：发现新版从 settings section 跳 upgrade 视图渲染确认——确认跳转语义（自动切 vs 停留提示）。
-3. **S5 契约变更传播**：Hull 通道 UI 载体收进 upgrade 视图，需 S5 契约补注记（归实现波）。
+**评审记录**：
+- 评审人/机制：oracle（独立评审，ora-1）
+- 日期：2026-08-22
+- 结论：有条件通过（H1/H2/M2 修订后冻结）；修订完成，无 P0，已冻结
+- 修订闭环：
+  - **H1**（§4.3 + §6）：promptDshUpdate 调用方修正——托盘走 runCheck 直连不经 promptDshUpdate；壳导航改 showUpgrade+checkDshUpdate；promptDshUpdate 孤儿通道删除（§4.3 + §6 handler 两行）
+  - **H2**（§4.5 + §1）：crash dialog 归零/保留矛盾统一——升级/设置域 8 处壳内化，崩溃域 1 处保留原生（紧急系统级）；验收口径同步「升级/设置域 showMessageBox 归零」
+  - **M1**（§4.5）：runCheck 确认流机制写明（UpgradeStatus.phase=confirm → hull:status → 确认卡片 → hull:upgradeDsh）
+  - **M2**（§4.5）：自动检查不强制切 view（nav 打标），手动才切
+  - **M3**（§4.4）：升级进行中 nav-upgrade 保持高亮，空闲回落 nav-web
+  - **L1~L3**（§4.5）：dialog 限定 showMessageBox（KanbanTransfer 文件对话框保留）、计数 9 处、回滚幂等改「queue 互斥 + phase 门控」
 
-**评审通过后**：置 frozen，进入实现管道（S8' → S6' → S3' 顺序，见 §3 依赖）；实现后填 §8 核验记录（偏离清单）与评审记录。
+**R7 定案（评审裁决）**：
+1. dsh 崩溃 dialog：**保留原生**——崩溃时官方 view 已坏、壳内 section 载体未必可用；系统级紧急事件不在三子需求范围；Electron 标准崩溃弹窗模式（YAGNI）。
+2. preventive-prompt：**迁 upgrade 视图**——对齐 S3 契约 v0.3「重启安装提示收进壳内统一模式」；`main/index.ts:455` 改推送提示卡片。
+
+**实现顺序**：S8' → S6' → S3'（§3 依赖：view 状态机是 settings/upgrade section 的结构性前提）。
+
+**S5 契约变更传播**：Hull 通道 UI 载体收进 upgrade 视图——归实现波补 S5 契约注记。
 
 **核验记录**（交付核验时填写）：_预留——实现 vs 方案偏离清单 + 处理结论_
