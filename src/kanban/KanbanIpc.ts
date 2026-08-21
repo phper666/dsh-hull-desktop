@@ -1,14 +1,16 @@
 /**
  * B1 看板 IPC 注册（feishu-b1-m2-kanban-api-contract.md §接口清单 16 原语）
- * main 侧：ipcMain.handle('kanban:xxx') → KanbanStore 方法。错误统一转
- * { ok:false, code, message }（code 取 HullError.code，7 错误码）。
+ * + B5 导出/导入 2 原语（feishu-b5-m2-kanban-api-contract.md §接口清单；导出/导入走 KanbanTransfer）
+ * main 侧：ipcMain.handle('kanban:xxx') → KanbanStore/KanbanTransfer 方法。错误统一转
+ * { ok:false, code, message }（code 取 HullError.code，7 错误码 + B5 import/export 错误码）。
  * renderer 经 preload 桥（src/preload/kanban.ts）消费。
  */
 import { ipcMain } from 'electron';
 import { HullError } from '../shared/errors';
 import { KanbanStore, type AddCommentInput, type CreateTaskInput, type UpdateTaskPatch } from './KanbanStore';
+import { KanbanTransfer } from './KanbanTransfer';
 
-/** 16 个 IPC channel 白名单（B1 契约） */
+/** 16 个 IPC channel 白名单（B1 契约）+ 2 个 B5 导出/导入 channel */
 export const KANBAN_IPC_CHANNELS = [
   'kanban:getBoards',
   'kanban:createBoard',
@@ -26,6 +28,8 @@ export const KANBAN_IPC_CHANNELS = [
   'kanban:archiveTask',
   'kanban:restoreTask',
   'kanban:purgeTask',
+  'kanban:exportBoard',
+  'kanban:importBoard',
 ] as const;
 
 export type KanbanIpcChannel = (typeof KANBAN_IPC_CHANNELS)[number];
@@ -43,6 +47,12 @@ function toResult<T>(fn: () => T): KanbanIpcResult<T> {
 }
 
 export function registerKanbanIpc(store: KanbanStore): void {
+  registerKanbanIpcWithTransfer(store);
+}
+
+/** 注册含 B5 传输层（KanbanTransfer 依赖可注入，供主进程装配/测试） */
+export function registerKanbanIpcWithTransfer(store: KanbanStore, transfer?: KanbanTransfer): void {
+  const t = transfer ?? new KanbanTransfer({ userDataPath: store.getDataDir(), store });
   ipcMain.handle('kanban:getBoards', () => toResult(() => store.getBoards()));
   ipcMain.handle('kanban:createBoard', (_e, name: string) => toResult(() => store.createBoard(name)));
   ipcMain.handle('kanban:updateBoard', (_e, boardId: string, patch: { name?: string; order?: number }) =>
@@ -80,5 +90,10 @@ export function registerKanbanIpc(store: KanbanStore): void {
   );
   ipcMain.handle('kanban:purgeTask', (_e, boardId: string, taskId: string) =>
     toResult(() => store.purgeTask(boardId, taskId))
+  );
+  // B5：导出/导入（kanban:exportBoard / kanban:importBoard，feishu-b5-m2 契约 §接口详情）
+  ipcMain.handle('kanban:exportBoard', (_e, boardId?: string) => toResult(() => t.exportBoard(boardId)));
+  ipcMain.handle('kanban:importBoard', (_e, filePath: string, mode: string) =>
+    toResult(() => t.importBoard(filePath, mode as never))
   );
 }

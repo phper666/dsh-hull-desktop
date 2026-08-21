@@ -22,6 +22,7 @@ import { NOOP_LOGGER, type RuntimeLogger } from '../shared/types';
 import {
   DEFAULT_COLUMNS,
   DEFAULT_MAX_ATTACHMENT_SIZE_MB,
+  KANBAN_B5_ERRORS,
   KANBAN_SCHEMA_VERSION,
   KANBAN_STORE_ERRORS,
   type AcceptanceCriteria,
@@ -29,6 +30,8 @@ import {
   type Board,
   type Column,
   type ExecutionMode,
+  type ImportMode,
+  type ImportResult,
   type KanbanData,
   type Priority,
   type SubagentPolicy,
@@ -643,4 +646,261 @@ export class KanbanStore {
   snapshot(): KanbanData {
     return structuredClone(this.data);
   }
+
+  /** 看板数据目录（<userData>/kanban；B5 传输层默认导出路径） */
+  getDataDir(): string {
+    return this.dir;
+  }
+
+  // ─────────────────────────── B5 导出/导入（校验/重映射/应用） ───────────────────────────
+
+  /**
+   * 导出快照（单看板/全看板）。boardId 缺省 = 全看板；空 boards 合法。
+   * 校验 boardId 格式（b_<uuid>，B5 契约 export 异常集）。
+   */
+  exportSnapshot(boardId?: string): KanbanData {
+    let boards: Board[];
+    if (boardId !== undefined) {
+      if (typeof boardId !== 'string' || !/^b_[0-9a-fA-F-]{36}$/.test(boardId)) {
+        throw new HullError(ERR_B5.validation, 'boardId 格式非法');
+      }
+      const board = this.data.boards.find((b) => b.id === boardId);
+      if (!board) throw new HullError(ERR_B5.exportNotFound, '看板不存在（已删除）');
+      boards = [board];
+    } else {
+      boards = this.data.boards;
+    }
+    return { version: this.data.version, boards: structuredClone(boards) };
+  }
+
+  /**
+   * 导入（合并/替换），两段式：校验全过 → 原子应用（B5 契约 P0-B5-1）。
+   * - 校验阶段在导入文件原始 id 空间执行：JSON/版本/结构/字段/附件上限/跨现有看板引用。
+   * - merge：冲突板重 id + 内部引用重映射 → 重申 B1 完整校验（P1-B5-1）→ 追加。
+   * - replace：先备份 boards.preimport-<ts> 再整文件替换。
+   * 任何失败 → HullError（import 系 / validation-error / store-io-error），现有数据零改动。
+   */
+  importData(data: KanbanData, mode: ImportMode): ImportResult {
+    if (mode !== 'merge' && mode !== 'replace') {
+      throw new HullError(ERR_B5.importModeInvalid, 'mode 非法（merge/replace）');
+    }
+    const validated = this.validateImportData(data);
+    const boardsImported = validated.boards.length;
+    const tasksImported = validated.boards.reduce((n, b) => n + b.tasks.length, 0);
+    let next: KanbanData;
+    let preserved: string[] = [];
+    let regenerated: string[] = [];
+    if (mode === 'merge') {
+      const { boards: remapped, regenerated: regen } = this.remapMerge(validated.boards);
+      // P1-B5-1：重映射后重申 B1 完整校验（重映射可能产生跨父依赖等约束违例）
+      this.validateBoardsStructure(remapped);
+      preserved = remapped.filter((b) => !regen.includes(b.id)).map((b) => b.id);
+      regenerated = regen;
+      next = { version: this.data.version, boards: [...this.data.boards, ...remapped] };
+    } else {
+      // replace：先备份 boards.preimport-<ts> 再整文件替换（CON-R017；失败后备份可手动还原 P2-B5-3）
+      this.backupPreimport();
+      next = { version: this.data.version, boards: validated.boards };
+      preserved = validated.boards.map((b) => b.id);
+    }
+    this.applyData(next);
+    return {
+      applied: { mode, boardsImported, tasksImported },
+      ids: { preserved, regenerated },
+    };
+  }
+
+  /**
+   * 导入校验阶段（原始 id 空间）：顶层结构 → version 兼容 → 文件内部引用 →
+   * 结构完整性 → B1 schema 字段 → 附件上限 → 跨现有看板引用拒绝。
+   */
+  validateImportData(data: KanbanData): { boards: Board[]; conflicts: Set<string> } {
+    if (data === null || typeof data !== 'object') {
+      throw new HullError(ERR_B5.importCorrupt, '文件损坏，非看板导出文件');
+    }
+    const obj = data as Partial<KanbanData>;
+    if (typeof obj.version !== 'number' || !Array.isArray(obj.boards)) {
+      throw new HullError(ERR_B5.importCorrupt, '文件损坏，缺 version/boards 或类型错误');
+    }
+    // version 兼容：过新拒绝；过旧走 B1 migrate()（P2-B5-2 复用，无迁移函数可到当前则拒绝）
+    let version = obj.version;
+    if (version > KANBAN_SCHEMA_VERSION) {
+      throw new HullError(ERR_B5.importVersionNewer, `导出文件 version ${version} 高于当前，请升级壳`);
+    }
+    let boards: Board[];
+    if (version < KANBAN_SCHEMA_VERSION) {
+      try {
+        boards = this.migrate({ version, boards: obj.boards as Board[] }).boards;
+      } catch {
+        throw new HullError(ERR_B5.importVersionOlder, `导出文件 version ${version} 过旧，无法迁移`);
+      }
+    } else {
+      boards = obj.boards as Board[];
+    }
+    // ① 文件内部引用完整性 + ③ 结构完整性（columnId/parentId/dependencies/archivedFromColumnId/blockedFromColumnId 指向文件内；currentExecutionId 仅格式校验 🔴-1）
+    this.validateBoardsStructure(boards);
+    // ④ B1 schema 字段合法性 + ⑤ 附件上限（CON-R024）
+    const allTasks = boards.flatMap((b) => b.tasks);
+    for (const t of allTasks) this.validateImportedTask(t);
+    // ② 跨现有看板引用（P0-B5-1）：导入任务引用现有看板**任务** id（文件内无法解析的悬挂引用）→ 一律拒绝。
+    // currentExecutionId 不查（🔴-1）：Q-023 下 markSucceeded 不清 currentExecutionId（B3 e_<seq> 记录引用），
+    // 不一定指向文件内 timeline，跨板拒绝语义不适用，仅格式校验。
+    // 注：columnId 不查——结构校验已保证指向文件内列，模板列 id（c_todo 等）为全看板共享约定，非跨板引用。
+    const fileTaskIds = new Set<string>(allTasks.map((t) => t.id));
+    const existingIds = new Set<string>(this.data.boards.flatMap((b) => [b.id, ...b.columns.map((c) => c.id), ...b.tasks.map((t) => t.id)]));
+    for (const t of allTasks) {
+      if (t.parentId && !fileTaskIds.has(t.parentId) && existingIds.has(t.parentId)) {
+        throw new HullError(ERR_B5.validation, `跨现有看板引用被拒绝（parentId=${t.parentId}）`);
+      }
+      for (const d of t.dependencies) {
+        if (!fileTaskIds.has(d) && existingIds.has(d)) throw new HullError(ERR_B5.validation, `跨现有看板引用被拒绝（dependencies=${d}）`);
+      }
+    }
+    // merge 冲突集合：导入板 id 与现有看板 id 重复
+    const existingBoardIds = new Set(this.data.boards.map((b) => b.id));
+    const conflicts = new Set<string>(boards.filter((b) => existingBoardIds.has(b.id)).map((b) => b.id));
+    return { boards, conflicts };
+  }
+
+  /** 结构完整性 + 文件内部引用：列/父任务/依赖/归档来源列/Blocked 来源列均指向文件内，B1 约束（dependencies 仅子任务、同父、非父自身）。currentExecutionId 仅格式校验（🔴-1，Q-023 记录引用可不指向文件内 timeline） */
+  private validateBoardsStructure(boards: Board[]): void {
+    for (const b of boards) {
+      const colIds = new Set(b.columns.map((c) => c.id));
+      const allTaskIds = new Set(b.tasks.map((t) => t.id));
+      for (const t of b.tasks) {
+        // parentId：非空 → 指向文件内任务
+        if (t.parentId !== null && t.parentId !== undefined && !allTaskIds.has(t.parentId)) {
+          throw new HullError(ERR_B5.validation, `父任务引用不存在（task=${t.id}, parentId=${t.parentId}）`);
+        }
+        // columnId 指向文件内列
+        if (!colIds.has(t.columnId)) {
+          throw new HullError(ERR_B5.validation, `任务列引用不存在（task=${t.id}, columnId=${t.columnId}）`);
+        }
+        // 单层嵌套：parent 非子任务
+        const parent = b.tasks.find((x) => x.id === t.parentId);
+        if (parent?.parentId) {
+          throw new HullError(ERR_B5.validation, '子任务不可再嵌套（task=' + t.id + '）');
+        }
+        // dependencies：仅子任务声明、指向文件内、同父下、非父自身
+        if (t.parentId === null || t.parentId === undefined) {
+          if (t.dependencies.length > 0) {
+            throw new HullError(ERR_B5.validation, `仅子任务可声明依赖（task=${t.id}）`);
+          }
+        } else {
+          for (const d of t.dependencies) {
+            if (!allTaskIds.has(d)) {
+              throw new HullError(ERR_B5.validation, `依赖任务不存在（task=${t.id}, dep=${d}）`);
+            }
+            const dep = b.tasks.find((x) => x.id === d);
+            if (!dep || dep.parentId !== t.parentId) {
+              throw new HullError(ERR_B5.validation, '依赖仅限同父子任务（task=' + t.id + '）');
+            }
+            if (d === t.parentId) {
+              throw new HullError(ERR_B5.validation, '依赖不能指向父任务（task=' + t.id + '）');
+            }
+          }
+        }
+        // 归档/Blocked 来源列：非空 → 指向文件内列；currentExecutionId → 仅格式校验（null 合法 / 非空须 /^(e_|tl_)/，🔴-1：Q-023 下 succeeded 卡保留 e_<seq> 记录引用，不要求指向文件内 timeline）
+        if (t.archivedFromColumnId !== null && t.archivedFromColumnId !== undefined && !colIds.has(t.archivedFromColumnId)) {
+          throw new HullError(ERR_B5.validation, `归档来源列不存在（task=${t.id}）`);
+        }
+        if (t.blockedFromColumnId !== null && t.blockedFromColumnId !== undefined && !colIds.has(t.blockedFromColumnId)) {
+          throw new HullError(ERR_B5.validation, `Blocked 来源列不存在（task=${t.id}）`);
+        }
+        if (t.currentExecutionId !== null && t.currentExecutionId !== undefined) {
+          if (!/^(e_|tl_)/.test(t.currentExecutionId)) {
+            throw new HullError(ERR_B5.validation, `currentExecutionId 格式非法（须 e_/tl_ 前缀，task=${t.id}）`);
+          }
+        }
+      }
+    }
+  }
+
+  /** B1 schema 字段校验（导入路径；附件上限 CON-R024） */
+  private validateImportedTask(t: Task): void {
+    if (!t.id || typeof t.id !== 'string') throw new HullError(ERR_B5.validation, '任务 id 非法');
+    if (!t.title || t.title.trim().length === 0) throw new HullError(ERR_B5.validation, '任务标题不能为空');
+    if (t.title.length > 200) throw new HullError(ERR_B5.validation, '任务标题超长（≤200）');
+    if (t.executionMode === 'auto') this.validateAc(t.acceptanceCriteria);
+    for (const tl of t.timeline ?? []) {
+      for (const a of tl.attachments ?? []) {
+        if (a.size > this.maxAttachmentSizeMB * 1024 * 1024) {
+          throw new HullError(ERR_B5.validation, `附件超限（≤${this.maxAttachmentSizeMB}MB）`);
+        }
+      }
+    }
+  }
+
+  /** merge：仅冲突板重 id + 内部全部 id（列/任务/timeline）重映射 + 引用（parentId/dependencies/currentExecutionId/blockedFromColumnId/archivedFromColumnId）同步重映射；非冲突板保留原 id。返回 { boards, regenerated } */
+  private remapMerge(boards: Board[]): { boards: Board[]; regenerated: string[] } {
+    const boardIdMap = new Map<string, string>();
+    for (const b of boards) {
+      if (this.data.boards.some((x) => x.id === b.id)) {
+        boardIdMap.set(b.id, newId('b'));
+      }
+    }
+    const remapped = boards.map((b) => {
+      // 非冲突板：原样返回（id 保留，引用无需重映射）
+      if (!boardIdMap.has(b.id)) return structuredClone(b);
+      const newBoardId = boardIdMap.get(b.id)!;
+      const colMap = new Map<string, string>();
+      const taskMap = new Map<string, string>();
+      const tlMap = new Map<string, string>();
+      const columns = b.columns.map((c) => {
+        const next = colMap.get(c.id) ?? newId('c');
+        colMap.set(c.id, next);
+        return { ...c, id: next };
+      });
+      const tasks = b.tasks.map((t) => {
+        const nextTask = taskMap.get(t.id) ?? newId('t');
+        taskMap.set(t.id, nextTask);
+        const timeline = t.timeline.map((tl) => {
+          const nextTl = tlMap.get(tl.id) ?? newId('tl');
+          tlMap.set(tl.id, nextTl);
+          return { ...tl, id: nextTl };
+        });
+        return { ...t, id: nextTask, timeline };
+      });
+      return {
+        ...b,
+        id: newBoardId,
+        columns,
+        tasks: tasks.map((t) => ({
+          ...t,
+          parentId: t.parentId ? taskMap.get(t.parentId) ?? t.parentId : null,
+          columnId: colMap.get(t.columnId) ?? t.columnId,
+          dependencies: t.dependencies.map((d) => taskMap.get(d) ?? d),
+          currentExecutionId: t.currentExecutionId ? tlMap.get(t.currentExecutionId) ?? t.currentExecutionId : null,
+          blockedFromColumnId: t.blockedFromColumnId ? colMap.get(t.blockedFromColumnId) ?? t.blockedFromColumnId : null,
+          archivedFromColumnId: t.archivedFromColumnId ? colMap.get(t.archivedFromColumnId) ?? t.archivedFromColumnId : null,
+        })),
+      };
+    });
+    return { boards: remapped, regenerated: [...boardIdMap.values()] };
+  }
+
+  /** 应用阶段：整文件原子写（temp+rename，复用 B1 flushNow 语义；失败 store-io-error 原数据不破坏） */
+  private applyData(data: KanbanData): void {
+    const prev = this.data;
+    this.data = data;
+    try {
+      this.flushNow();
+    } catch (err) {
+      this.data = prev; // 写失败回滚内存态，现有数据零改动（CON-R017）
+      throw err;
+    }
+  }
+
+  /** replace 备份：boards.preimport-<ts>.json（B5 契约 §落盘；与 B1 损坏备份 boards.json.corrupt-<ts> 命名区分） */
+  private backupPreimport(): void {
+    try {
+      const ts = Date.now();
+      writeFileSync(`${this.filePath}.preimport-${ts}`, JSON.stringify(this.data), 'utf8');
+    } catch (err) {
+      // 备份失败 → 拒绝整个 replace（无备份即不可还原，CON-R017 保护）
+      throw new HullError(ERR_B5.ioError, `replace 备份失败，已中止导入: ${(err as Error).message}`);
+    }
+  }
 }
+
+const ERR_B5 = KANBAN_B5_ERRORS;

@@ -163,3 +163,29 @@ export const KANBAN_STORE_ERRORS = {
   boardNotEmpty: 'store-board-not-empty',
   validation: 'validation-error',
 } as const;
+
+/**
+ * B5 导出/导入错误码（KANBAN_EXPORT_ERROR + KANBAN_IMPORT_ERROR，feishu-b5-m2 契约 §公共异常集）。
+ * validation-error / store-io-error / store-not-found 与 B1 同码复用。
+ */
+export const KANBAN_B5_ERRORS = {
+  exportIo: 'export-io-error',
+  exportNotFound: 'export-not-found',
+  importInvalidJson: 'import-invalid-json',
+  importCorrupt: 'import-corrupt',
+  importVersionNewer: 'import-version-newer',
+  importVersionOlder: 'import-version-older',
+  importModeInvalid: 'import-mode-invalid',
+  validation: 'validation-error',
+  ioError: 'store-io-error',
+  notFound: 'store-not-found',
+} as const;
+
+/** 导入模式枚举（B5 契约 §导入模式枚举） */
+export type ImportMode = 'merge' | 'replace';
+
+/** 导入成功响应（B5 契约 §ImportResult） */
+export interface ImportResult {
+  applied: { mode: ImportMode; boardsImported: number; tasksImported: number };
+  ids: { preserved: string[]; regenerated: string[] };
+}
