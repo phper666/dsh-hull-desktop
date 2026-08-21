@@ -4,9 +4,9 @@
 
 - 工作项：S3 dsh 升级编排（飞书 dsh-hull-desktop 清单）
 - 契约状态：已冻结
-- 版本：v0.2（评审修订）
-- 适用版本：M1（共识 v1.4）
-- 最后更新：2026-08-17
+- 版本：v0.3（M1-重构变更传播）
+- 适用版本：M1（共识 v1.6）
+- 最后更新：2026-08-22
 
 ## 需求与共识追踪
 
@@ -26,10 +26,11 @@
 - 升级状态机：checking → confirm → installing → swapping → verifying → rollback
 - staging 安装（可取消）、原子替换（dsh→previous，staging→dsh）
 - 崩溃残留检测恢复（Q-004：dsh 缺失+staging 存在→续替；dsh 缺失+previous 存在→回滚）
-- 自动回滚（就绪验证失败）；手动回滚（设置页按钮）
+- 自动回滚（就绪验证失败）；手动回滚（升级视图按钮）
 - 失败提示（按钮下方）；稍后再说当日不重复
 - 双通道互斥队列（S5 复用）
 - 升级时机：确认后立即升级（Q-003，无排队、无会话状态桥）
+- **UI 载体（M1-重构 S3'）**：升级确认/进度/失败提示/回滚/重启安装提示从原生 dialog/DOM modal 收进壳内统一模式——独立 upgrade 右侧视图，壳导航「升级」切换（D4 决策）；升级原子性编排逻辑（UpgradeQueue/SwapManager/Updater）零改动（CON-R005 不破）
 
 ### 非目标
 
@@ -65,10 +66,10 @@
 
 | # | 状态 | 接口 | 用途 | 调用方 | 幂等 |
 |---|---|---|---|---|---|
-| 1 | NEW | Updater.check() | 版本检查 | 设置页/启动自动 | 是 |
-| 2 | NEW | Updater.upgrade(target) | 执行升级 | 确认后 | 是（先停后起） |
-| 3 | NEW | Updater.cancel() | 取消安装 | 用户 | 是 |
-| 4 | NEW | Updater.rollback() | 手动回滚 | 设置页 | 是 |
+| 1 | NEW | Updater.check() | 版本检查 | 升级视图/启动自动 | 是 |
+| 2 | NEW | Updater.upgrade(target) | 执行升级 | 确认后（升级视图） | 是（先停后起） |
+| 3 | NEW | Updater.cancel() | 取消安装 | 用户（升级视图） | 是 |
+| 4 | NEW | Updater.rollback() | 手动回滚 | 升级视图 | 是 |
 | 5 | NEW | UpgradeQueue.acquire(channel) | 互斥排队 | Updater/HullUpdater | 是 |
 
 > 注记（S5 变更传播）：#5 调用方 HullUpdater 同队列（S5 全流程占槽语义与 S3 check 同族——单次 acquire 连续持有至终态）；DismissStore 分通道键 `{ dsh?, hull? }`——S3 调用点传 `'dsh'`（代码归 S5 实现波，本波仅注记）。
@@ -76,7 +77,7 @@
 | 7 | NEW | Updater.on(status) | 状态/进度通知 | 设置页/托盘 | 无 |
 | 8 | NEW | Updater.canRollback() | 手动回滚可用条件（previous 存在性） | 设置页/S6 | 是 |
 
-> 时序注记（A2）：#1/#4 调用方设置页归 S6 接线——**S3 先行 main/托盘入口 + 原生 dialog**（升级入口/失败提示/手动回滚均以托盘 + dialog 形态交付），S6 落设置页 UI（按钮禁用态 = canRollback() 数据源）。
+> 时序注记（A2）：#1/#4 调用方设置页归 S6 接线——S3 先行 main/托盘入口 + 原生 dialog 交付；**M1-重构 S3' 后**升级确认/进度/失败提示收进壳内独立 upgrade 视图（D4 决策），原生 dialog 移除；按钮禁用态 = canRollback() 数据源不变。
 
 ## Schema 与枚举
 
@@ -143,7 +144,7 @@
 | T3-02 | 坏版本注入 | 探测目标指向坏地址（Q-010） | 验证失败→自动回滚→可用 |
 | T3-03 | 崩溃恢复 | 替换两步间 kill 壳 | 重启后残留检测自愈 |
 | T3-04 | 取消升级 | installing 中取消 | 保持原版本，staging 清理 |
-| T3-05 | 失败重试 | 注入 install-failed | 按钮下方提示，重点后成功（S3 验收 = 失败后有**可见 dialog 提示**；设置页按钮下方形态归 S6 分期） |
+| T3-05 | 失败重试 | 注入 install-failed | 升级视图内按钮下方提示，重点后成功（M1-重构后壳内提示替代原生 dialog；设置页按钮下方形态原归 S6 分期，S3' 起统一收进升级视图） |
 | T3-06 | 当日不重复 | 稍后再说后重启 | 当日不提示，次日提示 |
 | T3-07 | 互斥 | dsh 升级中触发 Hull 检查 | Hull 入口禁用/提示 |
 
@@ -168,6 +169,7 @@
 
 ## 变更记录
 
+- 2026-08-22：M1-重构变更传播（S3'，共识 v1.6）：升级 UI 载体从原生 dialog 收进壳内统一模式——独立 upgrade 右侧视图（D4 决策），壳导航「升级」切换；确认/进度/失败/回滚/重启安装提示壳内呈现，原生 dialog 移除；升级原子性编排逻辑（UpgradeQueue/SwapManager/Updater）零改动（CON-R005 不破）；#1~#4 调用方改升级视图。升 v0.3
 - 2026-08-17：评审修订：接口清单补 #8 Updater.canRollback()（A1）；#1/#4 调用方时序注记（S3 先行 main/托盘 + dialog，S6 接线设置页）+ T3-05 分期标注（A2）；适用版本升共识 v1.4（A3）；version-invalid 双触发点注记（A4）。升 v0.2
 - 2026-08-14：新建契约（草案）
 
