@@ -1,7 +1,7 @@
 # B4 执行集成与审批 技术方案
 
 > 工作项：B4 执行集成与审批（飞书 dsh-hull-desktop 清单，t100104）
-> 状态：draft（评审通过后置 frozen）
+> 状态：**frozen（评审通过·冻结，可进实现）**——ora-1 有条件通过，P1-1/P2 补齐后置 frozen（2026-08-21）
 > 版本：0.1 · 2026-08-21
 > 事实源：契约 `docs/api/feishu-b4-m2-kanban-api-contract.md` v0.2（冻结）；B3 技术方案 `docs/design/B3-看板-m2-kanban-design.md` v0.2（frozen，技术基础）；共识 `docs/spec/共识-Hull桌面壳-M2看板.md` v1.4（§7.4/§10/§13 + CON-R018/019/030）；PRD `docs/prd/2026-08-19-m2-kanban-prd.md`；M1 方案 `docs/design/S1-壳骨架-m1-design.md`（格式参照）
 > 判级：**复杂**。理由：外部系统集成（dsh ACP 子进程 JSON-RPC + ProviderRegistry 多 agent 注册表）跨外部系统与多模块（skill 判级矩阵"外部系统集成"）。**注意：B4 构建于 B3 ExecutionProvider 之上（非 greenfield）**——复用 B3 已冻结决策（D1~D5/模块划分/§4.10），本方案只深化 B4 专属面（ACP 帧契约、审批流、ProviderRegistry、AC 修订）。
@@ -126,6 +126,12 @@ ACP request_permission 到达 → ApprovalManager:
 ```
 
 - **计时器归属 = B4 主进程**（契约 P1-B4-1 冻结）：B2 崩溃/重绘延迟不吃窗口；deadlineAt 由主进程计算下发
+- **timeline 写入归属（P1-1，ora-1 条件项，必读）**：审批流/AC 修订的执行侧副作用写 timeline 由 **B4 `ApprovalManager` / `AcEditor` 负责**——两者**复用 B1 timeline 写入原语**（经 `IKanbanStore` 注入，同主进程直调，不经 IPC），**不绕过 B1、不新增第三写入入口**，与 B1 P1-1 三层写入权（① store 层 system 事件 / ② B3 调度层 execution 记录 / ③ B2 user 评论）边界对齐：
+  - 审批决策/审批超时/重启 auto-deny → B4 `ApprovalManager` 写 **system 事件**（source.type=system，author=user）——属 B1 ① 层的 system 类别，由 B4 以 store 原语追加，非 execution 记录
+  - AC 修订 diff / partial 标"已废弃（AC 修订）" → B4 `AcEditor` 写 **system 事件**（变更前后对照/时间/操作人，CON-R021）——同上 system 类别
+  - **execution 记录（type=execution）仍仅 B3 调度层写**（B1 P1-1 ② 层）；B4 不写 execution 类条目，避免与 B3 写权冲突
+  - **与 B1 updateTask 语义边界**：B1 `updateTask` 纯数据编辑（不写执行态/执行侧 timeline，系统管理字段禁改）；B4 的审批/AcEditor timeline 写入发生在**执行侧副作用链路**（B3 `execute()` 默认实现内），不走 updateTask——running 中 AC 修订必须经 `editAcceptanceCriteria`（B4）而非 updateTask（D4 已定）
+  - **与 B3 VerifyGate 边界**：B3 VerifyGate 只消费 `ExecutionResult.selfCheck` 做判定（passed→verify/false→failed），**不写审批/AC 修订相关 timeline**；审批决策 timeline 归 B4 ApprovalManager、AC diff timeline 归 B4 AcEditor，VerifyGate 不涉足（无重叠）
 - **FIFO**：多请求按任务平铺排队（queuePosition 1/2/3…），响应任一不阻塞其他；重复响应 requestId → exec-approval-not-pending
 - **弹窗非阻塞**（B2 消费）：不阻断看板操作；已超时请求不再可响应
 
@@ -229,7 +235,7 @@ tests/e2e/                             # e2e：审批弹窗主链路（B3+B4+B2 
 | ProviderRegistry 冲突（重复注册/未注册 resolve） | 解析错误/可用性误判 | register 幂等（覆盖+日志）+ resolve 双判（注册+就绪）+ available 与 executeTask 口径一致（P1-B4-2） | B4 |
 | AC 修订竞态（编辑与执行完成并发） | 已完成任务被误中断 | running 门控 + 幂等（已 interrupted 再修订 → exec-not-running）+ 终止进程前复核 executionStatus 仍 running | B4 |
 | dsh ACP 子进程崩溃 | 执行/审批挂起 | 子进程 exit 非 0/断连 → 执行 failed + 审批 pending 立即 deny + exec-provider-unavailable（P2-B4-2） | B3+B4 |
-| ACP 帧协议版本漂移（request_permission 字段变化） | 审批流解析失败 | 帧契约收敛 JsonRpcClient 单一修改点；官方发布后回归 A1~A7/A23 | B4 起持续 |
+| ACP 帧协议版本漂移（request_permission 字段变化） | 审批流解析失败 | 帧契约收敛 JsonRpcClient 单一修改点；官方发布后回归 A1~A7/A17 | B4 起持续 |
 | 审批高频弹窗（多请求风暴） | UI 阻塞/用户负担 | FIFO 排队 + 非阻塞弹窗 + queuePosition 提示（Q-018）；不做弹窗合并（审批是独立决策，YAGNI） | B4+B2 |
 
 ---
@@ -238,8 +244,8 @@ tests/e2e/                             # e2e：审批弹窗主链路（B3+B4+B2 
 
 | 项 | 结果 |
 |:---|:-----|
-| 状态 | draft（评审通过后置 frozen） |
-| 评审 | —（待评审，机制 + 日期 + 结论） |
+| 状态 | **frozen**（评审通过·冻结，可进实现） |
+| 评审 | ora-1 有条件通过 → P1-1/P2 补齐后冻结（2026-08-21） |
 | 实现偏离 | —（实现 vs 方案，交付核验时填） |
 
-> 冻结门：本方案评审通过后，状态置 frozen，方可进实现（skill 纪律：评审不过不得带病进实现）。B4 复用 B3 已冻结决策（D1~D5/模块/§4.10），本方案仅 B4 专属面（ACP 帧契约深化、审批流、ProviderRegistry、AC 修订）。
+> 冻结门：ora-1 评审条件（P1-1 timeline 写入归属 + P2 引用修正）已补齐，方案冻结，可进实现（skill 纪律：实现偏离须显式更新本方案，架构级偏离回 draft 重评）。B4 复用 B3 已冻结决策（D1~D5/模块/§4.10），本方案仅 B4 专属面（ACP 帧契约深化、审批流、ProviderRegistry、AC 修订）。
