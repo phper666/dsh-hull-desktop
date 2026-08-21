@@ -78,7 +78,8 @@
 - `UPGRADE_ACTIVE_PHASES`（renderNavHighlight）补 `'rollback'`——手动回滚时（phase=rollback）nav-upgrade 保持高亮，与进度段（checking/confirm/installing/swapping/verifying）一致；空闲回落 nav-web 不变。
 
 ### Semgrep
-- 未配置（项目现有 Semgrep 扫描流程外，记录风险项：新增代码为 renderer 内联 script + preload 桥，白名单固定无透传）
+- 已实跑（semgrep 1.172.0，`--config=auto src/`）：224 rules / 89 files → **0 findings**（安全敏感需求强制扫描完成，非降级）
+- 项目 M2 验收登记的「Semgrep 未配置」已不成立——本机 semgrep 已装可用，后续安全敏感需求直接跑
 
 ### 契约符合性
 
