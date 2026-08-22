@@ -93,6 +93,9 @@ export class NpmRunner {
       '--prefix',
       stagingDir,
       `--fetch-timeout=${FETCH_TIMEOUT_MS}`,
+      // 改进：--loglevel=http 逐包输出（npm http fetch GET …）→ onLine → 升级输出框实时显示具体解析/下载进度。
+      // 非 tty 下 npm 默认 notice 级几乎无输出；http 级含逐包行（error 分类正则仍命中——http 包含 error 输出）。
+      `--loglevel=http`,
     ];
     const child = this.spawnFn(this.nodePath, args, {
       cwd: stagingDir,
