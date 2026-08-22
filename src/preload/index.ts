@@ -85,9 +85,11 @@ contextBridge.exposeInMainWorld('hull', {
   openExternal: (url: string) => ipcRenderer.invoke('hull:openExternal', url),
 });
 
-// ─────────────────────────── S1 Skills 扫描桥 ───────────────────────────
-/** window.skills 4 原语（feishu-s1-skills-api-contract §接口清单；本地搜索 frontend-only 无通道） */
+// ─────────────────────────── S1 扫描 + S2 操作桥 ───────────────────────────
+/** window.skills：S1 4 原语（feishu-s1-skills-api-contract）+ S2 7 原语（feishu-s2-skills-api-contract）。
+ *  本地搜索 frontend-only 无通道；破坏性操作经 UI 二次确认后调用，主进程侧仍有强制守卫。 */
 contextBridge.exposeInMainWorld('skills', {
+  // S1 只读
   /** 触发后台扫描（幂等；返回即时快照，通常 scanning + 上次结果） */
   scan: () => invoke('skills:scan'),
   /** 当前快照（轮询至 status=ready） */
@@ -96,6 +98,21 @@ contextBridge.exposeInMainWorld('skills', {
   getStatus: () => invoke('skills:getStatus'),
   /** 远程 marketplace 检索（仅浏览不安装） */
   searchRemote: (query: string) => invoke('skills:searchRemote', query),
+  // S2 操作（二次确认 UI 之后调用）
+  /** 移除（批量逐条；先备份回收站） */
+  remove: (paths: string[]) => invoke('skills:remove', paths),
+  /** 一键升级（staging 原子替换失败自动回滚） */
+  upgrade: (path: string) => invoke('skills:upgrade', path),
+  /** 禁用/启用（按物理路径粒度移目录真禁用） */
+  setEnabled: (path: string, enabled: boolean) => invoke('skills:setEnabled', path, enabled),
+  /** 已禁用映射列表 */
+  getDisabledList: () => invoke('skills:getDisabledList'),
+  /** 回收站列表（顺带惰性清理 TTL/500MB） */
+  getTrashList: () => invoke('skills:getTrashList'),
+  /** 回收站恢复到原路径（冲突不覆盖） */
+  restoreFromTrash: (trashId: string) => invoke('skills:restoreFromTrash', trashId),
+  /** 破坏性操作日志（时间倒序） */
+  getOperationLog: (limit?: number) => invoke('skills:getOperationLog', limit),
 });
 
 // ─────────────────────────── B1 看板桥（M2） ───────────────────────────

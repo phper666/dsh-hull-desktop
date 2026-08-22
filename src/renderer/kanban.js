@@ -2,7 +2,7 @@
  * B2 看板 UI（M2，feishu-b2-m2-kanban-api-contract.md）
  * 消费 window.kanban（18 原语：B1 16 IPC + B5 export/import 2）+ window.exec（执行控制 10 通道 + onPermissionRequest/onPermissionSettled/onExecutionUpdate 订阅）+ window.hull（showBoard nav 接入）。
  * 纯原生 JS 无框架。深色主题沿用 shell.html 设计语言（#171c26/#2a3342/#2e8bf5）。
- * 视图：看板/列表/归档 三视图（同 tasks 数据多视图渲染，CON-R033 决策 3）。
+ * 视图：看板/列表/归档/时间线/日历 五视图（T1，CON-R-timeline-005 复用多视图状态机；视图持久化 localStorage Q-053）。
  * UI 场景 1~7 + 空态三态（Q-021）。
  */
 (() => {
@@ -11,16 +11,36 @@
   const boardRoot = document.getElementById('board-root');
   if (!kanban || !boardRoot) return;
 
+  const execNames = { idle: '未执行', queued: '排队中', running: '执行中', paused: '已暂停', interrupted: '已中断', cancelled: '已取消', failed: '失败', succeeded: '已成功' };
+  // T1/CON-R-timeline-005：五视图并列（Board/List/Archive/Timeline/Calendar），复用 boardToolbar 自动出按钮。
+  // 注意：须先于「状态」块定义——初始视图恢复依赖 viewNames 枚举校验。
+  const viewNames = { board: '看板', list: '列表', archive: '归档', timeline: '时间线', calendar: '日历' };
+  // T1/Q-053：视图持久化 = renderer localStorage（不 bump HullSettings schema、无 IPC）
+  const LAST_VIEW_KEY = 'kanban:lastView';
+  function loadLastView() {
+    try {
+      const v = localStorage.getItem(LAST_VIEW_KEY);
+      return Object.keys(viewNames).includes(v) ? v : 'board'; // 非法值兜底回退 board（P3）
+    } catch { return 'board'; } // localStorage 不可用（隐私模式）静默回退
+  }
+  function saveLastView(v) {
+    try { localStorage.setItem(LAST_VIEW_KEY, v); } catch { /* 隐私模式等：切换仍生效，仅不记忆 */ }
+  }
+
   // ── 状态 ──
   let boards = [];
   let currentBoard = null;
-  let view = 'board';
+  let view = loadLastView(); // T1/Q-053：初始视图恢复上次选择（替代硬编码 'board'）
   let filterCol = 'all';
   let filterQ = '';
   let dragTaskId = null;
   let approvalModal = null;
-  const execNames = { idle: '未执行', queued: '排队中', running: '执行中', paused: '已暂停', interrupted: '已中断', cancelled: '已取消', failed: '失败', succeeded: '已成功' };
-  const viewNames = { board: '看板', list: '列表', archive: '归档' };
+  // T1/D5 按需渲染状态：时间线分页 + 日历粒度/游标
+  // ponytail: 分页封顶首屏 DOM（CON-R-timeline-006 <300ms）；≥1000 卡实测超标再升级虚拟滚动（只换 renderTimeline 内部，聚合纯函数不动）
+  const TIMELINE_PAGE_SIZE = 100;
+  let timelinePage = 1;
+  let calMode = 'month'; // 'month' | 'week'（U-1 定案：默认月）
+  let calCursor = new Date();
 
   // ── 工具 ──
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -66,7 +86,9 @@
     if (!currentBoard) { renderEmpty(); return; }
     if (view === 'board') renderBoard();
     else if (view === 'list') renderList();
-    else renderArchive();
+    else if (view === 'archive') renderArchive();
+    else if (view === 'timeline') renderTimeline(); // T1/CON-R-timeline-001
+    else renderCalendar(); // T1/CON-R-timeline-002
   }
 
   function renderEmpty() {
@@ -127,11 +149,156 @@
     bindBoardEvents();
   }
 
+  // ═══════════════════════ T1 时间线视图（CON-R-timeline-001/Q-055） ═══════════════════════
+
+  /** 时间戳解析：null/undefined/空串视为缺失（Date(null)=epoch 0 陷阱）；非法日期 → null（Q-055 兜底链判据） */
+  function tsOf(v) {
+    if (v === null || v === undefined || v === '') return null;
+    const t = new Date(v).getTime();
+    return Number.isNaN(t) ? null : t;
+  }
+
+  /**
+   * 聚合当前看板活动条目（纯函数，D2）：task.createdAt→创建 / timeline comment·system createdAt→评论·系统 /
+   * execution startedAt→finishedAt→task.updatedAt 兜底链（Q-055，兜底态标「时间未知」仍参与排序）；
+   * 全缺/非法 → ts=null 固定末尾。排序：ts desc 主键 + id desc 同戳 tie（倒序后建在前，两次渲染一致）。
+   */
+  function buildTimelineEntries(tasks) {
+    const entries = [];
+    for (const t of tasks) {
+      entries.push({ id: `${t.id}:create`, taskId: t.id, type: '创建', ts: tsOf(t.createdAt), unknown: false });
+      for (const i of t.timeline || []) {
+        if (i.type === 'comment' || i.type === 'system') {
+          entries.push({ id: i.id, taskId: t.id, type: i.type === 'comment' ? '评论' : '系统', ts: tsOf(i.createdAt), item: i, unknown: false });
+        } else if (i.type === 'execution') {
+          const ex = i.execution || {};
+          let ts = tsOf(ex.startedAt);
+          let unknown = false;
+          if (ts === null) ts = tsOf(ex.finishedAt);
+          if (ts === null) { ts = tsOf(t.updatedAt); unknown = true; } // updatedAt 兜底：标未知仍参与排序
+          entries.push({ id: i.id, taskId: t.id, type: '执行', ts, unknown, item: i });
+        }
+      }
+    }
+    const pinned = (e) => (e.ts === null ? 1 : 0);
+    entries.sort((a, b) => pinned(a) - pinned(b) || b.ts - a.ts || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+    return entries;
+  }
+
+  function renderTimeline() {
+    const all = buildTimelineEntries(activeTasks()); // 归档排除（契约实现补充约定）
+    const shown = all.slice(0, timelinePage * TIMELINE_PAGE_SIZE); // D5 按需渲染：首屏封顶分页大小
+    const typeCls = { 创建: 'kb-tlb-create', 执行: 'kb-tlb-exec', 评论: 'kb-tlb-comment', 系统: 'kb-tlb-system' };
+    boardRoot.innerHTML = boardToolbar() + `<div class="kb-timeline">${
+      all.length === 0
+        ? '<div class="kb-empty-tlv">暂无活动，创建任务后这里会显示时间线</div>'
+        : shown.map((e) => {
+            const task = taskById(e.taskId);
+            const time = e.ts !== null ? new Date(e.ts).toLocaleString() : '';
+            const badge = `<span class="kb-tlb ${typeCls[e.type]}">${e.type}</span>${e.unknown ? '<span class="kb-tl-unknown">时间未知</span>' : ''}`;
+            // 消毒（T1 契约 §6/D6）：评论 content 走 E1 同管线 mdRender；execution/system/结构化字段 esc()
+            let body = '';
+            if (e.type === '评论') body = `<div class="kb-tl-md kb-md">${mdRender(e.item.content)}</div>`;
+            else if (e.type === '执行') body = `<div class="kb-tl-cmd">${esc((e.item.execution?.command || '').slice(0, 120))}</div>`;
+            else body = `<div class="kb-tl-cmd">${esc(e.item?.content || '')}</div>`;
+            return `<div class="kb-tl-row" data-task="${e.taskId}"><span class="kb-tl-time">${time}</span>${badge}<span class="kb-tl-title">${esc(task?.title || '')}</span>${body}</div>`;
+          }).join('')}${all.length > shown.length ? '<button class="kb-btn" id="kb-tl-more">加载更多</button>' : ''}</div>`;
+    bindBoardEvents();
+    $('#kb-tl-more')?.addEventListener('click', () => { timelinePage++; renderTimeline(); }); // PERF4：slice 追加语义不重不漏
+    document.querySelectorAll('.kb-tl-row').forEach((r) => r.addEventListener('click', () => openDetail(r.dataset.task)));
+  }
+
+  // ═══════════════════════ T1 日历视图（CON-R-timeline-002/Q-054） ═══════════════════════
+
+  /** date-only 解析：本地时区构造 new Date(y,m,d)（禁字符串直传 Date 的 UTC 偏移西移）；非法/不存在日期 → null */
+  function parseDateOnly(s) {
+    if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+    const [y, m, d] = s.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    return Number.isNaN(dt.getTime()) || dt.getMonth() !== m - 1 || dt.getDate() !== d ? null : dt;
+  }
+  const fmtKey = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  const addDays = (dt, n) => new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + n);
+
+  /** 可见格序列：月=当月 6×7（周一起始含前后月补位）；周=光标所在周 7 格 */
+  function calCells() {
+    if (calMode === 'week') {
+      const dow = (calCursor.getDay() + 6) % 7; // 周一=0
+      const start = addDays(calCursor, -dow);
+      return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+    }
+    const first = new Date(calCursor.getFullYear(), calCursor.getMonth(), 1);
+    const dow = (first.getDay() + 6) % 7;
+    const start = addDays(first, -dow);
+    return Array.from({ length: 42 }, (_, i) => addDays(start, i));
+  }
+
+  /** 区间条带按日遍历（Q-054 冻结）：每任务算 [start,end] 与可见范围求交逐日落桶；跨月/跨周边界自然连续 */
+  function calBands(tasks, cells) {
+    const visStart = cells[0];
+    const visEnd = cells[cells.length - 1];
+    const today0 = new Date(); today0.setHours(0, 0, 0, 0);
+    const byDay = new Map();
+    for (const t of tasks) {
+      let start = parseDateOnly(t.startDate);
+      let end = parseDateOnly(t.dueDate);
+      if (!start && !end) continue; // 皆空不进日历
+      if (start && end && start > end) start = end; // startDate>dueDate → 以 dueDate 单日（CON-R-timeline-007）
+      if (!end) end = new Date(calCursor.getFullYear(), calCursor.getMonth() + 1, 0); // 仅 startDate → 当月末尾
+      if (!start) start = end; // 仅 dueDate 单日落格
+      let cur = start < visStart ? visStart : start;
+      const stop = end > visEnd ? visEnd : end;
+      const overdue = parseDateOnly(t.dueDate) !== null && parseDateOnly(t.dueDate) < today0; // 过期以 dueDate 判定
+      while (cur <= stop) {
+        const k = fmtKey(cur);
+        if (!byDay.has(k)) byDay.set(k, []);
+        byDay.get(k).push({ task: t, overdue });
+        cur = addDays(cur, 1);
+      }
+    }
+    return byDay;
+  }
+
+  function renderCalendar() {
+    const cells = calCells();
+    const bands = calBands(activeTasks(), cells);
+    const title = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long' }).format(calCursor); // 中文月标签（Q-054）
+    const label = calMode === 'month' ? title : `${title} · 周`;
+    const wd = ['一', '二', '三', '四', '五', '六', '日'];
+    const todayKey = fmtKey(new Date());
+    const grid = cells.map((c) => {
+      const k = fmtKey(c);
+      const items = (bands.get(k) || []).map(({ task, overdue }) =>
+        `<div class="kb-cal-task ${overdue ? 'kb-overdue' : ''}" data-task="${task.id}">${esc(task.title)}</div>`).join('');
+      return `<div class="kb-cal-cell ${c.getMonth() !== calCursor.getMonth() ? 'kb-cal-out' : ''} ${k === todayKey ? 'kb-cal-today' : ''}" data-date="${k}"><span class="kb-cal-day">${c.getDate()}</span>${items}</div>`;
+    }).join('');
+    boardRoot.innerHTML = boardToolbar() + `
+      <div class="kb-cal-bar">
+        <button class="kb-btn" data-cal="prev">‹</button>
+        <button class="kb-btn" data-cal="today">今天</button>
+        <button class="kb-btn" data-cal="next">›</button>
+        <span class="kb-cal-title">${esc(label)}</span>
+        <span class="kb-cal-modes"><button class="kb-view ${calMode === 'month' ? 'active' : ''}" data-calmode="month">月</button><button class="kb-view ${calMode === 'week' ? 'active' : ''}" data-calmode="week">周</button></span>
+      </div>
+      ${bands.size === 0 ? '<div class="kb-empty-tlv">本月无到期任务</div>' : ''}
+      <div class="kb-cal-grid kb-cal-${calMode}">${wd.map((w) => `<div class="kb-cal-wd">${w}</div>`).join('')}${grid}</div>`;
+    bindBoardEvents();
+    document.querySelectorAll('[data-cal]').forEach((b) => b.addEventListener('click', () => {
+      const act = b.dataset.cal;
+      if (act === 'today') calCursor = new Date();
+      else if (calMode === 'month') calCursor = new Date(calCursor.getFullYear(), calCursor.getMonth() + (act === 'next' ? 1 : -1), 1);
+      else calCursor = addDays(calCursor, act === 'next' ? 7 : -7);
+      renderCalendar();
+    }));
+    document.querySelectorAll('[data-calmode]').forEach((b) => b.addEventListener('click', () => { calMode = b.dataset.calmode; renderCalendar(); }));
+    document.querySelectorAll('.kb-cal-task').forEach((el) => el.addEventListener('click', () => openDetail(el.dataset.task)));
+  }
+
   // ── 事件绑定 ──
   function bindBoardEvents() {
     $('#kb-board-select')?.addEventListener('change', (e) => loadBoard(e.target.value));
     $('#kb-newboard')?.addEventListener('click', promptNewBoard);
-    document.querySelectorAll('.kb-view').forEach((b) => b.addEventListener('click', (e) => { view = e.target.dataset.view; render(); }));
+    document.querySelectorAll('.kb-view').forEach((b) => b.addEventListener('click', (e) => { view = e.target.dataset.view; saveLastView(view); timelinePage = 1; render(); }));
     $('#kb-col-filter')?.addEventListener('change', (e) => { filterCol = e.target.value; render(); });
     $('#kb-q')?.addEventListener('input', (e) => { filterQ = e.target.value; render(); });
 
@@ -258,7 +425,8 @@
     const tl = t.timeline.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     modal('卡片详情', `
       <div class="kb-detail-head"><h3>${esc(t.title)}</h3><span class="kb-pri kb-pri-${t.priority}">${esc(t.priority)}</span>${t.labels.map((l) => `<span class="kb-label">${esc(l)}</span>`).join('')}</div>
-      <div class="kb-detail-meta"><span>列：${col ? esc(col.name) : ''}</span><span>模式：${t.executionMode}</span><span class="kb-exec kb-exec-${t.executionStatus}">${execNames[t.executionStatus] || t.executionStatus}</span>${t.dueDate ? `<span>截止：${t.dueDate}</span>` : ''}</div>
+      <div class="kb-detail-meta"><span>列：${col ? esc(col.name) : ''}</span><span>模式：${t.executionMode}</span><span class="kb-exec kb-exec-${t.executionStatus}">${execNames[t.executionStatus] || t.executionStatus}</span></div>
+      <div class="kb-detail-dates"><label>开始 <input type="date" id="kb-date-start" value="${esc(t.startDate || '')}" /></label><label>截止 <input type="date" id="kb-date-due" value="${esc(t.dueDate || '')}" /></label></div>
       ${t.description ? `<div class="kb-detail-desc kb-md">${mdRender(t.description)}</div>` : ''}
       ${sub.length ? `<div class="kb-sub-list"><h4>子任务</h4>${sub.map((s) => `<div class="kb-sub-item">${esc(s.title)} <span class="kb-exec kb-exec-${s.executionStatus}">${execNames[s.executionStatus] || s.executionStatus}</span></div>`).join('')}</div>` : ''}
       <div class="kb-tl"><h4>时间线</h4>${tl.length === 0 ? '<div class="kb-empty-tl">暂无记录</div>' : tl.map((i) => {
@@ -274,6 +442,13 @@
       const cmtEditor = createEditor($('#kb-comment-text', w));
       w.kbOnClose.push(() => destroyEditor(cmtEditor));
       cmtEditor?.codemirror.focus();
+      // T2 契约 UI 承接（Q-052）：开始/截止日期选择器，变更即时生效持久化（清空=显式 null）
+      const saveDate = async (field, value) => {
+        const r = await kanban.updateTask(currentBoard.id, t.id, { [field]: value || null });
+        if (r.ok) { close(); await loadBoard(currentBoard.id); openDetail(t.id); } else alert('保存失败：' + (r.message || r.code));
+      };
+      $('#kb-date-start', w)?.addEventListener('change', (e) => saveDate('startDate', e.target.value));
+      $('#kb-date-due', w)?.addEventListener('change', (e) => saveDate('dueDate', e.target.value));
       $('[data-comment]', w).addEventListener('click', async () => {
         const c = (cmtEditor ? cmtEditor.value() : $('#kb-comment-text', w).value).trim();
         if (!c) return;
@@ -364,7 +539,7 @@
     if (br.ok) boards = br.data;
     if (tr.ok && br.ok) {
       const b = boards.find((x) => x.id === boardId);
-      if (b) { currentBoard = { ...b, tasks: tr.data }; render(); }
+      if (b) { timelinePage = 1; currentBoard = { ...b, tasks: tr.data }; render(); }
     } else {
       alert('加载看板失败：' + ((!br.ok && br.message) || (!tr.ok && tr.message) || ''));
     }

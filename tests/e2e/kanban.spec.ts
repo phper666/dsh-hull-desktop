@@ -89,7 +89,7 @@ test.describe('B2 看板 UI', () => {
     const app = await launchApp({ userData: tmp.dir, fakeDshMode: 'ready' });
     const shell = await app.firstWindow();
     await shell.locator('#nav-board').click();
-    await expect(shell.locator('#board-root .kb-view')).toHaveCount(3);
+    await expect(shell.locator('#board-root .kb-view')).toHaveCount(5); // T1：五视图（看板/列表/归档/时间线/日历）
     // 列表视图
     await shell.locator('[data-view="list"]').click();
     await expect(shell.locator('#board-root .kb-list tbody tr[data-id]')).toHaveCount(2);

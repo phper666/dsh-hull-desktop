@@ -14,6 +14,10 @@ src/**/*.js.map
 # 显式保留手写源（覆盖默认）
 !src/renderer/kanban.js
 !src/renderer/kanban.css
+# S1/S2 Skills 子系统手写源（同 kanban 先例；否则新 .ts/.js 静默被忽略不进版本库）
+!src/skills/
+!src/skills/**/*.ts
+!src/renderer/skills.js
 
 # Logs
 *.log

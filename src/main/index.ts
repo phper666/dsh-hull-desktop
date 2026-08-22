@@ -33,6 +33,7 @@ import { ApprovalManager } from '../exec/approval/ApprovalManager';
 import { AcEditor } from '../exec/approval/AcEditor';
 import { registerExecIpc } from '../exec/ipc/ExecIpc';
 import { SkillsScanner } from '../skills/SkillsScanner';
+import { SkillsOps } from '../skills/ops/SkillsOps';
 import { registerSkillsIpc } from '../skills/ipc/SkillsIpc';
 import { Logger } from '../log/Logger';
 
@@ -73,10 +74,12 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     maxAttachmentSizeMB: 10,
   });
   registerKanbanIpc(kanbanStore);
-  // S1：Skills 扫描器（只读扫描 + 快照；写面归 S2）+ 4 IPC 注册（feishu-s1-skills-api-contract）
-  // homeDir 注入（Q-037 DI）；hash-cache.json 落 <userData>/skills/（CON-R-skills-006，不触 DSH_HOME）
+  // S1+S2：Skills 扫描器（只读）+ 操作层（移除/升级/禁用/回收站，破坏性守卫主进程强制）
+  // homeDir 注入（Q-037 DI）；状态文件落 <userData>/skills/（CON-R-skills-006，不触 DSH_HOME）
   const skillsScanner = new SkillsScanner({ homeDir: homedir(), userDataPath, logger });
-  registerSkillsIpc(skillsScanner);
+  const skillsOps = new SkillsOps({ homeDir: homedir(), userDataPath, scanner: skillsScanner, logger });
+  skillsOps.selfHeal(); // 启动自愈：staging backup 残留还原（两段 rename 窗口崩溃兜底，设计 §4.1）
+  registerSkillsIpc(skillsScanner, skillsOps);
   // B3+B4：执行引擎门面（ExecutionEngine 组装 Scheduler/Heartbeat/Convergence/VerifyGate）+ ProviderManager
   // + ProviderRegistry（M2 注册 'dsh' ACP）+ ApprovalManager + AcEditor + 执行控制 IPC（B3 10 + B4 3）
   const providerManager = new ProviderManager();

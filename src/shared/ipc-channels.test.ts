@@ -13,11 +13,11 @@ import {
   SKILLS_IPC_CHANNELS,
 } from './ipc-channels';
 
-test('白名单计数：B1 16 + B5 2 = 18，B3 10，B4 4，S1 5，共面 37', () => {
+test('白名单计数：B1 16 + B5 2 = 18，B3 10，B4 4，S1+S2 12，共面 44', () => {
   equal(KANBAN_IPC_CHANNELS.length, 18, 'B1 16 数据原语 + B5 2 导出/导入');
   equal(KANBAN_EXEC_IPC_CHANNELS.length, 10, 'B3 10 执行控制');
-  equal(SKILLS_IPC_CHANNELS.length, 5, 'S1 4 skills:* + hull:showSkills 导航');
-  equal(ALL_IPC_CHANNELS.length, 37);
+  equal(SKILLS_IPC_CHANNELS.length, 12, 'S1 4 skills:* + S2 7 操作 + hull:showSkills 导航');
+  equal(ALL_IPC_CHANNELS.length, 44);
 });
 
 test('唯一性：全部 channel 无重复', () => {
@@ -30,9 +30,22 @@ test('前缀规约：kanban: | skills: | hull:showSkills（S1 导航复用 hull 
   }
 });
 
-test('S1 Skills channel 完整（feishu-s1-skills-api-contract §接口清单）', () => {
+test('S1+S2 Skills channel 完整（feishu-s1/s2-skills-api-contract §接口清单）', () => {
   const names = SKILLS_IPC_CHANNELS.join(',');
-  for (const expected of ['hull:showSkills', 'skills:scan', 'skills:getSnapshot', 'skills:searchRemote', 'skills:getStatus']) {
+  for (const expected of [
+    'hull:showSkills',
+    'skills:scan',
+    'skills:getSnapshot',
+    'skills:searchRemote',
+    'skills:getStatus',
+    'skills:remove',
+    'skills:upgrade',
+    'skills:setEnabled',
+    'skills:getDisabledList',
+    'skills:getTrashList',
+    'skills:restoreFromTrash',
+    'skills:getOperationLog',
+  ]) {
     ok(names.includes(expected), `含 ${expected}`);
   }
 });

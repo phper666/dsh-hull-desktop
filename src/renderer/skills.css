@@ -76,3 +76,50 @@
 .sk-empty { margin: auto; text-align: center; color: #9aa5b5; }
 .sk-empty h2 { font-size: 18px; font-weight: 600; margin: 0 0 8px; color: #e8ecf3; }
 .sk-error { color: #f85149; font-size: 12px; }
+.sk-muted { color: #9aa5b5; font-size: 12px; }
+
+/* S2：路径行 + 启用开关（Q-031 按路径粒度） */
+.sk-paths { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.sk-path-row { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.sk-path { color: #8b96a8; word-break: break-all; }
+.sk-path.disabled { color: #6b7688; text-decoration: line-through; }
+.sk-switch {
+  width: 30px; height: 16px; border-radius: 999px; border: none; cursor: pointer;
+  background: #2ea04366; position: relative; flex-shrink: 0; padding: 0;
+}
+.sk-switch i { position: absolute; top: 2px; left: 15px; width: 12px; height: 12px; border-radius: 50%; background: #56d364; transition: left .15s; }
+.sk-switch.off { background: #6b768855; }
+.sk-switch.off i { left: 3px; background: #9aa5b5; }
+.sk-switch:disabled { opacity: .5; cursor: wait; }
+
+/* S2：操作按钮 */
+.sk-danger-btn { background: #f8514944; color: #f85149; }
+.sk-danger-btn:hover { background: #f8514966; }
+.sk-primary-btn { background: #2e8bf5; color: #fff; }
+.sk-primary-btn:hover { background: #3f97fb; }
+
+/* S2：弹窗（移除/升级二次确认） */
+.sk-modal-wrap {
+  position: fixed; inset: 0; z-index: 100; background: #00000088;
+  display: flex; align-items: center; justify-content: center;
+}
+.sk-modal {
+  width: min(520px, 90%); max-height: 80vh; overflow-y: auto;
+  background: #1e2430; border: 1px solid #2a3342; border-radius: 12px; padding: 16px;
+  color: #e8ecf3; font-size: 13px;
+}
+.sk-modal h3 { margin: 0 0 10px; font-size: 15px; }
+.sk-modal-body p { margin: 6px 0; }
+.sk-path-list { margin: 6px 0; padding-left: 18px; color: #c6d0dd; word-break: break-all; }
+.sk-modal code { background: #171c26; padding: 1px 6px; border-radius: 4px; font-size: 11px; }
+.sk-modal-ops { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+
+/* S2：回收站弹层（D7 工具条按钮 + 面板） */
+.sk-trash-panel {
+  position: absolute; right: 14px; top: 52px; z-index: 50;
+  width: min(480px, 80%); max-height: 70vh; overflow-y: auto;
+  background: #171c26; border: 1px solid #2a3342; border-radius: 12px; padding: 12px;
+}
+.sk-trash-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; color: #e8ecf3; }
+.sk-trash-row { border-top: 1px solid #2a3342; padding: 8px 0; display: flex; flex-direction: column; gap: 4px; }
+.sk-trash-conflict { color: #f85149; font-size: 11px; }
