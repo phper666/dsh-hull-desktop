@@ -8,7 +8,7 @@ Hull 是一个开源的 Electron 桌面壳，包住官方的 [DeepSeek Harness](
 
 Hull 面向程序员，在官方之上叠加自己的层：任务看板、原生托盘与通知集成、以及通过 dsh 官方扩展点提供的插件扩展——全部是增量的、可摘除的，绝不挡 dsh 的路。
 
-> **状态：** M1 已交付（M2 已完成验收，467+8+3 e2e 全绿）——桌面壳、dsh 升级、Hull 自更新、设置页/托盘、主窗口壳框架（左侧导航 + 官方 UI 内嵌）全部完成并通过测试验收；M2 任务看板（B1~B5）与多 agent 注册表 + 审批流（dsh ACP 集成）已完成。
+> **状态：** M1 已交付（M2 已完成验收，M1-重构已交付，476+8+12 全绿）——桌面壳、dsh 升级、Hull 自更新、设置页/托盘、主窗口壳框架（左侧导航 + 官方 UI 内嵌）全部完成并通过测试验收；M2 任务看板（B1~B5）与多 agent 注册表 + 审批流（dsh ACP 集成）已完成；M1-重构把设置/升级收进壳内右侧视图，统一壳内交互模型（升级体验全链：输出框/进度/日志规范）。
 
 > **AI 工作流声明：** 本项目使用 [ai-workflow-skills](https://github.com/phper666/ai-workflow-skills)（团队 AI 研发工作流 skills 套件）驱动开发——共识文档 → 三角色扫描 → 待确认闭环 → 接口契约 → 技术方案（判级）→ 实现纪律（TDD/lint/Review/Semgrep）→ 交付核验 → 变更传播 → 经验沉淀。工作流产物见 `docs/`（spec/共识、api/契约、design/技术方案、prd/需求、prototype/原型、records/实现记录、lessons/经验）。
 
@@ -34,6 +34,18 @@ Hull 面向程序员，在官方之上叠加自己的层：任务看板、原生
 
 - [x] 任务看板：B1~B5（数据模型/UI/执行引擎/审批集成/导出导入）+ 全量 e2e
 - [x] 多 agent 注册表 + 审批流（dsh ACP 集成）
+
+### ✅ M1-重构已完成（2026-08-22 交付）
+
+> M1 增补段（m1refactor，产品重构，归 M1 期不占新期）：统一壳内交互模型——壳功能收进主窗口右侧内容区。
+
+- [x] 设置页收壳内：独立窗口 → 右侧整页 section（S6'）
+- [x] 升级并入设置：dsh/Hull 双通道确认/进度/失败/回滚拆到各自区块（S3'）
+- [x] view 机制 3 态：official/board/settings，nav 高亮回写（S8'）
+- [x] 导航菜单：dsh web / 任务看板 / 设置（去「升级」，设置恒最后）
+- [x] 升级体验全链：实时输出框（npm 逐包输出 + autoscroll）、诚实阶段进度、日志 dsh.log 单文件轮转、npm 超时 3000s + prefer-offline
+- [x] Hull 版本号显示 + dsh web 地址可点击浏览器访问 + 防自动弹浏览器（--no-open）
+- [x] 看板点击 ticket 弹详情 + 设置页更新区块视觉统一
 
 ## 架构
 
@@ -69,7 +81,7 @@ git clone <repo>
 cd dsh-hull-desktop
 npm install
 npm run typecheck    # tsc 检查
-npm test             # 单测 + 集成（467+8 全绿）
+npm test             # 单测 + 集成（476+8 全绿）
 npm run dev          # tsc + electron . (启动壳)
 ```
 
@@ -92,7 +104,7 @@ npm run dev          # tsc + electron . (启动壳)
 src/
 ├── main/          # Electron 主进程编排（启动流/单实例/双升级/看板装配）
 ├── preload/       # contextBridge 白名单桥（window.hull/kanban/exec）
-├── renderer/      # 渲染层（shell.html 壳框架 + settings.html + kanban UI 原生 JS）
+├── renderer/      # 渲染层（shell.html 壳框架 + kanban UI 原生 JS；设置/升级收壳内）
 ├── window/        # 主窗口/WebContentsView 编排（壳框架占位视图机制）
 ├── tray/          # 系统托盘控制器
 ├── settings/      # 设置持久化（settings.json schemaVersion=3）
@@ -102,13 +114,13 @@ src/
 ├── runtime/       # dsh 子进程管理（spawn/就绪探测/单实例）
 ├── overlay/       # dsh overlay 安装流
 ├── channel/       # 主↔渲染 IPC 通道
-├── log/           # 日志（hull.log + dsh-pid.log 轮转）
+├── log/           # 日志（hull.log + dsh.log 单文件轮转，M1-重构统一）
 └── shared/        # 共享类型+错误+IPC channel 白名单
 
 tests/
-├── unit/          # （隐式：src/**/*.test.ts co-located，467 用例）
+├── unit/          # （隐式：src/**/*.test.ts co-located，476 用例）
 ├── integration/   # tests/integration/（8 用例：实时性集成如 ReadinessProbe）
-├── e2e/           # Playwright e2e（11 用例：cold-start/upgrade/install/settings/kanban）
+├── e2e/           # Playwright e2e（12 用例：cold-start/upgrade/install/settings/kanban）
 └── fixtures/      # fake-dsh.js + fake-registry.js（隔离外部依赖）
 
 docs/

@@ -8,7 +8,7 @@ Hull is an open-source Electron desktop shell around the official [DeepSeek Harn
 
 Built for developers, Hull adds its own layer on top: a task kanban for planning work, native tray and notification integration, and plugin extensions through dsh's official extension points — all additive, all removable, none of it in dsh's way.
 
-> **Status:** M1 shipped, and M2 accepted (467+8+3 e2e all green) — desktop shell, in-app dsh upgrade, Hull self-update, settings page + tray, and the shell-framework window (left Hull nav + embedded official UI) are all done and acceptance-tested; the M2 task kanban (B1~B5) plus the multi-agent registry + approval flow (dsh ACP integration) are complete.
+> **Status:** M1 shipped, M2 accepted, and the M1-refactor delivered (476+8+12 all green) — desktop shell, in-app dsh upgrade, Hull self-update, settings page + tray, and the shell-framework window (left Hull nav + embedded official UI) are all done and acceptance-tested; the M2 task kanban (B1~B5) plus the multi-agent registry + approval flow (dsh ACP integration) are complete; the M1-refactor moved settings/upgrade into in-shell right-side views for a unified interaction model (full upgrade-experience chain: live output box / progress / logging discipline).
 
 > **AI workflow statement:** This project is developed with [ai-workflow-skills](https://github.com/phper666/ai-workflow-skills), a team AI R&D workflow skill suite — consensus docs → tri-role scanning → open-question closure → API contracts → technical design (graded) → implementation discipline (TDD/lint/Review/Semgrep) → delivery verification → change propagation → lesson deposit. Workflow artifacts live under `docs/` (spec/consensus, api/contracts, design/technical design, prd/requirements, prototype/, records/implementation records, lessons/).
 
@@ -34,6 +34,18 @@ Built for developers, Hull adds its own layer on top: a task kanban for planning
 
 - [x] Task kanban: B1~B5 (data model / UI / execution engine / approval integration / export & import) + full e2e
 - [x] Multi-agent registry + approval flow (dsh ACP integration)
+
+### ✅ M1-refactor delivered (2026-08-22)
+
+> M1 addendum (m1refactor, product refactor, kept in the M1 phase — no new phase number): unified in-shell interaction model — shell features moved into the main window's right-side content area.
+
+- [x] Settings moved in-shell: standalone window → right-side full section (S6')
+- [x] Upgrade merged into settings: dsh/Hull dual-channel confirm/progress/failure/rollback split into their own blocks (S3')
+- [x] View mechanism 3 states: official/board/settings, nav highlight write-back (S8')
+- [x] Nav menu: dsh web / task kanban / settings (no "upgrade" item, settings last)
+- [x] Upgrade-experience chain: live output box (per-package npm output + autoscroll), honest staged progress, single-file dsh.log rotation, npm timeout 3000s + prefer-offline
+- [x] Hull version shown + dsh web address click-to-open in browser + no auto-browser popup (--no-open)
+- [x] Kanban click-ticket-detail + settings update-block visual unification
 
 ## Architecture
 
@@ -70,7 +82,7 @@ git clone <repo>
 cd dsh-hull-desktop
 npm install
 npm run typecheck    # tsc check
-npm test             # unit + integration (467+8 all green)
+npm test             # unit + integration (476+8 all green)
 npm run dev          # tsc + electron . (launch the shell)
 ```
 
@@ -93,7 +105,7 @@ npm run dev          # tsc + electron . (launch the shell)
 src/
 ├── main/          # Electron main-process orchestration (startup flow / single-instance / dual upgrade / kanban wiring)
 ├── preload/       # contextBridge allowlist bridge (window.hull/kanban/exec)
-├── renderer/      # renderer layer (shell.html shell frame + settings.html + kanban UI in vanilla JS)
+├── renderer/      # renderer layer (shell.html shell frame + kanban UI in vanilla JS; settings/upgrade in-shell)
 ├── window/        # main window / WebContentsView orchestration (shell-frame placeholder view mechanism)
 ├── tray/          # system tray controller
 ├── settings/      # settings persistence (settings.json schemaVersion=3)
@@ -103,13 +115,13 @@ src/
 ├── runtime/       # dsh child-process management (spawn / readiness probe / single-instance)
 ├── overlay/       # dsh overlay install flow
 ├── channel/       # main↔renderer IPC channels
-├── log/           # logging (hull.log + dsh-pid.log rotation)
+├── log/           # logging (hull.log + dsh.log single-file rotation, unified in M1-refactor)
 └── shared/        # shared types + errors + IPC channel allowlist
 
 tests/
-├── unit/          # (implicit: co-located src/**/*.test.ts, 467 cases)
+├── unit/          # (implicit: co-located src/**/*.test.ts, 476 cases)
 ├── integration/   # tests/integration/ (8 cases: realtime integration such as ReadinessProbe)
-├── e2e/           # Playwright e2e (11 cases: cold-start/upgrade/install/settings/kanban)
+├── e2e/           # Playwright e2e (12 cases: cold-start/upgrade/install/settings/kanban)
 └── fixtures/      # fake-dsh.js + fake-registry.js (isolate external dependencies)
 
 docs/
