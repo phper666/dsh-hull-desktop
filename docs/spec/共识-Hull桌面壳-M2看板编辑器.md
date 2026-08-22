@@ -168,7 +168,7 @@
 
 | # | 子需求 | 验收标准（可测试） | 规则绑定 | 依赖 | 来源 PRD | 飞书 ticket |
 |:--|:-------|:-------------------|:---------|:-----|:---------|:------------|
-| E1 | 看板 ticket 内容编辑器升级（EasyMDE + markdown-it + DOMPurify） | ① create/edit/comment 打开显示 EasyMDE（工具栏+预览）；输入 Markdown 保存后 boards.json description 为对应 Markdown 字符串（空为 null）；② detail 只读渲染 markdown（标题/加粗/列表/代码块/链接→HTML），纯文本描述渲染与原文一致；③ XSS 载荷（`<img onerror=...>` / `<script>alert(1)</script>` / `[link](javascript:alert(1))`）注入后打开详情**不执行**（DOMPurify 拦截）；④ 旧 ticket 纯文本正常渲染，不报错不丢内容；⑤ 编辑保存后重启壳 boards.json 数据完整、description 为保存的 Markdown（schema 未变）；⑥ 新增依赖体积 ≤ ~160KB gzip 总量，三库均本地 `<script src>` 加载无 CDN 请求；⑦ EasyMDE 弹窗关闭 `editor.destroy()` + 移除事件监听（Q-041）；⑧ CSP/CM5 兼容实测记录（Q-042）；⑨ innerHTML 站点全消毒审计清单入实现记录（Q-043）；⑩ 预览/渲染一致性 e2e：EasyMDE preview vs markdown-it+GFM 同一 Markdown 结构语义一致，视觉差异记录不阻断（Q-047） | CON-R-editor-001~006 | 无（renderer 独立） | 2026-08-22-kanban-editor-prd.md | E1（待 ticket 化） |
+| E1 | 看板 ticket 内容编辑器升级（EasyMDE + markdown-it + DOMPurify） | ① create/edit/comment 打开显示 EasyMDE（工具栏+预览）；输入 Markdown 保存后 boards.json description 为对应 Markdown 字符串（空为 null）；② detail 只读渲染 markdown（标题/加粗/列表/代码块/链接→HTML），纯文本描述渲染与原文一致；③ XSS 载荷（`<img onerror=...>` / `<script>alert(1)</script>` / `[link](javascript:alert(1))`）注入后打开详情**不执行**（DOMPurify 拦截）；④ 旧 ticket 纯文本正常渲染，不报错不丢内容；⑤ 编辑保存后重启壳 boards.json 数据完整、description 为保存的 Markdown（schema 未变）；⑥ 新增依赖体积 ≤ ~160KB gzip 总量，三库均本地 `<script src>` 加载无 CDN 请求；⑦ EasyMDE 弹窗关闭 `editor.destroy()` + 移除事件监听（Q-041）；⑧ CSP/CM5 兼容实测记录（Q-042）；⑨ innerHTML 站点全消毒审计清单入实现记录（Q-043）；⑩ 预览/渲染一致性 e2e：EasyMDE preview vs markdown-it+GFM 同一 Markdown 结构语义一致，视觉差异记录不阻断（Q-047） | CON-R-editor-001~006 | 无（renderer 独立） | 2026-08-22-kanban-editor-prd.md | c02c95c2-56b1-41fb-85db-8ea1cb8c4852 |
 
 ## 15. 附录与版本记录
 

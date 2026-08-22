@@ -148,12 +148,12 @@
 
 ### 14.1 子需求清单
 
-> 判级：**复杂**（schema v1→v2 数据迁移 + startDate 契约变更传播）——进入实现管道前须产技术方案并评审冻结。交付顺序：**T2 → T1**（T1 依赖 T2 的 startDate 字段）。负责人 phper666；飞书 ticket 待登记。
+> 判级：**复杂**（schema v1→v2 数据迁移 + startDate 契约变更传播）——进入实现管道前须产技术方案并评审冻结。交付顺序：**T2 → T1**（T1 依赖 T2 的 startDate 字段）。负责人 phper666；飞书 ticket 已建（T2=bda6a7df-327c-462d-b459-c5d25ff7bc34、T1=fd4fdf45-32be-4ff1-8174-68505e26c5a4）。
 
 | # | 子需求 | 验收标准（可测试） | 规则绑定 | 依赖 | 来源 PRD | 飞书 ticket |
 |:--|:-------|:-------------------|:---------|:-----|:---------|:------------|
-| T2 | startDate 字段 + schema v2 迁移 | v1 数据注入 → 迁移成功（任务/时间线数据不丢、KANBAN_SCHEMA_VERSION 升 2、落盘为 v2、重复迁移幂等）；详情面板设/清 startDate 即时生效持久化；createTask/updateTask 可选参数扩展向后兼容；契约 feishu-b1-m2-kanban-api-contract.md + preload 类型 + IPC 校验同步更新（Q-052） | CON-R-timeline-003/004 | —（契约变更走 change-propagation 并登记变更摘要-M2看板） | 2026-08-22-kanban-timeline-prd.md | 待登记 |
-| T1 | 时间线/日历视图（viewNames 扩展 + renderTimeline/renderCalendar） | 五视图切换正常且响应 <300ms；时间线活动流按时间倒序 + 点击跳对应卡片 + 空态提示 + 缺失时间戳兜底（updatedAt/标记"时间未知"）+ 同时间戳按 id 稳定排序（Q-055）；日历 dueDate 落格 + 过期视觉标记 + startDate+dueDate 区间跨格条带 + 本地时区解析 + 中文月份标签（Q-054）；localStorage（key=kanban:lastView）记忆上次视图重启保持（Q-053） | CON-R-timeline-001/002/005/006/007 | T2（startDate 字段） | 2026-08-22-kanban-timeline-prd.md | 待登记 |
+| T2 | startDate 字段 + schema v2 迁移 | v1 数据注入 → 迁移成功（任务/时间线数据不丢、KANBAN_SCHEMA_VERSION 升 2、落盘为 v2、重复迁移幂等）；详情面板设/清 startDate 即时生效持久化；createTask/updateTask 可选参数扩展向后兼容；契约 feishu-b1-m2-kanban-api-contract.md + preload 类型 + IPC 校验同步更新（Q-052） | CON-R-timeline-003/004 | —（契约变更走 change-propagation 并登记变更摘要-M2看板） | 2026-08-22-kanban-timeline-prd.md | bda6a7df-327c-462d-b459-c5d25ff7bc34 |
+| T1 | 时间线/日历视图（viewNames 扩展 + renderTimeline/renderCalendar） | 五视图切换正常且响应 <300ms；时间线活动流按时间倒序 + 点击跳对应卡片 + 空态提示 + 缺失时间戳兜底（updatedAt/标记"时间未知"）+ 同时间戳按 id 稳定排序（Q-055）；日历 dueDate 落格 + 过期视觉标记 + startDate+dueDate 区间跨格条带 + 本地时区解析 + 中文月份标签（Q-054）；localStorage（key=kanban:lastView）记忆上次视图重启保持（Q-053） | CON-R-timeline-001/002/005/006/007 | T2（startDate 字段） | 2026-08-22-kanban-timeline-prd.md | fd4fdf45-32be-4ff1-8174-68505e26c5a4 |
 
 ## 15. 附录与版本记录
 
