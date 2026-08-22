@@ -1,10 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 /**
- * 壳框架 preload 桥（S8 D5/D6）：
+ * 壳框架 preload 桥（S8 D5/D6 + S8' M1-重构 D2）：
  * 原 5 方法（retry/openLogs/install/cancelInstall/installStatus，S2 引导态/进度轮询）
  * + getDshStatus（壳页首载取初值，之后事件驱动）+ onStatus(cb)（hull:status 固定单通道订阅）
- * + openSettings + checkDshUpdate（D6 导航入口）。
+ * + openSettings + checkDshUpdate（D6 导航入口；S8' 收敛为统一映射 hull:checkDshUpdate，§4.3）。
+ * + settings.ts 15 方法并入（S8' D2 单一桥：getSettings/setSettings + dsh/Hull 双通道全套 + S4 通道 + 诊断）。
  * + B1 看板桥（kanban:* 16 原语，M2）——B2 看板 UI 消费；window.kanban。
  * + B5 看板桥扩展（kanban:exportBoard/importBoard 2 原语，M2）——导出/导入分享。
  * 白名单固定、不透传回调、不暴露任意通道（D5 注记：S1「无事件订阅」纪律系防任意通道透传，
@@ -36,14 +37,50 @@ contextBridge.exposeInMainWorld('hull', {
     ipcRenderer.on('hull:status', listener);
     return () => ipcRenderer.removeListener('hull:status', listener);
   },
-  /** D6：壳导航设置入口 → hull:openSettings → settingsWindow.show() */
-  openSettings: () => ipcRenderer.invoke('hull:openSettings'),
-  /** D6：壳导航升级入口 → main runCheck → 原生 dialog */
-  checkDshUpdate: () => ipcRenderer.invoke('hull:promptDshUpdate'),
+  /** S8' D1：壳导航设置入口 → hull:showSettings → 主进程切 settings 视图（原 hull:openSettings 独立窗口移除） */
+  showSettings: () => ipcRenderer.invoke('hull:showSettings'),
+  /** S8' §4.3 H1：检查收敛——统一映射 hull:checkDshUpdate（无 dialog 返回结果；设置区块消费） */
+  checkDshUpdate: () => ipcRenderer.invoke('hull:checkDshUpdate'),
   /** B2：壳导航任务看板入口 → main 切 view 到 placeholder:board（官方 UI 隐藏，看板面板显示） */
   showBoard: () => ipcRenderer.invoke('hull:showBoard'),
   /** B2 补丁：壳导航 dsh web 入口 → main 恢复官方 view（Ready 复用/重载，否则占位态） */
   showWeb: () => ipcRenderer.invoke('hull:showWeb'),
+
+  // ─────────── S8' D2：设置页桥 15 方法并入（原 src/preload/settings.ts 删除） ───────────
+  /** 读全量设置（settings.json 持久化，CON-R002 走主进程 SettingsProvider） */
+  getSettings: () => ipcRenderer.invoke('hull:getSettings'),
+  /** 增量更新设置 + 持久化（主进程门面 hull:setSettings 零改动） */
+  setSettings: (patch: Record<string, unknown>) => ipcRenderer.invoke('hull:setSettings', patch),
+  /** dsh 升级：确认卡片「立即升级」（§4.5 M1：phase=confirm → hull:status → 确认卡片 → hull:upgradeDsh） */
+  upgradeDsh: (target: string) => ipcRenderer.invoke('hull:upgradeDsh', target),
+  /** dsh 升级取消（installing 段） */
+  cancelDshUpgrade: () => ipcRenderer.invoke('hull:cancelDshUpgrade'),
+  /** dsh 稍后再说（confirm → idle + 当日去重） */
+  dismissDshUpdate: () => ipcRenderer.invoke('hull:dismissDshUpdate'),
+  /** dsh 手动回滚 */
+  rollbackDsh: () => ipcRenderer.invoke('hull:rollbackDsh'),
+  /** S4：版本通道读取 */
+  getChannel: () => ipcRenderer.invoke('hull:getChannel'),
+  /** S4：版本通道设置 */
+  setChannel: (channel: string, version?: string) => ipcRenderer.invoke('hull:setChannel', channel, version),
+  /** S4：版本列表（pinned datalist） */
+  listVersions: () => ipcRenderer.invoke('hull:listVersions'),
+  /** Hull 自更新检查（无 dialog，返回 {hasUpdate, targetVersion, changeNotes}） */
+  checkHullUpdate: () => ipcRenderer.invoke('hull:checkHullUpdate'),
+  /** Hull 自更新快照（250ms 轮询） */
+  getHullUpdateStatus: () => ipcRenderer.invoke('hull:getHullUpdateStatus'),
+  /** Hull 下载 + 自动重启安装 */
+  downloadHullUpdate: () => ipcRenderer.invoke('hull:downloadHullUpdate'),
+  /** Hull 下载取消 */
+  cancelHullUpdate: () => ipcRenderer.invoke('hull:cancelHullUpdate'),
+  /** Hull 稍后再说（confirm → idle + 当日去重） */
+  dismissHullUpdate: () => ipcRenderer.invoke('hull:dismissHullUpdate'),
+  /** 打开数据目录（诊断） */
+  openDataDir: () => ipcRenderer.invoke('hull:openDataDir'),
+  /** 复制文本到剪贴板（dsh web 地址复制；走主进程，渲染侧 file:// 无 clipboard 权限） */
+  copyText: (text: string) => ipcRenderer.invoke('hull:copyText', text),
+  /** 打开外部浏览器（dsh web 地址浏览器访问；主进程校验 http/https） */
+  openExternal: (url: string) => ipcRenderer.invoke('hull:openExternal', url),
 });
 
 // ─────────────────────────── B1 看板桥（M2） ───────────────────────────

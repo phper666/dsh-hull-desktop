@@ -19,14 +19,16 @@ import type { ChannelService } from '../channel/ChannelService';
 
 /**
  * 7 态迁移表（契约 §升级状态机 + 补充边注记）：
- * idle→checking；checking→confirm/idle；confirm→installing/idle；installing→swapping/idle；
+ * idle→checking；checking→confirm/idle；confirm→installing/idle/checking；installing→swapping/idle；
  * swapping→verifying/idle；verifying→idle/rollback；rollback→idle；
  * 补充边：idle→rollback（手动回滚承载，W3——契约表 idle 仅列 checking，S3 设计 D7 决策补充）。
+ * 补充边：confirm→checking（Bug1 修复——Confirm 态允许重新 check，runCheck 幂等刷新确认卡；
+ * 仅升级执行中拦截，Confirm 只是待确认非进行中）。
  */
 const TRANSITIONS: Record<UpgradePhase, UpgradePhase[]> = {
   [UpgradePhase.Idle]: [UpgradePhase.Checking, UpgradePhase.Rollback],
   [UpgradePhase.Checking]: [UpgradePhase.Confirm, UpgradePhase.Idle],
-  [UpgradePhase.Confirm]: [UpgradePhase.Installing, UpgradePhase.Idle],
+  [UpgradePhase.Confirm]: [UpgradePhase.Checking, UpgradePhase.Installing, UpgradePhase.Idle],
   [UpgradePhase.Installing]: [UpgradePhase.Swapping, UpgradePhase.Idle],
   [UpgradePhase.Swapping]: [UpgradePhase.Verifying, UpgradePhase.Idle],
   [UpgradePhase.Verifying]: [UpgradePhase.Idle, UpgradePhase.Rollback],
@@ -61,6 +63,10 @@ export class Updater extends EventEmitter {
   private pct = 0;
   private message = '未开始';
   private inFlight: Promise<UpgradeStatus> | null = null;
+  /** 升级输出缓冲（最近 MAX_OUTPUT_LINES 行；npm 输出经 main onLine → pushOutput 灌入，改进 2） */
+  private output: string[] = [];
+  /** npm http fetch 计数（改进 2：--loglevel=http 逐包行解析 → installing 段 pct 渐进 5→85） */
+  private fetchCount = 0;
   private readonly overlay: OverlayManager;
   private readonly swapManager: SwapManager;
   private readonly runtime: RuntimeManager;
@@ -82,6 +88,43 @@ export class Updater extends EventEmitter {
     this.settingsProvider = options.settingsProvider;
     this.logger = options.logger ?? NOOP_LOGGER;
     this.dev = options.dev ?? false;
+    // Bug3 修复：订阅 overlay 细粒度 npm 进度 → installing 段实时透传 snapshot pct
+    // （替代 P2/M4 渲染侧折衷的根因修法；CON-R005 只加进度事件流，不改 installing→swapping→verifying 迁移与原子替换）
+    this.overlay.on('progress', (p) => {
+      if (this.phase === UpgradePhase.Installing && p && typeof p.pct === 'number') {
+        this.pct = p.pct;
+        this.emit('status', this.snapshot());
+      }
+    });
+  }
+
+  /** 升级输出缓冲上限（环形保留最近 N 行，防止无限增长；渲染输出框数据源） */
+  private static readonly MAX_OUTPUT_LINES = 100;
+
+  /** 输出缓冲灌入（main 的 npmRunner onLine → 本方法；改进 2 升级输出框数据源）。
+   *  仅 installing 段收集（其他段不相关输出不污染缓冲）。
+   *  改进 2：npm http fetch 行计数 → pct 渐进（5→85，+1/包），swap/verify/done 保持固定步进。 */
+  pushOutput(line: string): void {
+    if (this.phase !== UpgradePhase.Installing) return;
+    this.output.push(line);
+    if (this.output.length > Updater.MAX_OUTPUT_LINES) this.output.splice(0, this.output.length - Updater.MAX_OUTPUT_LINES);
+    // npm http fetch 逐包行 → 计数渐进 pct（方案 A：简单诚实，配合输出框具体行）
+    if (/^npm http fetch/.test(line)) {
+      this.fetchCount += 1;
+      // 映射 50→60：fetch 行数远超包数（元数据+tarball+子依赖都算，dsh 全树 ~515 包可能数百行），
+      // 若 +1/行会一上来就虚高（用户实测 70%+）。改每 25 行 +1%（500 行 → +20 → 70），封顶 60
+      // ——installing 段 50→60 缓慢爬升，留余量给 swap(90)/verify(95)/done(100)，不承诺真实百分比。
+      this.pct = Math.min(60, 50 + Math.floor(this.fetchCount / 25));
+      this.emit('status', this.snapshot());
+      return;
+    }
+    this.emit('status', this.snapshot());
+  }
+
+  /** 输出缓冲清空 + fetch 计数重置（升级开始/完成时调用，防跨次升级残留） */
+  private clearOutput(): void {
+    if (this.output.length > 0) this.output = [];
+    this.fetchCount = 0;
   }
 
   /** 状态/进度通知（契约 #7） */
@@ -99,6 +142,7 @@ export class Updater extends EventEmitter {
       error: this.error,
       pct: this.pct,
       message: this.message,
+      output: [...this.output],
     };
   }
 
@@ -118,15 +162,18 @@ export class Updater extends EventEmitter {
   }
 
   /** 版本检查（契约 #1）：自身 scope 内 acquire/release（gamma 裁决）；hasUpdate → confirm */
-  async check(): Promise<CheckResult & { phase: UpgradePhase }> {
-    if (this.phase !== UpgradePhase.Idle) {
-      return { hasUpdate: false, current: this.currentVersion, latest: null, phase: this.phase }; // 冲突：非 idle 忽略
+  async check(): Promise<(CheckResult & { phase: UpgradePhase }) & { error?: string | null }> {
+    // 冲突保护：仅升级执行中（installing/swapping/verifying/rollback）拦截；
+    // Confirm 只是待确认非进行中——允许重新 check（幂等刷新确认卡，Bug1 修复）
+    if (this.phase !== UpgradePhase.Idle && this.phase !== UpgradePhase.Confirm) {
+      // 升级执行中 → 返回 error 码（UI recheck 据此提示「收尾中」，非静默无反应）
+      return { hasUpdate: false, current: this.currentVersion, latest: null, phase: this.phase, error: UPGRADE_ERRORS.queueBusy };
     }
     this.currentVersion = this.overlay.currentVersion();
     // Y-1：acquire 成功后才进 checking（失败直接返回，无 checking→idle 闪事件）
     if (!this.queue.acquire('dsh')) {
       this.error = UPGRADE_ERRORS.queueBusy;
-      return { hasUpdate: false, current: this.currentVersion, latest: null, phase: UpgradePhase.Idle };
+      return { hasUpdate: false, current: this.currentVersion, latest: null, phase: UpgradePhase.Idle, error: UPGRADE_ERRORS.queueBusy };
     }
     this.transition(UpgradePhase.Checking, '正在检查更新…');
     try {
@@ -233,6 +280,7 @@ export class Updater extends EventEmitter {
 
   private async doUpgrade(target: string): Promise<UpgradeStatus> {
     try {
+      this.clearOutput(); // 输出缓冲重置（跨次升级不残留）
       this.transition(UpgradePhase.Installing, `正在安装 dsh@${target}…`);
       this.pct = 50;
       try {

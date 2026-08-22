@@ -4,9 +4,9 @@
 
 - 工作项：S5 Hull 自更新（飞书 dsh-hull-desktop 清单）
 - 契约状态：已冻结
-- 版本：v0.2（评审修订）
-- 适用版本：M1（共识 v1.4）
-- 最后更新：2026-08-17
+- 版本：v0.3（M1-重构变更传播）
+- 适用版本：M1（共识 v1.6）
+- 最后更新：2026-08-22
 
 ## 需求与共识追踪
 
@@ -29,6 +29,8 @@
 - 与 dsh 升级互斥（复用 S3 UpgradeQueue）
 - 无公证：更新确认/下载完成时预防性提示（右键打开/重下载引导）
 - CI：.github/workflows/release.yml（build → electron-builder → 发布 GitHub Releases）
+
+> 注记（M1-重构 S3'，2026-08-22）：Hull 通道 UI 载体收进壳内统一 upgrade 视图——确认卡片/进度/失败/重启安装提示（预防性提示）迁 shell.html section#upgrade；HullUpdater 编排逻辑（download/installAndRestart/autoCheck 门控）零改动，DismissStore 分通道键保持；原 settings.html 内嵌 Hull modal 确认流移除（随设置页迁移一并收进 upgrade 视图）。托盘「检查 Hull 更新」不入托盘（维持 A3 注记）。
 
 ### 非目标
 
@@ -142,6 +144,7 @@ Gatekeeper：更新确认/下载完成时预防性提示（右键打开/重下�
 
 ## 变更记录
 
+- 2026-08-22：M1-重构变更传播（S3'，共识 v1.6）：Hull 通道 UI 载体（确认/进度/失败/预防性提示）收进壳内统一 upgrade 视图（shell.html section#upgrade）；HullUpdater 编排逻辑零改动；设置页 Hull modal 确认流移除。升 v0.3
 - 2026-08-17：评审修订封口 6 项：适用版本升共识 v1.4 + 变更记录格式统一（A1）；T5-05 口径改「安装前预防提示 + README 引导」（删安装后检测/flag 描述）（A2）；接口清单补 #5 HullUpdater.cancel()（CancellationToken，仅 downloading 可取消），原 #5 CI 顺延 #6（A3）；restart-prompt 枚举保留 + 语义注记（A4）；状态表补 checking→idle 行（A5）；封口声明——清单外冻结项不动（A6）。升 v0.2
 - 2026-08-14：复核通过并冻结；按 Q-012 结论删除「稍后重启」选项
 - 2026-08-14：新建契约（草案）

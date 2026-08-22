@@ -19,7 +19,8 @@ export interface LoggerOptions {
 
 /**
  * 壳日志（设计 §3 / §5.1）：
- * - hull.log 追加 + dsh-<pid>.log 追加（FR-8 子进程输出落盘）
+ * - hull.log 追加 + dsh.log 追加（FR-8 子进程输出落盘，带 [dsh pid=<pid>] 前缀）
+ * - 单文件轮转（改进：dsh-<pid>.log → dsh.log 统一单文件，与 hull.log 同规约，不再每 spawn 一个文件）
  * - size 轮转：写前检查当前文件大小，超限 → .1/.2/.3（旧→新移位）
  * - 初始化/写入失败降级：console.warn 告警，不抛不阻塞启动
  */
@@ -28,6 +29,7 @@ export class Logger implements RuntimeLogger {
   private readonly maxBytes: number;
   private readonly keepCount: number;
   private readonly hullPath: string;
+  private readonly dshPath: string;
   private degraded = false;
 
   constructor(options: LoggerOptions) {
@@ -35,6 +37,7 @@ export class Logger implements RuntimeLogger {
     this.maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
     this.keepCount = options.keepCount ?? DEFAULT_KEEP_COUNT;
     this.hullPath = join(this.logDir, 'hull.log');
+    this.dshPath = join(this.logDir, 'dsh.log');
     try {
       mkdirSync(this.logDir, { recursive: true });
     } catch (err) {
@@ -55,10 +58,11 @@ export class Logger implements RuntimeLogger {
     this.append('error', message);
   }
 
-  /** dsh 子进程输出落盘（FR-8）：dsh-<pid>.log，同一轮转规则 */
+  /** dsh 子进程输出落盘（FR-8）：统一写 dsh.log（带 [dsh pid=<pid>] 前缀，同一轮转规则；
+   *  旧 dsh-<pid>.log 不再创建，历史文件不删） */
   dshLog(pid: number, line: string): void {
     const text = line.endsWith('\n') ? line : `${line}\n`;
-    this.appendTo(join(this.logDir, `dsh-${pid}.log`), text);
+    this.appendTo(this.dshPath, `[dsh pid=${pid}] ${text}`);
   }
 
   private append(level: string, message: string): void {

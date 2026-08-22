@@ -72,6 +72,7 @@ function makeUpdater(overrides: Partial<Knobs> = {}) {
   };
   const calls: string[] = [];
   const starts: Array<{ n: number; probeTarget: string | undefined }> = [];
+  const progressHooks: Array<(...args: unknown[]) => void> = [];
   let installGate: (() => void) | null = null;
   let stopGate: (() => void) | null = null;
   let overlayPhase: InstallPhase = InstallPhase.Ready;
@@ -89,6 +90,10 @@ function makeUpdater(overrides: Partial<Knobs> = {}) {
     },
     currentVersion: () => (overlayPhase === InstallPhase.Ready ? knobs.overlayVersion! : null),
     canRollback: () => knobs.canRollback!,
+    // Bug3 修复：Updater 构造订阅 overlay 'progress' → fake 提供 on() 存根（progressHooks 记录订阅回调供测试触发）
+    on: (evt: string, cb: (...args: unknown[]) => void) => {
+      if (evt === 'progress') progressHooks.push(cb);
+    },
     swap: async () => {
       calls.push('overlay.swap');
       if (knobs.swapThrowCode) {
@@ -159,6 +164,8 @@ function makeUpdater(overrides: Partial<Knobs> = {}) {
     releaseInstall: () => installGate?.(),
     releaseStop: () => stopGate?.(),
     getEvents: () => events,
+    /** Bug3：触发 overlay progress（installing 段透传 pct） */
+    emitProgress: (pct: number) => progressHooks.forEach((cb) => cb({ phase: 'npm-install', pct })),
     channelCalls: () => (fakeChannel ? fakeChannel.calls : []),
     setChannelState: (c: 'latest' | 'pinned') => {
       if (fakeChannel) fakeChannel.state.channel = c;
@@ -465,4 +472,166 @@ test('🟡-1 dismiss 后再次 check 可执行（S3 稍后再说路径）', asyn
   const r = await updater.check(); // 若 phase 卡 Confirm 则被忽略（hasUpdate=false）
   equal(r.hasUpdate, true, '再次 check 正常执行');
   equal(r.phase, 'confirm');
+});
+
+test('Bug1 Confirm 态重新 check 返回真实结果（不误报「已是最新」）', async () => {
+  const { updater, getEvents } = makeUpdater({ registryHasUpdate: true });
+  await updater.check(); // idle → checking → confirm（发现新版，未点安装）
+  equal(updater.snapshot().phase, 'confirm');
+  equal(updater.snapshot().targetVersion, '1.0.0');
+  // 再次 check：Confirm 态不拦截 → 重新查 registry（幂等刷新确认卡）
+  const r = await updater.check();
+  equal(r.hasUpdate, true, 'Confirm 态重新 check 返回真实结果（非 hasUpdate:false）');
+  equal(r.phase, 'confirm');
+  equal(updater.snapshot().targetVersion, '1.0.0');
+  // 事件序列含 confirm→checking→confirm 合法迁移
+  deepEqual(
+    getEvents().map((s) => s.phase),
+    ['checking', 'confirm', 'checking', 'confirm']
+  );
+});
+
+test('Bug1 升级执行中 check 仍拦截（installing 态忽略，冲突保护保留）', async () => {
+  const { updater, releaseInstall } = makeUpdater({ installPending: true });
+  await updater.check();
+  const p = updater.upgrade('1.0.0');
+  equal(updater.snapshot().phase, 'installing');
+  const r = await updater.check(); // installing = 执行中 → 拦截
+  equal(r.hasUpdate, false);
+  equal(r.phase, 'installing');
+  releaseInstall();
+  await p;
+});
+
+test('Bug 修复：执行中/queue 占用 → check 返回 error=queue-busy（UI 反馈信号，非静默）', async () => {
+  // ① 升级执行中（install 挂起）→ check 返回 error 码
+  const a = makeUpdater({ installPending: true });
+  await a.updater.check();
+  const pa = a.updater.upgrade('1.0.0');
+  equal(a.updater.snapshot().phase, 'installing');
+  const ra = await a.updater.check();
+  equal(ra.error, 'queue-busy', '执行中 check 返回 queue-busy 供 UI 提示');
+  a.releaseInstall();
+  await pa;
+  // ② queue 被外部占用 → check 返回 error 码
+  const b = makeUpdater();
+  b.queue.acquire('hull');
+  const rb = await b.updater.check();
+  equal(rb.error, 'queue-busy', 'queue 占用 check 返回 queue-busy');
+  equal(rb.hasUpdate, false);
+});
+
+test('Bug3 overlay progress → installing 段 Updater pct 实时透传 + status 事件', async () => {
+  const { updater, releaseInstall, emitProgress, getEvents } = makeUpdater({ installPending: true });
+  await updater.check();
+  const p = updater.upgrade('1.0.0');
+  equal(updater.snapshot().phase, 'installing');
+  // overlay 细粒度进度 50 → 75 → 90 逐帧透传（之前固定 50，Bug3 修复后实时）
+  emitProgress(55);
+  equal(updater.snapshot().pct, 55, 'overlay progress 55 透传 snapshot pct');
+  emitProgress(72);
+  equal(updater.snapshot().pct, 72, 'overlay progress 72 透传 snapshot pct');
+  // 每次透传发 status 事件（event + tick 双源都读到真实进度）
+  const installingEvents = getEvents().filter((s) => s.phase === 'installing');
+  ok(installingEvents.some((s) => s.pct === 72), 'status 事件携带实时 pct');
+  releaseInstall();
+  const s = await p;
+  equal(s.phase, 'idle');
+  equal(s.pct, 100);
+});
+
+test('改进 2：pushOutput 缓冲 → snapshot.output（installing 段收集 + 环形截断 + 快照透传）', async () => {
+  const { updater, releaseInstall } = makeUpdater({ installPending: true });
+  await updater.check();
+  const p = updater.upgrade('1.0.0');
+  equal(updater.snapshot().phase, 'installing');
+  // installing 段 push → 缓冲 + snapshot.output 透传
+  updater.pushOutput('npm notice resolving: foo@1.0.0');
+  updater.pushOutput('added 1 package in 2s');
+  deepEqual(updater.snapshot().output, ['npm notice resolving: foo@1.0.0', 'added 1 package in 2s']);
+  // 非 installing 段（release 后 phase 离开）→ push 被忽略
+  releaseInstall();
+  await p;
+  equal(updater.snapshot().phase, 'idle');
+  updater.pushOutput('stray line');
+  ok(!updater.snapshot().output.includes('stray line'), '非 installing 段不收集');
+});
+
+test('改进 2：输出缓冲环形截断上限（MAX=100，超限丢最旧）', async () => {
+  const { updater, releaseInstall } = makeUpdater({ installPending: true });
+  await updater.check();
+  const p = updater.upgrade('1.0.0');
+  equal(updater.snapshot().phase, 'installing');
+  for (let i = 0; i < 150; i++) updater.pushOutput(`line-${i}`);
+  const out = updater.snapshot().output;
+  equal(out.length, 100, '缓冲封顶 100 行');
+  equal(out[0], 'line-50', '最旧 50 行被丢弃');
+  equal(out[99], 'line-149', '最新行保留');
+  releaseInstall();
+  await p;
+});
+
+test('改进 2：跨次升级输出缓冲重置（clearOutput）', async () => {
+  // 第一次升级失败（installThrow）→ 输出缓冲保留失败段；第二次升级 → doUpgrade clearOutput → 缓冲空
+  const { updater, releaseInstall } = makeUpdater({ installPending: true });
+  await updater.check();
+  const p = updater.upgrade('1.0.0');
+  equal(updater.snapshot().phase, 'installing');
+  updater.pushOutput('first upgrade output');
+  // 取消 → idle（overlayVersion 仍 0.9.0，第二次升级 target 1.0.0 不触发 version-invalid guard）
+  await updater.cancel();
+  equal(updater.snapshot().phase, 'idle');
+  releaseInstall();
+  await p;
+  // 第二次升级 → Installing 起点 clearOutput → 缓冲空（不残留第一次输出）
+  await updater.check();
+  const p2 = updater.upgrade('1.0.0');
+  equal(updater.snapshot().phase, 'installing');
+  equal(updater.snapshot().output.length, 0, '新升级缓冲已清空');
+  releaseInstall();
+  await p2;
+});
+
+test('改进 2：npm http fetch 计数 → installing 段 pct 缓慢渐进（50→60，每 25 行 +1%，封顶）', async () => {
+  const { updater, releaseInstall } = makeUpdater({ installPending: true });
+  await updater.check();
+  const p = updater.upgrade('1.0.0');
+  equal(updater.snapshot().phase, 'installing');
+  equal(updater.snapshot().pct, 50, 'installing 起点 50（doUpgrade 固定）');
+  // fetch 行 → pct 渐进（每 25 行 +1%，前 24 行不推进——避免一上来虚高）
+  for (let i = 0; i < 24; i++) updater.pushOutput('npm http fetch GET 200 https://registry/pkg');
+  equal(updater.snapshot().pct, 50, '前 24 行 fetch 仍 50（每 25 行才 +1）');
+  updater.pushOutput('npm http fetch GET 200 https://registry/@deepseek-ai/dsh-storage');
+  equal(updater.snapshot().pct, 51, '第 25 行 fetch → 50+1');
+  updater.pushOutput('npm http fetch GET 200 https://registry/other-pkg');
+  equal(updater.snapshot().pct, 51, '第 26 行仍 51（未到 50 行）');
+  // 非 fetch 行不推进 pct
+  updater.pushOutput('npm warn deprecated foo');
+  equal(updater.snapshot().pct, 51, '非 fetch 行不推进');
+  // 封顶 60（fetch 300 行也只到 60——installing 段留余量给 swap 90/verify 95/done 100）
+  for (let i = 0; i < 300; i++) updater.pushOutput('npm http fetch GET 200 https://registry/pkg');
+  equal(updater.snapshot().pct, 60, 'fetch 渐进封顶 60');
+  // 输出框内容保留（fetch 行也进缓冲）
+  ok(updater.snapshot().output.some((l) => l.includes('npm http fetch')), 'fetch 行进输出缓冲');
+  releaseInstall();
+  await p;
+});
+
+test('改进 2：fetch 计数跨次升级重置（clearOutput 清 fetchCount）', async () => {
+  const { updater, releaseInstall } = makeUpdater({ installPending: true });
+  await updater.check();
+  const p = updater.upgrade('1.0.0');
+  for (let i = 0; i < 25; i++) updater.pushOutput('npm http fetch GET 200 https://registry/pkg');
+  equal(updater.snapshot().pct, 51, '首次升级 25 行 fetch 推进');
+  await updater.cancel();
+  releaseInstall();
+  await p;
+  // 第二次升级 → fetchCount 清零 → pct 回到起点（doUpgrade 固定 50 起步）
+  await updater.check();
+  const p2 = updater.upgrade('1.0.0');
+  equal(updater.snapshot().pct, 50, 'fetchCount 已重置，起点 50');
+  for (let i = 0; i < 25; i++) updater.pushOutput('npm http fetch GET 200 https://registry/pkg');
+  equal(updater.snapshot().pct, 51, 'fetchCount 重置后 25 行 → 50+1 起步');
+  releaseInstall();
+  await p2;
 });

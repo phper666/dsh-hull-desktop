@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline' 'self'; img-src data:; base-uri 'none'; form-action 'none'" />
-  <title>Hull</title>
+  <title>dsh-hull-desktop</title>
   <link rel="stylesheet" href="kanban.css" />
 <style>
   /* 深色系（延续 placeholder #1e2430） */
@@ -26,18 +26,19 @@
   .nav-item:hover { background: #2a3342; }
   .nav-item.active { background: #2e8bf5; color: #fff; }
   .nav-item[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
-  .nav-item .tag { float: right; font-size: 10px; color: #6b7688; margin-top: 2px; }
-  /* 状态区（hull:status 渲染：runtime.phase + currentVersion + upgrade.phase） */
+  /* 状态区（hull:status 渲染：runtime.phase + currentVersion + hullVersion + upgrade.phase） */
   #nav-status { padding: 12px 16px; border-top: 1px solid #2a3342; font-size: 12px; color: #9aa5b5; }
   #nav-status .row { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
   #nav-status .row:last-child { margin-bottom: 0; }
   #nav-status .val { color: #c6d0dd; text-align: right; word-break: break-all; }
+  /* dsh web 地址行：单行省略（URL 长，避免换行撑高）；完整地址 title hover 可见，点击打开浏览器 */
+  #status-web-url { display: block; max-width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #nav-status .bar { width: 100%; height: 6px; margin: 4px 0 0; } /* nav 内窄条（覆盖 .bar 280px） */
-  /* 右侧内容区：official view 叠加容器（WebContentsView 浮于其上，z-order 无冲突 D2）+ 占位四区块 */
+  /* 右侧内容区：official view 叠加容器（WebContentsView 浮于其上，z-order 无冲突 D2）+ 占位区块 */
   #content { flex: 1; position: relative; overflow: hidden; }
   #official-container { position: absolute; inset: 0; }
   .placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; overflow-y: auto; }
-  .hidden { display: none; }
+  .hidden { display: none !important; }
   .card { text-align: center; max-width: 440px; padding: 24px; }
   h1 { font-size: 18px; font-weight: 600; margin: 0 0 12px; }
   p { color: #9aa5b5; font-size: 13px; line-height: 1.6; margin: 0 0 20px; word-break: break-all; }
@@ -51,22 +52,105 @@
   .bar { width: 280px; height: 8px; border-radius: 4px; background: #2a3342; margin: 0 auto 8px; overflow: hidden; }
   .bar-fill { height: 100%; width: 0; background: #2e8bf5; border-radius: 4px; transition: width 0.25s ease; }
   .muted { font-size: 12px; color: #6b7688; margin-top: 16px; }
+
+  /* 设置 section：通用/dsh/Hull/诊断（dsh/Hull 升级反馈内联各自区块底部，settings.html 视觉 token 迁移，浅色面板） */
+  #settings {
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 20px;
+    background: #f6f6f4;
+    color: #1f2328;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .panel { width: 100%; max-width: 680px; margin: 0 auto; }
+  .panel h1 { font-size: 15px; font-weight: 700; margin: 0 0 16px; color: #1f2328; }
+  .scard { background: #fff; border: 1px solid #e3e3df; border-radius: 12px; margin-bottom: 16px; overflow: hidden; }
+  .scard h2 { font-size: 12px; font-weight: 600; color: #5a6370; text-transform: uppercase; letter-spacing: 0.04em; padding: 12px 16px 8px; border-bottom: 1px solid #e3e3df; background: #fbfbf9; }
+  .srow { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 16px; border-bottom: 1px solid #e3e3df; }
+  .srow:last-child { border-bottom: none; }
+  .srow .info { min-width: 0; }
+  .srow .label { font-size: 13px; font-weight: 500; color: #1f2328; }
+  .srow .sub { font-size: 12px; color: #5a6370; margin-top: 2px; }
+  .srow .control { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 180px; }
+  .sbtn { border: 1px solid #e3e3df; background: #fff; border-radius: 8px; padding: 6px 12px; font-size: 13px; cursor: pointer; color: #1f2328; }
+  .sbtn:hover { background: #f7f7f5; }
+  .sbtn.primary { background: #4c6ef5; border-color: #4c6ef5; color: #fff; }
+  .sbtn.primary:hover { background: #3b5bdb; }
+  .sbtn.danger { color: #e03131; border-color: #f1c0c0; }
+  .sbtn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .switch { position: relative; width: 40px; height: 22px; background: #d1d1cd; border-radius: 999px; border: none; cursor: pointer; transition: background 0.15s; flex-shrink: 0; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: #fff; border-radius: 50%; transition: left 0.15s; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+  .switch[aria-checked="true"] { background: #4c6ef5; }
+  .switch[aria-checked="true"]::after { left: 20px; }
+  .badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #edf1fe; color: #4c6ef5; white-space: nowrap; }
+  .badge.ok { background: #e6f7ec; color: #2f9e44; }
+  .badge.warn { background: #fff3e0; color: #f08c00; }
+  .badge.err { background: #fdeaea; color: #e03131; }
+  .badge.muted { background: #f1f1ee; color: #5a6370; }
+  .hint { font-size: 11px; color: #5a6370; margin-top: 4px; text-align: right; }
+  .input { width: 240px; border: 1px solid #e3e3df; border-radius: 8px; padding: 6px 10px; font-size: 13px; color: #1f2328; background: #fff; outline: none; }
+  .input:focus { border-color: #4c6ef5; box-shadow: 0 0 0 2px #edf1fe; }
+  .input.error { border-color: #e03131; background: #fef6f6; }
+  .error-text { font-size: 11px; color: #e03131; max-width: 240px; text-align: right; }
+  .channel-wrap { display: flex; gap: 8px; align-items: center; }
+  .select { border: 1px solid #e3e3df; border-radius: 8px; padding: 6px 8px; font-size: 13px; background: #fff; outline: none; }
+  .version-input { width: 140px; }
+  .status-alert { margin: 8px 16px 12px; padding: 8px 12px; border-radius: 8px; font-size: 12px; background: #fdeaea; color: #e03131; border: 1px solid #f1c0c0; display: none; }
+  .status-alert.show { display: block; }
+  .toast { position: fixed; right: 16px; bottom: 16px; background: #1f2328; color: #fff; font-size: 12px; padding: 8px 14px; border-radius: 8px; opacity: 0; transform: translateY(8px); transition: opacity 0.25s, transform 0.25s; pointer-events: none; z-index: 100; }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  /* upgrade 视图：双通道反馈内联在各自 scard 底部，去掉嵌套卡片感 */
+  .ver { display: flex; gap: 10px; align-items: center; margin: 12px 0; }
+  .ver .box { flex: 1; border: 1px solid #e3e3df; border-radius: 10px; padding: 10px 12px; }
+  .ver .box.target { border-color: #4c6ef5; background: #edf1fe; }
+  .ver .box .v { font-size: 15px; font-weight: 700; }
+  .ver .box .k { font-size: 11px; color: #5a6370; }
+  .ver .arrow { font-size: 16px; color: #5a6370; }
+  .notes { font-size: 12px; color: #1f2328; background: #fafaf8; border: 1px solid #e3e3df; border-radius: 10px; padding: 10px 12px; margin-top: 10px; line-height: 1.6; max-height: 140px; overflow-y: auto; }
+  /* 升级反馈：融入 scard，不再是独立卡片 */
+  .ucard { border-top: 1px solid #e3e3df; background: #fbfbf9; }
+  .ucard h3 { display: none; }
+  .up-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 16px; }
+  .up-head .label { font-size: 12px; font-weight: 700; color: #5a6370; text-transform: uppercase; letter-spacing: 0.04em; }
+  .up-body { padding: 0 16px 12px; }
+  .up-body:empty { display: none; }
+  .up-body .up-msg:only-child { margin: 8px 0 0; }
+  .urow { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 10px; }
+  .urow:last-child { margin-bottom: 0; }
+  .urow .info { min-width: 0; }
+  .urow .label { font-size: 13px; font-weight: 500; color: #1f2328; }
+  .urow .sub { font-size: 12px; color: #5a6370; margin-top: 2px; }
+  .up-error { font-size: 12px; color: #e03131; margin-top: 8px; }
+  .up-error .retry { margin-top: 8px; }
+  .up-ok { font-size: 12px; color: #2f9e44; margin-top: 8px; }
+  .up-warn { font-size: 12px; color: #f08c00; margin-top: 8px; }
+  .up-progress { margin: 8px 0; }
+  .up-progress .bar { width: 100%; height: 6px; margin: 8px 0 4px; }
+  .up-progress .bar i { display: block; height: 100%; width: 0; background: #4c6ef5; border-radius: 999px; transition: width 0.3s; }
+  /* 改进 3：升级输出框（npm 实时输出，等宽 + 滚动，最新在最下） */
+  .up-output { margin: 0 16px 16px; max-height: 140px; overflow-y: auto; background: #f4f4f1; border: 1px solid #e3e3df; border-radius: 8px; padding: 8px 10px; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; line-height: 1.5; color: #3a424d; white-space: pre-wrap; word-break: break-all; }
+  .up-output .line { display: block; }
+  .up-msg { font-size: 12px; color: #5a6370; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
 </style>
 </head>
 <body>
   <nav id="nav" aria-label="Hull 导航">
-    <div id="nav-title">Hull</div>
+    <div id="nav-title">dsh-hull-desktop</div>
     <div id="nav-items">
       <button id="nav-web" class="nav-item active">dsh web</button>
+      <button id="nav-board" class="nav-item">任务看板</button>
       <button id="nav-settings" class="nav-item">设置</button>
-      <button id="nav-upgrade" class="nav-item">升级</button>
-      <button id="nav-board" class="nav-item">任务看板<span class="tag">M2</span></button>
     </div>
     <div id="nav-status">
       <div class="row"><span>dsh 状态</span><span id="status-phase" class="val">…</span></div>
-      <div class="row"><span>版本</span><span id="status-version" class="val">…</span></div>
-      <div class="row"><span>升级</span><span id="status-upgrade" class="val">…</span></div>
+      <div class="row"><span>dsh 版本</span><span id="status-version" class="val">…</span></div>
+      <div class="row"><span>dsh web</span><span id="status-web-url" class="val">—</span></div>
+      <div class="row"><span>dsh 升级</span><span id="status-upgrade" class="val">…</span></div>
       <div id="status-upgrade-bar" class="bar hidden"><div id="status-upgrade-fill" class="bar-fill"></div></div>
+      <div class="row"><span>Hull 版本</span><span id="status-hull-version" class="val">…</span></div>
     </div>
   </nav>
   <main id="content">
@@ -109,21 +193,157 @@
         <p class="muted">首次安装可取消（本次），主窗口变为引导态；点击「安装 dsh」重新走安装流程。不提供永久跳过。</p>
       </div>
     </section>
-    <!-- B2 任务看板（M2）：view=placeholder:board 时显示；数据经 window.kanban/window.exec 桥消费 -->
+    <!-- B2 任务看板：view=placeholder:board 时显示；数据经 window.kanban/window.exec 桥消费 -->
     <section id="board" class="placeholder hidden">
       <div id="board-root"></div>
     </section>
+    <!-- S8' S6'：设置视图（D1 迁移自 settings.html，重渲染；持久化走 hull:setSettings，CON-R002 不破）。
+         通用/dsh/Hull/诊断 4 卡；dsh/Hull 升级反馈（确认/进度/失败/回滚/重启安装提示）内联各自区块底部 -->
+    <section id="settings" class="placeholder hidden" aria-label="设置">
+      <div class="panel">
+        <h1>dsh-hull-desktop 设置</h1>
+        <section class="scard" aria-labelledby="sec-general">
+          <h2 id="sec-general">通用设置</h2>
+          <div class="srow">
+            <div class="info">
+              <div class="label">npm registry</div>
+              <div class="sub">默认官方 registry；可填任意源（镜像 / 私有源）</div>
+            </div>
+            <div class="control">
+              <input id="registry" class="input" type="url" placeholder="https://registry.npmjs.org" />
+              <div id="registry-error" class="error-text" role="alert"></div>
+            </div>
+          </div>
+          <div class="srow">
+            <div class="info">
+              <div class="label">关闭窗口时退出应用</div>
+              <div class="sub">默认关闭 = 隐藏到托盘，dsh 继续运行</div>
+            </div>
+            <button id="closeToQuit" class="switch" role="switch" aria-checked="false" aria-label="关闭窗口时退出应用">
+              <span class="sr-only">关闭窗口时退出应用</span>
+            </button>
+          </div>
+          <div class="srow">
+            <div class="info">
+              <div class="label">dsh 自动检查更新</div>
+              <div class="sub">启动时静默检查 npm registry，发现新版才提示</div>
+            </div>
+            <button id="autoCheckDsh" class="switch" role="switch" aria-checked="true" aria-label="dsh 自动检查更新">
+              <span class="sr-only">dsh 自动检查更新</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="scard" aria-labelledby="sec-dsh">
+          <h2 id="sec-dsh">dsh 运行时</h2>
+          <div class="srow">
+            <div class="info"><div class="label">运行状态</div></div>
+            <div class="badges" id="dsh-status-wrap"><span class="badge muted">未知</span><button id="dsh-copy-url" class="sbtn" style="display:none" title="复制 dsh web 地址">复制地址</button></div>
+          </div>
+          <div class="srow">
+            <div class="info"><div class="label">当前版本</div></div>
+            <div class="badges" id="dsh-version-wrap"><span class="badge muted">—</span></div>
+          </div>
+          <div class="srow">
+            <div class="info">
+              <div class="label">版本通道</div>
+              <div class="sub">默认跟随官方 latest；出问题可锁定指定版本</div>
+            </div>
+            <div class="control">
+              <div class="channel-wrap">
+                <select id="channel" class="select" aria-label="版本通道">
+                  <option value="latest">latest（默认）</option>
+                  <option value="pinned">pinned（锁定）</option>
+                </select>
+                <input id="pinnedVersion" class="input version-input" type="text" placeholder="如 0.1.0-rc.5" list="version-list" aria-label="锁定版本号" />
+                <datalist id="version-list"></datalist>
+              </div>
+              <div id="channel-error" class="error-text" role="alert"></div>
+            </div>
+          </div>
+          <div class="srow">
+            <div class="info">
+              <div class="label">升级与回滚</div>
+              <div class="sub">升级将立即重启 dsh；回滚需存在上一版本</div>
+            </div>
+            <div class="control">
+              <div>
+                <button id="check-dsh" class="sbtn primary">检查更新</button>
+                <button id="rollback-dsh" class="sbtn danger" title="无可用上一版本" disabled>回滚</button>
+              </div>
+              <div id="dsh-hint" class="hint"></div>
+            </div>
+          </div>
+          <div id="dsh-alert" class="status-alert" role="alert"></div>
+          <!-- M1-重构：dsh 升级反馈内联在本区块底部（确认/进度/失败/回滚结果，原独立升级卡 dsh 部分迁入） -->
+          <div id="up-dsh" class="ucard">
+            <div class="up-head"><div class="label">dsh 更新</div><div class="badges"><span id="up-dsh-current" class="badge muted">—</span></div></div>
+            <div class="up-body" id="up-dsh-body"></div>
+            <!-- autoscroll 输出框：静态容器（不随 up-dsh-body 重建），scroll 事件维护 atBottom 标志（标准 tail -f 跟随语义） -->
+            <div id="up-dsh-output" class="up-output hidden" role="log" aria-live="polite"></div>
+          </div>
+        </section>
+
+        <section class="scard" aria-labelledby="sec-hull">
+          <h2 id="sec-hull">Hull 应用</h2>
+          <div class="srow">
+            <div class="info"><div class="label">当前版本</div></div>
+            <div class="badges" id="hull-version-wrap"><span class="badge muted">—</span></div>
+          </div>
+          <div class="srow">
+            <div class="info">
+              <div class="label">检查 Hull 更新</div>
+              <div class="sub">GitHub Releases · 升级需重启应用；确认/进度在本区块底部</div>
+            </div>
+            <button id="check-hull" class="sbtn primary">检查更新</button>
+          </div>
+          <div class="srow">
+            <div class="info">
+              <div class="label">Hull 自动检查更新</div>
+              <div class="sub">启动时检查 GitHub Releases，发现新版才提示</div>
+            </div>
+            <button id="autoCheckHull" class="switch" role="switch" aria-checked="true" aria-label="Hull 自动检查更新">
+              <span class="sr-only">Hull 自动检查更新</span>
+            </button>
+          </div>
+          <div id="hull-alert" class="status-alert" role="alert"></div>
+          <!-- M1-重构：Hull 升级反馈内联在本区块底部（确认/进度/失败/重启安装提示，原独立升级卡 Hull 部分迁入） -->
+          <div id="up-hull" class="ucard">
+            <div class="up-head"><div class="label">Hull 应用更新</div><div class="badges"><span id="up-hull-current" class="badge muted">—</span></div></div>
+            <div class="up-body" id="up-hull-body"></div>
+          </div>
+          <div id="up-restart-prompt" class="ucard hidden">
+            <div class="up-head"><div class="label">更新安装提示</div></div>
+            <div class="up-body"><p class="up-warn">更新后若无法打开：<br>① 右键 → 打开（隔离/未公证）<br>② 若仍无法打开，请重新下载安装包</p></div>
+          </div>
+        </section>
+
+        <section class="scard" aria-labelledby="sec-diag">
+          <h2 id="sec-diag">诊断</h2>
+          <div class="srow">
+            <div class="info"><div class="label">排查日志与数据目录</div></div>
+            <div>
+              <button id="open-logs-dir" class="sbtn">打开日志目录</button>
+              <button id="open-data-dir" class="sbtn">打开数据目录</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
   </main>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script>
-  // 壳框架页（S8 D4/D5/D6）：
+  // 壳框架页（S8 D4/D5/D6 + S8' M1-重构）：
   // - 右侧内容区显示完全由主进程 hull:status 的 view 字段驱动（renderer 无 view 控制通道）
-  // - 状态区渲染 runtime.phase + currentVersion + upgrade.phase
-  // - 安装进度 installStatus 250ms 轮询（B6）；占位四区块 ID/交互照 placeholder.html
+  // - 状态区渲染 runtime.phase + currentVersion + hullVersion + dsh 升级（upgrade.phase，仅 dsh 通道；Hull 状态在设置页 Hull 区块）
+  // - 安装进度 installStatus 250ms 轮询（B6）；设置 section 250ms 轮询 hull:status + 双通道快照
+  // - S8' §4.4：nav 高亮由 hull:status view 字段派生（主进程单一事实源），本地点击即时高亮 + 推送校正
   const bridge = window.hull;
   const PLACEHOLDER_PREFIX = 'placeholder:';
-  const sections = ['starting', 'installing', 'failed', 'not-installed', 'board'];
+  // S8' S8'：sections 扩 1（settings）——view 2→3 态（official/board/settings）
+  const sections = ['starting', 'installing', 'failed', 'not-installed', 'board', 'settings'];
 
-  // 占位四视图切换（view 字段驱动；official → 全隐藏）
+  // 占位视图切换（view 字段驱动；official → 全隐藏）
   function setView(view) {
     for (const id of sections) document.getElementById(id).classList.add('hidden');
     if (view && view.startsWith(PLACEHOLDER_PREFIX)) {
@@ -133,9 +353,10 @@
 
   const phaseNames = { idle: '未运行', starting: '启动中', ready: '运行中', failed: '启动失败' };
   const upgradeNames = {
-    idle: '无', checking: '检查中', confirm: '待确认', installing: '安装中',
+    idle: '无', checking: '正在检查更新…', confirm: '待确认', installing: '安装中',
     swapping: '切换中', verifying: '验证中', rollback: '回滚中',
   };
+  const hullPhaseNames = { idle: '无', checking: '正在检查更新…', confirm: '待确认', downloading: '下载中', restarting: '重启安装中', done: '已完成' };
 
   // 安装进度轮询（250ms；状态离开 installing → 停止，主进程负责 view 切换）
   let polling = false;
@@ -161,55 +382,518 @@
     tick();
   }
 
+  // ── S8' §4.4 nav 高亮回写（view 字段驱动） ──
+  const navActiveByView = {
+    'placeholder:board': 'nav-board',
+    'placeholder:settings': 'nav-settings',
+  };
+  // 升级进行中例外（M1-重构）：升级已并入 settings 视图——view=placeholder:settings 且 upgrade.phase ∈ 进行中
+  // → nav-settings 保持高亮（含 rollback：手动回滚时 phase=rollback 与进度段一致）
+  const UPGRADE_ACTIVE_PHASES = ['checking', 'confirm', 'installing', 'swapping', 'verifying', 'rollback'];
+  // M1-重构：busy 判定「升级执行中」集合——仅 installing/swapping/verifying/rollback 算执行中；
+  // confirm（待确认）只是发现新版等确认的卡片，非升级在跑，允许再点「检查更新」（runCheck confirm 幂等刷新）
+  const UPGRADE_EXECUTING = new Set(['installing', 'swapping', 'verifying', 'rollback']);
+  function setActive(id) {
+    for (const el of document.querySelectorAll('.nav-item')) el.classList.remove('active');
+    document.getElementById(id).classList.add('active');
+  }
+  function renderNavHighlight(view, upgradePhase) {
+    if (view === 'placeholder:settings' && UPGRADE_ACTIVE_PHASES.includes(upgradePhase)) {
+      setActive('nav-settings');
+      return;
+    }
+    const id = navActiveByView[view];
+    if (id) setActive(id);
+    else setActive('nav-web'); // official / starting / installing / failed / not-installed → nav-web
+  }
+
+  // ── S8' S6'/S3'：设置 + 升级视图渲染（settings.html 逻辑迁移） ──
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const badge = (text, kind) => `<span class="badge ${kind}">${esc(text)}</span>`;
+  const setError = (el, msg) => {
+    if (!el) return;
+    if (msg) {
+      el.textContent = msg;
+      el.style.display = 'block';
+      const input = el.previousElementSibling;
+      if (input && input.classList.contains('input')) input.classList.add('error');
+      if (input && input.classList.contains('channel-wrap')) {
+        input.querySelectorAll('.input, .select').forEach((n) => n.classList.add('error'));
+      }
+    } else {
+      el.textContent = '';
+      el.style.display = 'none';
+      const input = el.previousElementSibling;
+      if (input && input.classList.contains('input')) input.classList.remove('error');
+      if (input && input.classList.contains('channel-wrap')) {
+        input.querySelectorAll('.input, .select').forEach((n) => n.classList.remove('error'));
+      }
+    }
+  };
+  let toastTimer = null;
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 1800);
+  }
+
+  const sett = {
+    state: { settings: null, dsh: null, hull: null, editing: { registry: false, pinned: false } },
+    els: {},
+  };
+  // camelCase key → kebab-case id 映射（settings.html 原 ID 规约）
+  const SETT_IDS = {
+    registry: 'registry', registryError: 'registry-error', closeToQuit: 'closeToQuit', autoCheckDsh: 'autoCheckDsh',
+    dshStatusWrap: 'dsh-status-wrap', dshVersionWrap: 'dsh-version-wrap', channel: 'channel', pinnedVersion: 'pinnedVersion',
+    versionList: 'version-list', channelError: 'channel-error', checkDsh: 'check-dsh', rollbackDsh: 'rollback-dsh',
+    dshHint: 'dsh-hint', dshAlert: 'dsh-alert', hullVersionWrap: 'hull-version-wrap', checkHull: 'check-hull',
+    autoCheckHull: 'autoCheckHull', hullAlert: 'hull-alert', openLogs: 'open-logs-dir', openDataDir: 'open-data-dir',
+  };
+  for (const k of Object.keys(SETT_IDS)) {
+    sett.els[k] = document.getElementById(SETT_IDS[k]);
+  }
+
+  async function setSetting(patch, errorEl) {
+    setError(errorEl, '');
+    try {
+      const res = await bridge.setSettings(patch);
+      if (res && res.ok === false) { setError(errorEl, res.message || '保存失败'); return false; }
+      toast('已保存');
+      return true;
+    } catch (err) { setError(errorEl, err.message || '保存失败'); return false; }
+  }
+  function bindSwitch(el, field, errorEl) {
+    el.addEventListener('click', async () => {
+      const current = el.getAttribute('aria-checked') === 'true';
+      const next = !current;
+      const patch = {}; patch[field] = next;
+      const ok = await setSetting(patch, errorEl);
+      if (ok) el.setAttribute('aria-checked', String(next));
+    });
+  }
+  bindSwitch(sett.els.closeToQuit, 'closeToQuit', null);
+  bindSwitch(sett.els.autoCheckDsh, 'autoCheckDsh', null);
+  bindSwitch(sett.els.autoCheckHull, 'autoCheckHull', null);
+
+  sett.els.registry.addEventListener('focus', () => { sett.state.editing.registry = true; });
+  sett.els.registry.addEventListener('blur', async () => {
+    sett.state.editing.registry = false;
+    const value = sett.els.registry.value.trim();
+    if (!value || value === (sett.state.settings && sett.state.settings.registry)) return;
+    const ok = await setSetting({ registry: value }, sett.els.registryError);
+    if (!ok && sett.state.settings) sett.els.registry.value = sett.state.settings.registry;
+  });
+  sett.els.registry.addEventListener('keydown', (e) => { if (e.key === 'Enter') sett.els.registry.blur(); });
+
+  async function applyChannel() {
+    const channel = sett.els.channel.value;
+    const version = sett.els.pinnedVersion.value.trim();
+    setError(sett.els.channelError, '');
+    try {
+      const res = await bridge.setChannel(channel, channel === 'pinned' ? version : undefined);
+      if (res && res.ok === false) { setError(sett.els.channelError, res.message || '通道设置失败'); return false; }
+      toast('已保存');
+      return true;
+    } catch (err) { setError(sett.els.channelError, err.message || '通道设置失败'); return false; }
+  }
+  sett.els.channel.addEventListener('change', applyChannel);
+  sett.els.pinnedVersion.addEventListener('focus', () => { sett.state.editing.pinned = true; });
+  sett.els.pinnedVersion.addEventListener('blur', async () => {
+    sett.state.editing.pinned = false;
+    if (sett.els.channel.value !== 'pinned') return;
+    await applyChannel();
+  });
+  sett.els.pinnedVersion.addEventListener('keydown', (e) => { if (e.key === 'Enter') sett.els.pinnedVersion.blur(); });
+  sett.els.pinnedVersion.addEventListener('focus', async () => {
+    try {
+      const res = await bridge.listVersions();
+      if (res && res.ok && res.versions) {
+        sett.els.versionList.innerHTML = res.versions.slice(0, 30).map((v) => `<option value="${esc(v)}">`).join('');
+      }
+    } catch {}
+  });
+
+  function renderSettings(s) {
+    if (!s) return;
+    if (!sett.state.editing.registry && sett.els.registry.value !== s.registry) sett.els.registry.value = s.registry;
+    sett.els.closeToQuit.setAttribute('aria-checked', String(s.closeToQuit));
+    sett.els.autoCheckDsh.setAttribute('aria-checked', String(s.autoCheckDsh));
+    sett.els.autoCheckHull.setAttribute('aria-checked', String(s.autoCheckHull));
+    if (!sett.state.editing.pinned) {
+      sett.els.channel.value = s.channel;
+      sett.els.pinnedVersion.value = s.pinnedVersion || '';
+      sett.els.pinnedVersion.disabled = s.channel !== 'pinned';
+    }
+  }
+
+  function renderDsh(ds) {
+    if (!ds) return;
+    const runtime = ds.runtime || {};
+    const upgrade = ds.upgrade || {};
+    const phase = runtime.phase;
+    let statusHtml;
+    let copyBtnVisible = false;
+    if (phase === 'ready') {
+      statusHtml = badge('运行中', 'ok') + (runtime.url ? badge(runtime.url.replace(/^https?:\/\//, ''), 'muted') : '');
+      copyBtnVisible = !!runtime.url;
+    }
+    else if (phase === 'starting') statusHtml = badge('启动中', 'warn');
+    else if (phase === 'failed') statusHtml = badge('失败', 'err');
+    else if (phase === 'idle') statusHtml = badge('已停止', 'muted');
+    else statusHtml = badge(phase || '未知', 'muted');
+    sett.els.dshStatusWrap.innerHTML = statusHtml;
+    // 复制地址按钮：仅 ready 且有地址显示（renderDshUpgrade 每 tick 重建 innerHTML，此按钮在 statusWrap 内需先重建再取引用）
+    const copyBtn = document.getElementById('dsh-copy-url');
+    if (copyBtn) {
+      copyBtn.style.display = copyBtnVisible ? '' : 'none';
+      copyBtn.onclick = async () => {
+        const url = runtime.url;
+        if (!url) return;
+        try {
+          const r = await bridge.copyText(url);
+          toast(r?.ok === false ? (r.message || '复制失败') : '地址已复制，可在浏览器打开');
+        } catch { toast('复制失败'); }
+      };
+    }
+    sett.els.dshVersionWrap.innerHTML = ds.currentVersion ? badge('v' + ds.currentVersion, 'muted') : badge('—', 'muted');
+
+    // busy = 升级执行中（installing/swapping/verifying/rollback）；confirm/checking/idle 可点（confirm 幂等刷新确认卡）
+    const busy = UPGRADE_EXECUTING.has(upgrade?.phase ?? 'idle') || (sett.state.hull && UPGRADE_EXECUTING.has(sett.state.hull.phase ?? 'idle'));
+    sett.els.checkDsh.disabled = busy;
+    sett.els.rollbackDsh.disabled = busy || !ds.canRollback;
+    if (ds.canRollback) sett.els.rollbackDsh.title = '回滚到上一版本';
+    else sett.els.rollbackDsh.title = '无可用上一版本';
+
+    let hint = '';
+    if ((upgrade?.phase ?? 'idle') !== 'idle') hint = upgrade.message || '';
+    sett.els.dshHint.textContent = hint;
+
+    if (upgrade.error && (upgrade.phase ?? 'idle') === 'idle') {
+      sett.els.dshAlert.textContent = upgrade.message || upgrade.error;
+      sett.els.dshAlert.classList.add('show');
+    } else {
+      sett.els.dshAlert.classList.remove('show');
+    }
+  }
+
+  function renderHull(hs) {
+    if (!hs) return;
+    sett.els.hullVersionWrap.innerHTML = hs.currentVersion ? badge('v' + hs.currentVersion, 'muted') : badge('—', 'muted');
+    const busy = UPGRADE_EXECUTING.has(hs?.phase ?? 'idle') || (sett.state.dsh && sett.state.dsh.upgrade && UPGRADE_EXECUTING.has(sett.state.dsh.upgrade.phase ?? 'idle'));
+    sett.els.checkHull.disabled = busy;
+
+    if (hs.error && hs.phase === 'idle') {
+      sett.els.hullAlert.textContent = hs.message || hs.error;
+      sett.els.hullAlert.classList.add('show');
+    } else {
+      sett.els.hullAlert.classList.remove('show');
+    }
+  }
+
+  // dsh 区块「检查更新」→ 发现新版 → 设置视图内渲染确认卡片（M1-重构：升级并入 settings）
+  sett.els.checkDsh.addEventListener('click', async () => {
+    try {
+      const res = await bridge.checkDshUpdate();
+      if (res.phase === 'confirm' && res.latest) {
+        // check 已置 phase=confirm（hull:status 推送）→ 切 settings 视图渲染确认卡片（无需二次 check）
+        await bridge.showSettings();
+      } else if (res.hasUpdate === false) {
+        toast('当前已是最新版本');
+      }
+    } catch (err) { toast(err.message || '检查失败'); }
+  });
+  sett.els.rollbackDsh.addEventListener('click', async () => {
+    try { await bridge.rollbackDsh(); } catch {}
+  });
+  // Hull 区块「检查更新」→ 确认/进度内联本区块底部（M1-重构：升级反馈拆入各自区块）
+  sett.els.checkHull.addEventListener('click', async () => {
+    try {
+      const res = await bridge.checkHullUpdate();
+      if (res.hasUpdate && res.targetVersion) {
+        toast('发现 Hull 新版本，请在下方确认');
+      } else if (res.hasUpdate === false) {
+        toast('当前已是最新版本');
+      }
+    } catch (err) { toast(err.message || '检查失败'); }
+  });
+  sett.els.openLogs.addEventListener('click', () => bridge.openLogs());
+  sett.els.openDataDir.addEventListener('click', () => bridge.openDataDir());
+
+  // ── 各区块内联升级反馈渲染（M1-重构：dsh/Hull 升级确认/进度/失败/回滚/重启安装提示拆入各自区块底部） ──
+  const up = {
+    dshConfirmLatest: null,
+    hullConfirmLatest: null,
+    restartPromptShown: false,
+    /** autoscroll：输出框是否停在底部（scroll 事件实时维护）。true=跟随最新，false=用户滚动中保持位置 */
+    dshOutputAtBottom: true,
+  };
+  function upCard(targetId) { return document.getElementById(targetId); }
+  // dsh 通道确认卡片（hull:status upgrade.phase=confirm → 渲染；立即升级 → hull:upgradeDsh）
+  function renderDshUpgrade(u, dshStatus) {
+    const body = upCard('up-dsh-body');
+    const currentEl = document.getElementById('up-dsh-current');
+    const cur = dshStatus?.currentVersion ?? u.currentVersion;
+    if (currentEl) currentEl.innerHTML = cur ? badge('v' + cur, 'muted') : badge('—', 'muted');
+    const pct = u.pct || 0;
+
+    if (u.phase === 'confirm' && u.targetVersion) {
+      up.dshConfirmLatest = u.targetVersion;
+      body.innerHTML = `
+        <div class="ver">
+          <div class="box"><div class="k">当前版本</div><div class="v">${esc(cur ?? '未知')}</div></div>
+          <div class="arrow">→</div>
+          <div class="box target"><div class="k">目标版本</div><div class="v">${esc(u.targetVersion)}</div></div>
+        </div>
+        <p class="up-warn">升级将立即重启 dsh，正在进行的会话会被中断。</p>
+        <div class="urow"><div>
+          <button id="up-dsh-yes" class="sbtn primary">立即升级</button>
+          <button id="up-dsh-no" class="sbtn">稍后再说</button>
+        </div></div>`;
+      document.getElementById('up-dsh-yes').addEventListener('click', async () => {
+        try { await bridge.upgradeDsh(up.dshConfirmLatest); } catch {}
+      });
+      document.getElementById('up-dsh-no').addEventListener('click', async () => {
+        try {
+          await bridge.dismissDshUpdate();
+          toast('已稍后再说（当日不再提示）');
+        } catch {}
+      });
+      return;
+    }
+    // 非 confirm：进度/失败/回滚结果/空闲
+    if (u.phase !== 'idle') {
+      // checking 无真实进度，不渲染进度条（否则空进度条 + 重复文案误导）；installing/swapping/verifying/rollback 有阶段步进
+      const progress = ['installing', 'swapping', 'verifying', 'rollback'].includes(u.phase);
+      // 改进 3：诚实阶段文案——pct 是阶段步进（50=解析/下载，90=替换，95=验证，100=完成），非真实百分比。
+      // 文字显示阶段文案（不裸显误导性 50%），进度条宽度保留（弱化百分比数字）。
+      const stageText = {
+        installing: '正在安装…（解析依赖 / 下载中）',
+        swapping: '正在替换…',
+        verifying: '正在验证…',
+        rollback: '正在回滚…',
+        checking: '正在检查更新…',
+      }[u.phase] || upgradeNames[u.phase] || u.phase;
+      // 输出框：静态容器 #up-dsh-output（autoscroll）。installing 段显示 npm 实时输出 + 跟随滚动；其他 phase 隐藏。
+      const outputBox = document.getElementById('up-dsh-output');
+      if (outputBox) {
+        if (u.phase === 'installing') {
+          outputBox.classList.remove('hidden');
+          const lines = Array.isArray(u.output) && u.output.length ? u.output : [];
+          // 仅行数变化时重建（避免每 tick 无谓重写 scroll 状态）
+          if (lines.length !== outputBox.dataset.lineCount) {
+            outputBox.innerHTML = lines.map((l) => `<span class="line">${esc(l)}</span>`).join('');
+            outputBox.dataset.lineCount = String(lines.length);
+          }
+          // autoscroll：仅当用户停在底部时滚到底（scroll 事件维护 up.dshOutputAtBottom）
+          if (up.dshOutputAtBottom) outputBox.scrollTop = outputBox.scrollHeight;
+        } else {
+          outputBox.classList.add('hidden');
+        }
+      }
+      // message 与 stageText 去重：checking 时 u.message（Updater「正在检查更新…」）与 stageText 相同，只显示 stageText（badge）
+      const msgHtml = u.phase === 'checking'
+        ? ''
+        : `<div class="up-msg">${esc(u.message || '')}</div>`;
+      body.innerHTML = `
+        <div class="urow"><div class="info"><div class="label">状态</div></div><div class="badges">${badge(stageText, 'warn')}</div></div>
+        ${progress ? `<div class="up-progress"><div class="bar"><i style="width:${pct}%"></i></div><span class="up-msg">${esc(stageText)}</span></div>` : ''}
+        ${msgHtml}
+        ${u.phase === 'installing' ? '<div class="urow"><div><button id="up-dsh-cancel" class="sbtn">取消</button></div></div>' : ''}`;
+      const cancelBtn = document.getElementById('up-dsh-cancel');
+      if (cancelBtn) cancelBtn.addEventListener('click', async () => { try { await bridge.cancelDshUpgrade(); } catch {} });
+      return;
+    }
+    // idle：失败/回滚结果/空闲
+    if (u.error) {
+      body.innerHTML = `
+        <div class="up-error">${esc(u.message || u.error)}</div>
+        <div class="urow"><div class="up-error retry"><button id="up-dsh-recheck" class="sbtn">重新检查</button></div></div>`;
+      document.getElementById('up-dsh-recheck').addEventListener('click', async () => {
+        try {
+          const res = await bridge.checkDshUpdate();
+          // Bug 修复：取消后 queue 未释放（升级收尾中）→ check 返回 queueBusy → toast 明确反馈，非静默
+          if (res && res.error === 'queue-busy') {
+            toast('升级正在收尾，请稍候再试');
+            return;
+          }
+          if (res && res.hasUpdate === false && res.error) {
+            toast(res.error === 'check-failed' ? '检查失败，请稍后再试' : (res.error || '检查失败'));
+            return;
+          }
+        } catch (err) { toast(err.message || '检查失败'); }
+      });
+      return;
+    }
+    if (u.message && u.message.startsWith('已回滚')) {
+      body.innerHTML = `<div class="up-ok">${esc(u.message)}</div>`;
+      return;
+    }
+    body.innerHTML = '<div class="up-msg">无进行中的 dsh 升级</div>';
+  }
+  // Hull 通道（getHullUpdateStatus 快照驱动）
+  function renderHullUpgrade(h) {
+    const body = upCard('up-hull-body');
+    const currentEl = document.getElementById('up-hull-current');
+    if (currentEl) currentEl.innerHTML = h.currentVersion ? badge('v' + h.currentVersion, 'muted') : badge('—', 'muted');
+    const pct = h.pct || 0;
+
+    if (h.phase === 'confirm' && h.targetVersion) {
+      up.hullConfirmLatest = h.targetVersion;
+      const notes = h.changeNotes ? `<div class="notes"><b>变更说明</b><br>${esc(h.changeNotes).replace(/\n/g, '<br>')}</div>` : '';
+      body.innerHTML = `
+        <div class="ver">
+          <div class="box"><div class="k">当前版本</div><div class="v">${esc(h.currentVersion ?? '未知')}</div></div>
+          <div class="arrow">→</div>
+          <div class="box target"><div class="k">目标版本</div><div class="v">${esc(h.targetVersion)}</div></div>
+        </div>
+        <p class="up-warn">下载完成后将自动重启 Hull 应用。</p>
+        ${notes}
+        <div class="urow"><div>
+          <button id="up-hull-yes" class="sbtn primary">立即下载</button>
+          <button id="up-hull-no" class="sbtn">稍后再说</button>
+        </div></div>`;
+      document.getElementById('up-hull-yes').addEventListener('click', async () => {
+        try { await bridge.downloadHullUpdate(); } catch {}
+      });
+      document.getElementById('up-hull-no').addEventListener('click', async () => {
+        try {
+          await bridge.dismissHullUpdate();
+          toast('已稍后再说（当日不再提示）');
+        } catch {}
+      });
+      return;
+    }
+    if (h.phase !== 'idle') {
+      // checking 无真实进度，不渲染进度条（否则空进度条 + 0% 误导）；downloading 有 pct
+      const progress = ['downloading'].includes(h.phase);
+      // checking 时 h.message（HullUpdater「正在检查更新…」）与 badge 相同 → 去重只显示 badge
+      const msgHtml = h.phase === 'checking'
+        ? ''
+        : `<div class="up-msg">${esc(h.message || '')}</div>`;
+      body.innerHTML = `
+        <div class="urow"><div class="info"><div class="label">状态</div></div><div class="badges">${badge(hullPhaseNames[h.phase] || h.phase, 'warn')}</div></div>
+        ${progress ? `<div class="up-progress"><div class="bar"><i style="width:${pct}%"></i></div><span class="up-msg">${pct}%</span></div>` : ''}
+        ${msgHtml}
+        ${h.phase === 'downloading' ? '<div class="urow"><div><button id="up-hull-cancel" class="sbtn">取消</button></div></div>' : ''}`;
+      const cancelBtn = document.getElementById('up-hull-cancel');
+      if (cancelBtn) cancelBtn.addEventListener('click', async () => { try { await bridge.cancelHullUpdate(); } catch {} });
+      return;
+    }
+    if (h.error) {
+      body.innerHTML = `
+        <div class="up-error">${esc(h.message || h.error)}</div>
+        <div class="urow"><div class="up-error retry"><button id="up-hull-recheck" class="sbtn">重新检查</button></div></div>`;
+      document.getElementById('up-hull-recheck').addEventListener('click', async () => {
+        try {
+          const res = await bridge.checkHullUpdate();
+          // Bug 修复：queue 占用/检查失败 → toast 明确反馈（HullUpdater.check 返回 error 码）
+          if (res && res.error) {
+            toast(res.error === 'queue-busy' ? '更新正在收尾，请稍候再试' : (res.error === 'check-failed' ? '检查失败，请稍后再试' : '检查失败'));
+            return;
+          }
+        } catch (err) { toast(err.message || '检查失败'); }
+      });
+      return;
+    }
+    body.innerHTML = '<div class="up-msg">无进行中的 Hull 更新</div>';
+  }
+  // preventive-prompt（H2 裁决 2：Hull 区块底部重启安装提示区）
+  function renderRestartPrompt() {
+    up.restartPromptShown = true;
+    document.getElementById('up-restart-prompt').classList.remove('hidden');
+  }
+
   // hull:status 渲染（主进程单一事实源）
-  function renderStatus(payload) {
-    if (!payload) return;
-    const runtime = payload.runtime || {};
-    document.getElementById('status-phase').textContent = phaseNames[runtime.phase] || runtime.phase || '…';
-    document.getElementById('status-version').textContent = payload.currentVersion || '未安装';
-    const upgrade = payload.upgrade || {};
+  // Bug2 修复：左下角「dsh 升级」行渲染独立成函数——event（hull:status）与 tick（getDshStatus 实时快照）双源统一。
+  // 数据源 = payload.upgrade（dsh 通道）；installing 段显示进度条宽度 + 诚实阶段文案（改进 3：不裸显误导性 50%）。
+  function renderStatusUpgradeRow(upgrade) {
+    if (!upgrade) return;
     const upPhase = upgradeNames[upgrade.phase] || upgrade.phase || '…';
     const upPct = typeof upgrade.pct === 'number' ? Math.round(upgrade.pct) : 0;
-    // P1 补丁：installing 显示 pct 进度条（50→90→95→100）；其他 phase 仅文本
+    // 改进 3：installing 文案「安装中…」+ 进度条宽度（pct 为阶段步进，非真实百分比）
     const upBar = document.getElementById('status-upgrade-bar');
     if (upgrade.phase === 'installing') {
-      document.getElementById('status-upgrade').textContent = `${upPhase} ${upPct}%`;
+      document.getElementById('status-upgrade').textContent = '安装中…';
       document.getElementById('status-upgrade-fill').style.width = upPct + '%';
       upBar.classList.remove('hidden');
     } else {
       document.getElementById('status-upgrade').textContent = upPhase;
       upBar.classList.add('hidden');
     }
+  }
+
+  function renderStatus(payload) {
+    if (!payload) return;
+    const runtime = payload.runtime || {};
+    document.getElementById('status-phase').textContent = phaseNames[runtime.phase] || runtime.phase || '…';
+    document.getElementById('status-version').textContent = payload.currentVersion || '未安装';
+    document.getElementById('status-hull-version').textContent = payload.hullVersion || '—';
+    // dsh web 地址（左下角可点击复制/打开浏览器）
+    const webUrlEl = document.getElementById('status-web-url');
+    if (webUrlEl) {
+      const url = runtime.url || '';
+      webUrlEl.textContent = url ? url.replace(/^https?:\/\//, '') : '—';
+      webUrlEl.dataset.url = url; // 点击复制用（renderStatus 实时更新）
+      webUrlEl.title = url ? `dsh web 地址：${url}（点击复制）` : '';
+    }
+    const upgrade = payload.upgrade || {};
+    renderStatusUpgradeRow(upgrade);
     setView(payload.view);
+    renderNavHighlight(payload.view, upgrade.phase);
     // 占位消息（failed/not-installed；starting 亦可承载）
     const msgId = payload.view === 'placeholder:failed' ? 'failed-msg'
       : payload.view === 'placeholder:not-installed' ? 'not-installed-msg'
       : payload.view === 'placeholder:starting' ? 'starting-msg' : null;
     if (msgId) document.getElementById(msgId).textContent = payload.message || '';
     if (payload.view === 'placeholder:installing') pollInstall();
+    // M1-重构：dsh/Hull 升级反馈已内联各自区块——dsh 确认/进度卡片由 250ms tick 的 getDshStatus 快照渲染（renderDshUpgrade 在 tick 内调用）
   }
 
-  // D6 导航切换：nav 点击仅更新本地 active 高亮 + 触发对应 IPC；无 view 控制通道
-  function setActive(id) {
-    for (const el of document.querySelectorAll('.nav-item')) el.classList.remove('active');
-    document.getElementById(id).classList.add('active');
-  }
+  // S8' D5 导航切换：nav 点击 → 本地立即置 active + 触发 IPC；hull:status 推送校正（最终态主进程事实源）
   document.getElementById('nav-web').addEventListener('click', async () => {
     setActive('nav-web');
     if (bridge) await bridge.showWeb(); // 恢复官方 view（与 showBoard 对称）
   });
   document.getElementById('nav-settings').addEventListener('click', async () => {
     setActive('nav-settings');
-    if (bridge) await bridge.openSettings();
-  });
-  document.getElementById('nav-upgrade').addEventListener('click', async () => {
-    setActive('nav-upgrade');
-    if (bridge) await bridge.checkDshUpdate(); // main runCheck → 原生 dialog
+    if (bridge) await bridge.showSettings(); // S8'：主进程切 settings 视图
   });
   document.getElementById('nav-board').addEventListener('click', async () => {
     setActive('nav-board');
     if (bridge) await bridge.showBoard(); // main 切 view → placeholder:board → section#board 显示
   });
+
+  // autoscroll：输出框 scroll 事件维护「是否在底部」标志——用户拉回底部 → 恢复跟随；滚动离开底部 → 停止跟随（保持位置）
+  const dshOutputBox = document.getElementById('up-dsh-output');
+  if (dshOutputBox) {
+    dshOutputBox.addEventListener('scroll', () => {
+      const box = dshOutputBox;
+      up.dshOutputAtBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+    });
+  }
+
+  // 左下角 dsh web 地址行：单击 → 打开浏览器（openExternal，主进程 http/https 校验）；
+  // 浏览器打开失败（无默认浏览器/被拦）→ 降级复制到剪贴板 + toast 提示。
+  const webUrlRow = document.getElementById('status-web-url');
+  if (webUrlRow) {
+    webUrlRow.style.cursor = 'pointer';
+    webUrlRow.addEventListener('click', async () => {
+      const url = webUrlRow.dataset.url;
+      if (!url) return;
+      try {
+        const r = await bridge.openExternal(url);
+        if (r?.ok === false) {
+          // 降级：复制 + 提示（用户可在浏览器粘贴）
+          const c = await bridge.copyText(url);
+          toast(c?.ok === false ? (c.message || '打开失败') : '浏览器打开失败，地址已复制，请粘贴到浏览器');
+        } else {
+          toast('已在浏览器打开 dsh web');
+        }
+      } catch { toast('打开失败'); }
+    });
+  }
 
   // 失败/引导态按钮（照 placeholder.html 桥绑定；retry 成功不再 reload——视图切换由主进程推送驱动）
   document.getElementById('retry').addEventListener('click', async () => {
@@ -223,12 +907,48 @@
   document.getElementById('open-logs').addEventListener('click', () => bridge && bridge.openLogs());
   document.getElementById('open-logs-2').addEventListener('click', () => bridge && bridge.openLogs());
 
+  // 250ms 轮询（S8' §4.6：settings 视图共享 hull:status 快照 + dsh/Hull 区块内联升级反馈渲染；三查一循环 Promise.all 搬移自 settings.html）
+  let settingsTickRunning = false;
+  async function tick() {
+    if (settingsTickRunning) return;
+    settingsTickRunning = true;
+    try {
+      const [settings, dsh, hullStatus] = await Promise.all([
+        bridge.getSettings(),
+        bridge.getDshStatus(),
+        bridge.getHullUpdateStatus(),
+      ]);
+      sett.state.settings = settings;
+      sett.state.dsh = dsh;
+      sett.state.hull = hullStatus;
+      renderSettings(settings);
+      renderDsh(dsh);
+      renderHull(hullStatus);
+      renderHullUpgrade(hullStatus);
+      // Bug2 修复：左下角「dsh 升级」行随 tick 用实时快照刷新——与设置页同源（event 只覆盖 transition 边界 pct，
+      // tick 补 installing 段实时 pct，与设置页一致）
+      renderStatusUpgradeRow(dsh.upgrade || {});
+      // P2/M4：dsh 区块内联升级反馈 dsh 进度实时刷新——Updater 的 this.pct 中间值不 emit status 事件，
+      // 但 hull:status 事件仅 transition 边界携带 pct（50/90/95/100 步进）。250ms tick 的
+      // getDshStatus() 返回实时快照（overlay installStatus 进度透传 snapshot），
+      // 此处用实时快照重渲 dsh 区块升级反馈卡，补足进度刷新（编排层零改动，CON-R005）
+      renderDshUpgrade(dsh.upgrade || {}, dsh);
+      // preventive-prompt 重放（Hull 重启安装态提示；Hull 区块底部）
+      if (hullStatus.phase === 'restarting' || hullStatus.phase === 'done') renderRestartPrompt();
+    } catch (err) {
+      // 轮询失败静默，避免弹窗轰炸
+    }
+    settingsTickRunning = false;
+    setTimeout(tick, 250);
+  }
+
   // 首载：先订阅再取初值（invoke 响应反映主进程当时状态，事件先到亦会被较新响应覆盖，自洽）
   // 注：onStatus 返回的取消函数不保存——壳页单页永不导航/卸载，订阅生命周期 = 页面生命周期，无泄漏
   if (bridge && bridge.onStatus) {
     bridge.onStatus(renderStatus);
     bridge.getDshStatus().then(renderStatus).catch(() => {});
   }
+  if (bridge && bridge.getSettings) tick();
 </script>
 <script src="kanban.js"></script>
 </body>

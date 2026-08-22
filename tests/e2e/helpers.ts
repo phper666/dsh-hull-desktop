@@ -107,21 +107,20 @@ export async function officialViewState(
   });
 }
 
-/** 关闭主窗口（按 URL 排除 settings.html 定位；closeToQuit 语义测试用） */
+/** 关闭主窗口（S8'：无独立 settings.html 窗口——主壳窗口即唯一 BrowserWindow） */
 export async function closeMainWindow(app: ElectronApplication): Promise<void> {
   await app.evaluate(({ BrowserWindow }) => {
     const wins = BrowserWindow.getAllWindows();
-    const main = wins.find((w) => !w.webContents.getURL().includes('settings.html')) ?? wins[0];
+    const main = wins[0];
     main?.close();
   });
 }
 
-/** 主窗口可见性（按 URL 排除 settings.html 定位） */
+/** 主窗口可见性（S8'：主壳窗口即唯一 BrowserWindow） */
 export async function mainWindowVisible(app: ElectronApplication): Promise<boolean> {
   return app.evaluate(({ BrowserWindow }) => {
     const wins = BrowserWindow.getAllWindows();
-    const main = wins.find((w) => !w.webContents.getURL().includes('settings.html')) ?? wins[0];
-    return main?.isVisible() ?? false;
+    return wins[0]?.isVisible() ?? false;
   });
 }
 
@@ -175,10 +174,10 @@ export async function waitForMainWindow(app: ElectronApplication, timeoutMs = 30
   throw new Error(`壳窗口未在 ${timeoutMs}ms 内创建`);
 }
 
-/** 壳 nav 状态区快照（hull:status 渲染结果：phase/version/upgrade；未就绪 → null） */
+/** 壳 nav 状态区快照（hull:status 渲染结果：phase/version/hullVersion/upgrade；未就绪 → null） */
 export async function navStatus(
   app: ElectronApplication
-): Promise<{ phase: string; version: string; upgrade: string } | null> {
+): Promise<{ phase: string; version: string; hullVersion: string; upgrade: string } | null> {
   const shell = shellPage(app);
   if (!shell) return null;
   try {
@@ -189,27 +188,26 @@ export async function navStatus(
       }
       const doc = (globalThis as unknown as { document: { getElementById(id: string): MinEl | null } }).document;
       const t = (id: string) => doc.getElementById(id)?.textContent ?? '';
-      return { phase: t('status-phase'), version: t('status-version'), upgrade: t('status-upgrade') };
+      return {
+        phase: t('status-phase'),
+        version: t('status-version'),
+        hullVersion: t('status-hull-version'),
+        upgrade: t('status-upgrade'),
+      };
     });
   } catch {
     return null; // 页面导航中
   }
 }
 
-/** 设置页 page（按 URL 含 settings.html 定位；未打开 → null） */
-export function settingsPage(app: ElectronApplication): Page | null {
-  return app.windows().find((w) => w.url().includes('settings.html')) ?? null;
-}
-
+/** S8' S6'：设置视图 = 壳内 section#settings（原独立 settings.html 窗口移除）。
+ *  返回壳页（shell.html）；设置 section 由 view 字段驱动显示 */
 export async function openSettings(app: ElectronApplication): Promise<Page> {
   await app.evaluate(() => (globalThis as { __hullTest?: { openSettings(): void } }).__hullTest?.openSettings());
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    const p = settingsPage(app);
-    if (p) return p;
-    await sleep(200);
-  }
-  throw new Error('设置页未在 10s 内打开');
+  const shell = shellPage(app);
+  if (!shell) throw new Error('壳页不存在');
+  await shell.waitForSelector('#settings:not(.hidden)');
+  return shell;
 }
 
 /** 假 registry（tests/fixtures/fake-registry.js 子进程） */

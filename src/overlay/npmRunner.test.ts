@@ -34,7 +34,7 @@ function makeRunner(opts: { now?: () => number; sleep?: (ms: number) => Promise<
   return { runner, getChild: () => lastChild, getSpawn: () => lastSpawn };
 }
 
-test('① npm 参数串：npm-cli 路径 / install 包名 / --prefix / --fetch-timeout', async () => {
+test('① npm 参数串：npm-cli 路径 / install 包名 / --prefix / --fetch-timeout / --prefer-offline / --loglevel=http', async () => {
   const { runner, getChild, getSpawn } = makeRunner();
   const p = runner.run('/tmp/staging', '1.0.0');
   const s = getSpawn();
@@ -46,6 +46,8 @@ test('① npm 参数串：npm-cli 路径 / install 包名 / --prefix / --fetch-t
     '--prefix',
     '/tmp/staging',
     '--fetch-timeout=30000',
+    '--prefer-offline',
+    '--loglevel=http',
   ]);
   equal(s!.opts.cwd, '/tmp/staging');
   getChild().emit('exit', 0, null);

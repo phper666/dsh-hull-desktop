@@ -136,6 +136,16 @@
     document.querySelectorAll('[data-cancel]').forEach((b) => b.addEventListener('click', async () => { const r = await exec.cancelExecution(currentBoard.id, b.dataset.cancel); if (!r.ok) alert('取消失败：' + (r.message || r.code)); }));
     document.querySelectorAll('[data-verify]').forEach((b) => b.addEventListener('click', async () => { const r = await exec.confirmVerify(currentBoard.id, b.dataset.verify); if (!r.ok) alert('确认失败：' + (r.message || r.code)); }));
     document.querySelectorAll('[data-detail]').forEach((b) => b.addEventListener('click', () => openDetail(b.dataset.detail)));
+    // 点击卡片主体 → 弹详情（操作按钮区 stopPropagation 已挡；拖拽不触发 click）
+    document.querySelectorAll('.kb-card[data-id]').forEach((c) => c.addEventListener('click', (e) => {
+      if (e.target.closest('.kb-card-ops')) return; // 操作按钮区不弹详情
+      openDetail(c.dataset.id);
+    }));
+    // 列表视图行点击 → 弹详情（排除操作按钮）
+    document.querySelectorAll('.kb-list tbody tr[data-id]').forEach((r) => r.addEventListener('click', (e) => {
+      if (e.target.closest('button')) return;
+      openDetail(r.dataset.id);
+    }));
     document.querySelectorAll('.kb-add-card').forEach((b) => b.addEventListener('click', () => promptNewTask(b.dataset.col)));
     document.querySelectorAll('[data-restore]').forEach((b) => b.addEventListener('click', async () => { const r = await kanban.restoreTask(currentBoard.id, b.dataset.restore); if (r.ok) await loadBoard(currentBoard.id); else alert('恢复失败：' + (r.message || r.code)); }));
     document.querySelectorAll('[data-purge]').forEach((b) => b.addEventListener('click', async () => {
