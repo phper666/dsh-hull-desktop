@@ -592,23 +592,25 @@ test('改进 2：跨次升级输出缓冲重置（clearOutput）', async () => {
   await p2;
 });
 
-test('改进 2：npm http fetch 计数 → installing 段 pct 渐进（50→85，+1/包，封顶）', async () => {
+test('改进 2：npm http fetch 计数 → installing 段 pct 缓慢渐进（50→60，每 25 行 +1%，封顶）', async () => {
   const { updater, releaseInstall } = makeUpdater({ installPending: true });
   await updater.check();
   const p = updater.upgrade('1.0.0');
   equal(updater.snapshot().phase, 'installing');
   equal(updater.snapshot().pct, 50, 'installing 起点 50（doUpgrade 固定）');
-  // fetch 行 → pct 渐进
+  // fetch 行 → pct 渐进（每 25 行 +1%，前 24 行不推进——避免一上来虚高）
+  for (let i = 0; i < 24; i++) updater.pushOutput('npm http fetch GET 200 https://registry/pkg');
+  equal(updater.snapshot().pct, 50, '前 24 行 fetch 仍 50（每 25 行才 +1）');
   updater.pushOutput('npm http fetch GET 200 https://registry/@deepseek-ai/dsh-storage');
-  equal(updater.snapshot().pct, 51, '第 1 包 fetch → 50+1');
+  equal(updater.snapshot().pct, 51, '第 25 行 fetch → 50+1');
   updater.pushOutput('npm http fetch GET 200 https://registry/other-pkg');
-  equal(updater.snapshot().pct, 52, '第 2 包 fetch → 50+2');
+  equal(updater.snapshot().pct, 51, '第 26 行仍 51（未到 50 行）');
   // 非 fetch 行不推进 pct
   updater.pushOutput('npm warn deprecated foo');
-  equal(updater.snapshot().pct, 52, '非 fetch 行不推进');
-  // 封顶 85（fetch 100 次也只到 85）
-  for (let i = 0; i < 100; i++) updater.pushOutput('npm http fetch GET 200 https://registry/pkg');
-  equal(updater.snapshot().pct, 85, 'fetch 渐进封顶 85');
+  equal(updater.snapshot().pct, 51, '非 fetch 行不推进');
+  // 封顶 60（fetch 300 行也只到 60——installing 段留余量给 swap 90/verify 95/done 100）
+  for (let i = 0; i < 300; i++) updater.pushOutput('npm http fetch GET 200 https://registry/pkg');
+  equal(updater.snapshot().pct, 60, 'fetch 渐进封顶 60');
   // 输出框内容保留（fetch 行也进缓冲）
   ok(updater.snapshot().output.some((l) => l.includes('npm http fetch')), 'fetch 行进输出缓冲');
   releaseInstall();
@@ -619,8 +621,8 @@ test('改进 2：fetch 计数跨次升级重置（clearOutput 清 fetchCount）'
   const { updater, releaseInstall } = makeUpdater({ installPending: true });
   await updater.check();
   const p = updater.upgrade('1.0.0');
-  updater.pushOutput('npm http fetch GET 200 https://registry/pkg');
-  equal(updater.snapshot().pct, 51, '首次升级 fetch 推进');
+  for (let i = 0; i < 25; i++) updater.pushOutput('npm http fetch GET 200 https://registry/pkg');
+  equal(updater.snapshot().pct, 51, '首次升级 25 行 fetch 推进');
   await updater.cancel();
   releaseInstall();
   await p;
@@ -628,8 +630,8 @@ test('改进 2：fetch 计数跨次升级重置（clearOutput 清 fetchCount）'
   await updater.check();
   const p2 = updater.upgrade('1.0.0');
   equal(updater.snapshot().pct, 50, 'fetchCount 已重置，起点 50');
-  updater.pushOutput('npm http fetch GET 200 https://registry/pkg');
-  equal(updater.snapshot().pct, 51, 'fetchCount 重置后重新 50+1 起步');
+  for (let i = 0; i < 25; i++) updater.pushOutput('npm http fetch GET 200 https://registry/pkg');
+  equal(updater.snapshot().pct, 51, 'fetchCount 重置后 25 行 → 50+1 起步');
   releaseInstall();
   await p2;
 });

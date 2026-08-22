@@ -111,9 +111,10 @@ export class Updater extends EventEmitter {
     // npm http fetch 逐包行 → 计数渐进 pct（方案 A：简单诚实，配合输出框具体行）
     if (/^npm http fetch/.test(line)) {
       this.fetchCount += 1;
-      // 映射 50→85：overlay 起步 50（npm-install 开始），fetch 每 +1 → +1%（封顶 85）；
-      // 总包数未知，用阶段内渐进不承诺真实百分比；单调不回落
-      this.pct = Math.min(85, 50 + this.fetchCount);
+      // 映射 50→60：fetch 行数远超包数（元数据+tarball+子依赖都算，dsh 全树 ~515 包可能数百行），
+      // 若 +1/行会一上来就虚高（用户实测 70%+）。改每 25 行 +1%（500 行 → +20 → 70），封顶 60
+      // ——installing 段 50→60 缓慢爬升，留余量给 swap(90)/verify(95)/done(100)，不承诺真实百分比。
+      this.pct = Math.min(60, 50 + Math.floor(this.fetchCount / 25));
       this.emit('status', this.snapshot());
       return;
     }
