@@ -200,13 +200,13 @@ const navActiveByView = {
 
 **自动检查确认流（M2 修订）**：启动 `maybeAutoCheck`（index.ts:431）自动检查发现新版 → **不强制切设置视图**（v1.7：nav 无「升级」项，nav 状态区升级列打标提示）；手动触发（托盘/设置区块检查）→ 切设置视图渲染确认。理由：自动检查不应把用户从 dsh web 强制导航走。
 
-**设置页升级区块形态**：`section#settings` 内升级区块，双通道分段渲染，各自独立状态（dsh 用 `hull:getDshStatus` 的 `upgrade` 字段，Hull 用 `getHullUpdateStatus`）；250ms 轮询保留（dsh 进度 + Hull 进度）；确认/进度/失败/回滚/重启安装提示统一卡片样式（视觉 token 沿用 settings 卡 + 状态色：成功 `#2f9e44` / 警告 `#f08c00` / 错误 `#e03131`）。
+**升级反馈形态（v1.7 修订：拆到各自区块底部）**：`section#settings` 内 **dsh 升级反馈拆入 dsh 运行时区块底部、Hull 升级反馈拆入 Hull 应用区块底部**（删独立升级卡，操作入口所在区块内联自己的确认/进度/失败/回滚/重启提示，语义内聚无视线断层）；双通道各自独立状态（dsh 用 `hull:getDshStatus` 的 `upgrade` 字段，Hull 用 `getHullUpdateStatus`）；250ms 轮询保留（dsh 进度 + Hull 进度）；确认/进度/失败/回滚/重启安装提示统一卡片样式（视觉 token 沿用 settings 卡 + 状态色：成功 `#2f9e44` / 警告 `#f08c00` / 错误 `#e03131`）。
 
-**设置 section 职责分工（D6 边界，v1.7 修订：无独立 upgrade 视图）**：
-- `section#settings` 升级区块「检查更新」→ 调 `checkDshUpdate`，发现新版 → 升级区块渲染确认（停留在 settings 视图，无跨视图跳转）。
+**设置 section 职责分工（D6 边界，v1.7 修订：无独立升级视图/升级卡）**：
+- `section#settings` dsh 区块「检查更新」→ 调 `checkDshUpdate`，发现新版 → 本区块底部升级反馈渲染确认（停留在 settings 视图，无跨视图跳转）。
 - 设置区块保留：registry / closeToQuit / autoCheckDsh / autoCheckHull / channel / pinnedVersion / 诊断 / 版本信息 / Hull 自动检查开关 / rollback 按钮（canRollback 禁用态不变）。
-- 升级区块承载：确认 / 进度 / 失败 / 回滚结果 / 重启安装提示（dsh + Hull 双通道）。
-- **回滚按钮双入口**：settings 升级区块（canRollback 禁用态）+ 设置 dsh 区块均可触发 `rollbackDsh`——冲突由 **queue 互斥 + phase 门控兜底**（非 idle 时 upgrade 忽略，L3 修订：非 rollback 本身幂等，依据 S3 契约 #4 + queue 互斥），无冲突。
+- dsh 区块承载：dsh 升级确认 / 进度 / 失败 / 回滚结果；Hull 区块承载：Hull 升级确认 / 进度 / 失败 / 重启安装提示。
+- **回滚按钮双入口**：dsh 区块升级反馈（canRollback 禁用态）+ dsh 区块版本区均可触发 `rollbackDsh`——冲突由 **queue 互斥 + phase 门控兜底**（非 idle 时 upgrade 忽略，L3 修订：非 rollback 本身幂等，依据 S3 契约 #4 + queue 互斥），无冲突。
 
 ### 4.6 设置持久化与 settings 轮询（S6'，CON-R002 不破）
 
@@ -317,9 +317,9 @@ dsh-hull-desktop/
 > 2026-08-22 实现完成：偏离清单与红线核对见 `docs/records/M1-重构-m1refactor-record.md` §核验记录（4 偏离点：runCheck auto 参数扩展 / 死代码 runUpgrade+runHullDownload 删除 / 单测 467 保持（方案 YAGNI）/ openSettings helper 定位适配；红线 R001/R002/R003/R004/R005 全部不破）。测试：467 unit + 8 集成 + 12 e2e 全绿；typecheck + build 干净。
 
 **v1.7 迭代调整（用户目验反馈 2026-08-22，共识 v1.7）**：
-- 触发：用户手动验证 M1-重构 UI 后反馈三处——① 左下角需显示 Hull 版本号 ② 升级菜单并入设置更好 ③ 菜单排序不合理（设置应恒最后、去升级菜单、dsh/看板/设置）
-- 决策修订：**D4 推翻**（独立 upgrade 视图 → 升级并入设置页升级区块）；view 4→3 态（去 placeholder:upgrade）；nav 菜单去「升级」项排序 dsh web/任务看板/设置（设置恒最后）；hull:status payload 加 hullVersion = app.getVersion()
-- 实现（commit e825ef1）：main/preload/WindowManager/shell.html 改动 + e2e 适配（cold-start nav 三入口 + 排序 + Hull 版本断言；upgrade.spec 改设置页内升级区块）
+- 触发：用户手动验证 M1-重构 UI 后反馈三处——① 左下角需显示 Hull 版本号 ② 升级菜单并入设置更好 ③ 菜单排序不合理（设置应恒最后、去升级菜单、dsh/看板/设置）；随后进一步反馈——④ 升级区块拆分到 dsh 运行时/Hull 应用各自区块内（语义内聚）⑤ 去任务看板 M2 tag（M2 已交付，历史遗留误导）
+- 决策修订：**D4 推翻**（独立 upgrade 视图 → 升级并入设置页 → 拆到 dsh/Hull 区块各自底部）；view 4→3 态（去 placeholder:upgrade）；nav 菜单去「升级」项排序 dsh web/任务看板/设置（设置恒最后）+ 去 M2 tag；hull:status payload 加 hullVersion = app.getVersion()
+- 实现：commit e825ef1（Hull 版本 + 升级并入设置 + nav 排序）+ 39342a1（升级拆到各自区块 + 去 M2 tag）；main/preload/WindowManager/shell.html 改动 + e2e 适配（cold-start nav 三入口 + 排序 + Hull 版本断言；upgrade.spec 改设置页内升级反馈断言）
 - 测试：467 unit + 8 集成 + 12 e2e 全绿；typecheck + build 干净；编排层零改动（CON-R005）
-- 文档同步：共识 v1.7 / 契约 S3 v0.4 / S6 v0.5 / record §偏离 5 项（迭代调整）
+- 文档同步：共识 v1.7 / 契约 S3 v0.4 / S6 v0.5 / record §偏离 #6（迭代调整）
 - 偏离记录：此迭代调整 = 对已冻结方案的**有向修订**（用户目验反馈，非实现漂移），正文已按 v1.7 形态更新，历史决策见本 §

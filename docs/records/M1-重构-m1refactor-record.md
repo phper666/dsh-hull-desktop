@@ -116,7 +116,7 @@
 | 3 | 单测保持 467（未达「约 471」） | 方案 §5 明确 view 状态机单测 YAGNI；467 为实际基线显式用例数，「471」为估算含复合 | 不新增单测，符合方案 |
 | 4 | e2e openSettings helper 改切视图定位（返回 shell 页） | 独立设置窗口移除，section 无独立 page | 既有 openSettings 语义保留（切 settings 视图），返回壳页 |
 | 5 | P2/M4 补 shell 侧 250ms 实时重渲 upgrade dsh 卡 | Updater pct 中间值不 emit（核验确认）；review 允许「接受折衷或补推送」——在渲染侧（非编排层）补实时快照消费，进度不卡步进 | 编排层零改动（CON-R005），仅 shell.html tick 消费既有 getDshStatus() 快照 |
-| 6 | **v1.7 迭代调整（用户目验反馈 2026-08-22）**：① 升级并入设置页升级区块（D4 推翻，删独立 upgrade 视图 + nav「升级」项）② 菜单排序 dsh web/任务看板/设置（设置恒最后）③ hull:status payload 加 hullVersion（app.getVersion()）显示 Hull 版本 | 用户手动验证 UI 后反馈，方向拍板无歧义（D4 修订 + nav 排序 + Hull 版本显示）；编排层零改动（CON-R005） | commit e825ef1；测试 467+8+12 全绿；共识 v1.7 / 契约 S3 v0.4 / S6 v0.5 同步 |
+| 6 | **v1.7 迭代调整（用户目验反馈 2026-08-22）**：① 升级并入设置页（D4 推翻，删独立 upgrade 视图 + nav「升级」项）再**拆分到 dsh 运行时/Hull 应用区块各自底部**（删独立升级卡，语义内聚）② 菜单排序 dsh web/任务看板/设置（设置恒最后）+ 去任务看板 M2 tag（M2 已交付历史遗留）③ hull:status payload 加 hullVersion（app.getVersion()）显示 Hull 版本 | 用户手动验证 UI 后反馈，方向拍板无歧义（D4 修订 + nav 排序 + Hull 版本 + 升级拆分 + M2 tag 清理）；编排层零改动（CON-R005） | commit e825ef1 + 39342a1；测试 467+8+12 全绿；共识 v1.7 / 契约 S3 v0.4 / S6 v0.5 同步 |
 
 ### 红线核对
 
