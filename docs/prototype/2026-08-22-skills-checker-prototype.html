@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hull · Skills 检查器原型</title>
+<style>
+  :root {
+    --bg: #1e2430;
+    --nav: #171c26;
+    --nav-border: #2a3342;
+    --panel: #202a3a;
+    --panel-border: #2f3a4d;
+    --text: #e8ecf3;
+    --muted: #9aa5b5;
+    --dim: #6b7688;
+    --accent: #2e8bf5;
+    --accent-hover: #3f97fb;
+    --accent-weak: rgba(46, 139, 245, 0.12);
+    --danger: #f85149;
+    --warn: #f5a623;
+    --success: #40c463;
+    --ai: #a56af7;
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+    --radius: 10px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text);
+    display: flex;
+  }
+
+  /* 左侧导航：与 shell.html 一致 */
+  #nav {
+    width: 200px; flex-shrink: 0; background: var(--nav); border-right: 1px solid var(--nav-border);
+    display: flex; flex-direction: column;
+  }
+  #nav-title { padding: 16px 16px 10px; font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
+  #nav-items { flex: 1; padding: 4px 8px; overflow-y: auto; }
+  .nav-item {
+    display: block; width: 100%; text-align: left; padding: 9px 12px; margin-bottom: 2px;
+    border-radius: 8px; border: none; background: transparent; color: #c6d0dd;
+    font-size: 13px; cursor: pointer;
+  }
+  .nav-item:hover { background: #2a3342; }
+  .nav-item.active { background: var(--accent); color: #fff; }
+  .nav-item .tag { float: right; font-size: 10px; color: #6b7688; margin-top: 2px; }
+  .nav-item.active .tag { color: rgba(255,255,255,0.75); }
+  #nav-status {
+    padding: 12px 16px; border-top: 1px solid var(--nav-border); font-size: 12px; color: var(--muted);
+  }
+  #nav-status .row { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+  #nav-status .row:last-child { margin-bottom: 0; }
+  #nav-status .val { color: #c6d0dd; text-align: right; word-break: break-all; }
+
+  /* 右侧内容区 */
+  #content { flex: 1; display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; position: relative; }
+
+  /* 原型说明面板 */
+  .info-panel {
+    background: var(--panel); border-bottom: 1px solid var(--panel-border);
+    padding: 14px 18px; font-size: 12.5px; line-height: 1.7;
+  }
+  .info-panel.collapsed .info-body { display: none; }
+  .info-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .info-header h2 { font-size: 13px; font-weight: 600; }
+  .info-toggle {
+    background: transparent; border: none; color: var(--muted); cursor: pointer; font-size: 12px;
+  }
+  .info-toggle:hover { color: var(--text); }
+  .info-body p { color: var(--muted); margin-bottom: 8px; }
+  .info-body ul { color: var(--muted); padding-left: 18px; margin-bottom: 8px; }
+  .info-body li { margin-bottom: 4px; }
+  .route-chip {
+    display: inline-block; background: var(--accent-weak); color: var(--accent);
+    border-radius: 6px; padding: 1px 8px; font-weight: 600; margin-right: 6px;
+  }
+  .legend { display: flex; gap: 14px; margin-top: 6px; flex-wrap: wrap; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+  /* 工具栏 */
+  .toolbar {
+    display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--panel-border);
+    background: var(--bg); flex-wrap: wrap;
+  }
+  .toolbar h1 { font-size: 16px; font-weight: 600; margin-right: auto; display: flex; align-items: center; gap: 10px; }
+  .toolbar .filter {
+    background: var(--panel); border: 1px solid var(--panel-border); color: var(--text);
+    border-radius: 8px; padding: 7px 10px; font-size: 12.5px; min-width: 120px;
+  }
+  .toolbar .filter::placeholder { color: var(--dim); }
+  .toolbar select.filter { cursor: pointer; }
+  .toolbar .chk { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+  .toolbar .chk input { accent-color: var(--accent); cursor: pointer; }
+  .toolbar button {
+    border: none; border-radius: 8px; padding: 7px 14px; font-size: 12.5px; cursor: pointer;
+    background: var(--accent); color: #fff;
+  }
+  .toolbar button:hover { background: var(--accent-hover); }
+  .toolbar button.ghost { background: transparent; border: 1px solid var(--panel-border); color: var(--muted); }
+  .toolbar button.ghost:hover { background: var(--panel); color: var(--text); }
+
+  /* 统计条 */
+  .stats {
+    display: flex; gap: 18px; padding: 10px 18px; border-bottom: 1px solid var(--panel-border);
+    font-size: 12.5px; color: var(--muted); background: var(--nav);
+  }
+  .stats b { color: var(--text); font-weight: 600; }
+  .stats .upgrade b { color: var(--warn); }
+  .stats .disabled b { color: var(--dim); }
+
+  /* 列表 */
+  #list { flex: 1; padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; }
+  .skill {
+    display: flex; flex-direction: column; gap: 8px;
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: var(--radius); padding: 12px 14px;
+  }
+  .skill:hover { border-color: #3d4b61; }
+  .skill.disabled { opacity: 0.6; }
+  .skill.upgradable { border-left: 4px solid var(--warn); }
+  .skill-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .skill-name { font-size: 13.5px; font-weight: 600; }
+  .skill-scope { font-size: 10px; padding: 2px 7px; border-radius: 999px; }
+  .skill-scope.global { background: rgba(165,106,247,0.16); color: var(--ai); }
+  .skill-scope.scoped { background: rgba(107,118,136,0.16); color: var(--dim); }
+  .upgrade-badge {
+    display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 600;
+    background: rgba(245,166,35,0.16); color: var(--warn); border-radius: 999px; padding: 2px 8px;
+  }
+  .status-badge { font-size: 10.5px; color: var(--dim); }
+  .status-badge.off { color: var(--danger); }
+  .skill-desc { font-size: 12.5px; color: var(--muted); line-height: 1.6; }
+  .skill-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px;
+    border-radius: 6px; padding: 2px 7px; background: var(--panel-border); color: #c6d0dd;
+  }
+  .badge.unknown { color: var(--dim); font-style: italic; }
+  .src-link {
+    display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px;
+    color: var(--accent); cursor: pointer; text-decoration: none;
+  }
+  .src-link:hover { color: var(--accent-hover); text-decoration: underline; }
+  .src-link[data-unknown="1"] { color: var(--dim); cursor: default; }
+  .src-link[data-unknown="1"]:hover { text-decoration: none; color: var(--dim); }
+  .skill-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .skill-actions button {
+    background: transparent; border: 1px solid var(--panel-border); color: var(--muted);
+    border-radius: 7px; padding: 4px 10px; font-size: 11.5px; cursor: pointer;
+  }
+  .skill-actions button:hover { background: var(--panel-border); color: var(--text); }
+  .skill-actions button.danger { border-color: rgba(248,81,73,0.4); color: var(--danger); }
+  .skill-actions button.danger:hover { background: rgba(248,81,73,0.1); }
+  .skill-actions button.upgrade { border-color: rgba(245,166,35,0.4); color: var(--warn); }
+  .skill-actions button.upgrade:hover { background: rgba(245,166,35,0.12); }
+  .skill-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* 开关 */
+  .switch { position: relative; width: 34px; height: 18px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch .track {
+    position: absolute; inset: 0; border-radius: 999px; background: var(--panel-border); transition: .15s; cursor: pointer;
+  }
+  .switch .track::before {
+    content: ''; position: absolute; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--muted); top: 2px; left: 2px; transition: .15s;
+  }
+  .switch input:checked + .track { background: var(--accent); }
+  .switch input:checked + .track::before { transform: translateX(16px); background: #fff; }
+
+  /* 空态 */
+  .empty {
+    margin: 60px auto; text-align: center; color: var(--dim); font-size: 13px; line-height: 2;
+  }
+  .empty .big { font-size: 30px; }
+
+  /* 弹窗 */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(10,14,20,0.72);
+    display: none; align-items: center; justify-content: center; z-index: 60;
+  }
+  .overlay.show { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--panel-border); border-radius: 14px;
+    width: 460px; max-width: 92vw; box-shadow: var(--shadow); padding: 18px;
+  }
+  .modal h3 { font-size: 14px; margin-bottom: 10px; }
+  .modal .body { font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+  .modal .body .path {
+    display: block; background: var(--bg); border: 1px solid var(--panel-border); border-radius: 8px;
+    padding: 8px 10px; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: var(--text);
+    margin: 8px 0; word-break: break-all;
+  }
+  .modal .warn-box {
+    background: rgba(245,166,35,0.1); border: 1px solid rgba(245,166,35,0.35); border-radius: 8px;
+    padding: 10px 12px; font-size: 12px; color: var(--warn); margin: 10px 0;
+  }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+  .modal-actions button { border-radius: 8px; padding: 7px 14px; font-size: 12.5px; cursor: pointer; border: none; }
+  .modal-actions .primary { background: var(--accent); color: #fff; }
+  .modal-actions .primary:hover { background: var(--accent-hover); }
+  .modal-actions .danger { background: transparent; color: var(--danger); border: 1px solid rgba(248,81,73,0.4); }
+  .modal-actions .danger:hover { background: rgba(248,81,73,0.1); }
+  .modal-actions .ghost { background: transparent; border: 1px solid var(--panel-border); color: var(--muted); }
+  .modal-actions .ghost:hover { color: var(--text); background: var(--bg); }
+
+  /* 占位视图 */
+  .placeholder-view {
+    flex: 1; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 12px; color: var(--muted);
+  }
+  .placeholder-view.show { display: flex; }
+
+  /* toast */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--panel); border: 1px solid var(--panel-border); border-radius: 8px;
+    padding: 9px 16px; font-size: 12.5px; color: var(--text); box-shadow: var(--shadow); z-index: 80;
+    display: none;
+  }
+  .toast.show { display: block; animation: fadein .15s; }
+  @keyframes fadein { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #3d4b61; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #4d5d75; }
+</style>
+</head>
+<body>
+
+<nav id="nav" aria-label="Hull 导航">
+  <div id="nav-title">Hull</div>
+  <div id="nav-items">
+    <button class="nav-item" data-view="web">dsh web</button>
+    <button class="nav-item" data-view="settings">设置</button>
+    <button class="nav-item" data-view="upgrade">升级</button>
+    <button class="nav-item" data-view="kanban">任务看板<span class="tag">M2</span></button>
+    <button class="nav-item active" data-view="skills">Skills 检查器<span class="tag">B2</span></button>
+  </div>
+  <div id="nav-status">
+    <div class="row"><span>dsh 状态</span><span class="val">运行中</span></div>
+    <div class="row"><span>版本</span><span class="val">0.3.0-b2</span></div>
+    <div class="row"><span>Skills</span><span class="val">12 个 · 2 可升级</span></div>
+  </div>
+</nav>
+
+<main id="content">
+  <div class="view" id="skills-view">
+    <!-- 原型说明 -->
+    <section class="info-panel" id="info-panel">
+      <div class="info-header">
+        <h2>原型说明 · Skills 检查器（B2）</h2>
+        <button class="info-toggle" onclick="toggleInfo()">收起</button>
+      </div>
+      <div class="info-body">
+        <p><span class="route-chip">独立视图</span>
+          壳内新增 nav 项「Skills 检查器」，统一扫描 agent 目录（claude-code / opencode / codex / gemini-cli / cursor / shared）聚合 skill 列表。
+          数据只读 agent 配置目录（<code>~/.claude</code>、<code>~/.config/opencode</code>、<code>~/.agents</code>…），**不触 DSH_HOME**（CON-R002 相容）。</p>
+        <p><b>全局 vs 平台</b>：<code>~/.agents/skills/</code> = 全局（universal）；<code>~/.claude/skills/</code> = claude + opencode；<code>~/.config/opencode/skills/</code> = opencode 专属。平台徽标显示该 skill 全部生效平台。</p>
+        <p><b>来源解析</b>：metadata.source frontmatter → lock 文件 source+skillPath → 构建 GitHub URL，三级降级；均无显示「来源未知」且不可跳转。</p>
+        <p><b>升级检测</b>：内容哈希（SHA-256，path+content 排序）对比远端（skills-lock.json / cc-switch content_hash / git tree SHA）；不一致显示可升级徽标。</p>
+        <ul>
+          <li><b>移除</b>：点移除弹确认（显示物理路径 + 受影响平台，全局 skill 额外警示），确认后删除。</li>
+          <li><b>升级</b>：可升级 skill 显示琥珀徽标 + 升级按钮；确认弹窗显示来源与哈希变化；升级原子替换失败回滚。</li>
+          <li><b>禁用/启用</b>：每行开关切换生效状态；禁用后列表降透明度 + 「仅看已禁用」可筛出。</li>
+          <li><b>来源跳转</b>：点来源链接模拟 shell.openExternal 打开 GitHub。</li>
+          <li><b>搜索 / 平台筛选 / 快捷开关</b>：组合过滤即时生效；无结果显示空态。</li>
+        </ul>
+        <div class="legend">
+          <span><span class="badge" style="background:rgba(165,106,247,0.16);color:var(--ai)">全局</span> 所有平台生效</span>
+          <span><span class="badge">claude</span> 平台 scoped</span>
+          <span><span class="upgrade-badge">▲ 可升级</span> 本地 ≠ 远端哈希</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="toolbar">
+      <h1>Skills 检查器</h1>
+      <input class="filter" id="q" type="text" placeholder="搜索名称 / 描述 / 来源…">
+      <select class="filter" id="platform">
+        <option value="">全部平台</option>
+        <option value="claude">claude-code</option>
+        <option value="opencode">opencode</option>
+        <option value="codex">codex</option>
+        <option value="gemini">gemini-cli</option>
+        <option value="cursor">cursor</option>
+        <option value="shared">shared（全局）</option>
+      </select>
+      <label class="chk"><input type="checkbox" id="only-upgrade"> 仅看可升级</label>
+      <label class="chk"><input type="checkbox" id="only-disabled"> 仅看已禁用</label>
+      <button class="ghost" onclick="toast('已重新扫描 agent 目录')">重新扫描</button>
+    </div>
+
+    <div class="stats">
+      <span>共 <b id="st-total">0</b> 个 skill</span>
+      <span class="upgrade">可升级 <b id="st-up">0</b></span>
+      <span class="disabled">已禁用 <b id="st-off">0</b></span>
+      <span>全局 <b id="st-global">0</b></span>
+    </div>
+
+    <div id="list"></div>
+  </div>
+
+  <!-- 占位视图 -->
+  <div class="placeholder-view show" id="placeholder-view">
+    <div style="font-size:32px">&#128736;</div>
+    <p id="placeholder-text">该入口为壳级占位，实际功能由主进程驱动</p>
+  </div>
+
+  <!-- 移除确认 -->
+  <div class="overlay" id="remove-overlay" onclick="if(event.target===this)closeRemove()">
+    <div class="modal">
+      <h3>移除 skill</h3>
+      <div class="body">
+        确定要移除 <b id="rm-name" style="color:var(--text)"></b> 吗？<br>
+        将删除以下物理路径（<b style="color:var(--danger)">不可恢复</b>）：
+        <code class="path" id="rm-paths"></code>
+        受影响平台：<span id="rm-plats" style="color:var(--text)"></span>
+      </div>
+      <div class="warn-box" id="rm-warn" style="display:none">⚠ 该 skill 为全局 skill，移除后将影响所有 agent 平台。</div>
+      <div class="modal-actions">
+        <button class="ghost" onclick="closeRemove()">取消</button>
+        <button class="danger" onclick="doRemove()">确认移除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 升级确认 -->
+  <div class="overlay" id="upgrade-overlay" onclick="if(event.target===this)closeUpgrade()">
+    <div class="modal">
+      <h3>升级 skill</h3>
+      <div class="body">
+        检测到 <b id="up-name" style="color:var(--text)"></b> 有新版本。<br>
+        来源：<span id="up-src" style="color:var(--text)"></span><br>
+        <span style="display:inline-flex;gap:6px;margin-top:6px">
+          <span class="badge">本地 hash</span> <code style="font-size:11px" id="up-local"></code>
+          <span class="badge" style="background:rgba(245,166,35,0.16);color:var(--warn)">远端 hash</span> <code style="font-size:11px" id="up-remote"></code>
+        </span>
+      </div>
+      <div class="warn-box">升级为原子替换（staging → 替换），失败自动回滚到当前版本。</div>
+      <div class="modal-actions">
+        <button class="ghost" onclick="closeUpgrade()">取消</button>
+        <button class="primary" onclick="doUpgrade()">确认升级</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</main>
+
+<script>
+  /* ---------- 数据：真实形状（SKILL.md frontmatter + 路径 + 哈希 + 生效平台） ---------- */
+  const SKILLS = [
+    {
+      name: 'phper666-teamflow-consensus-doc', scope: 'global', enabled: true, upgradable: true,
+      description: '建立/更新团队共识文档：从 PRD/原型/评审提取术语、规则，生成并维护 docs/spec 下的共识文档。',
+      source: 'https://github.com/phper666/ai-workflow-skills', srcUnknown: false,
+      platforms: ['claude', 'opencode', 'codex', 'gemini', 'cursor'],
+      paths: ['~/.agents/skills/phper666-teamflow-consensus-doc'],
+      localHash: '9f2a1c…e4', remoteHash: '7b0d3f…c2'
+    },
+    {
+      name: 'phper666-teamflow-story-to-contract', scope: 'global', enabled: true, upgradable: false,
+      description: '生成/更新/复核契约：把需求故事转为 API 契约（docs/api/*契约*），含字段校验与验收标准对齐。',
+      source: 'https://github.com/phper666/ai-workflow-skills', srcUnknown: false,
+      platforms: ['claude', 'opencode', 'codex', 'gemini', 'cursor'],
+      paths: ['~/.agents/skills/phper666-teamflow-story-to-contract'],
+      localHash: '4c9e77…aa', remoteHash: '4c9e77…aa'
+    },
+    {
+      name: 'phper666-teamflow-tech-design', scope: 'global', enabled: true, upgradable: false,
+      description: '技术方案判级：复杂/常规/安全敏感三级判级，产出 docs/design/<id>-<module>-design.md 并冻结。',
+      source: 'https://github.com/phper666/ai-workflow-skills', srcUnknown: false,
+      platforms: ['claude', 'opencode', 'codex', 'gemini', 'cursor'],
+      paths: ['~/.agents/skills/phper666-teamflow-tech-design'],
+      localHash: 'a11f02…9d', remoteHash: 'a11f02…9d'
+    },
+    {
+      name: 'phper666-teamflow-implement-discipline', scope: 'global', enabled: false, upgradable: true,
+      description: '实现纪律：TDD / lint / Code Review / Semgrep / 留痕，三层保险实现管道。',
+      source: 'https://github.com/phper666/ai-workflow-skills', srcUnknown: false,
+      platforms: ['claude', 'opencode', 'codex', 'gemini', 'cursor'],
+      paths: ['~/.agents/skills/phper666-teamflow-implement-discipline'],
+      localHash: 'd3be90…11', remoteHash: 'f5ca2b…77'
+    },
+    {
+      name: 'arkcli-auth', scope: 'scoped', enabled: true, upgradable: false,
+      description: 'ARK CLI 认证管理：云账号登录、token 刷新与多环境切换。',
+      source: 'https://github.com/volcengine/ark-cli', srcUnknown: false,
+      platforms: ['opencode'],
+      paths: ['~/.config/opencode/skills/arkcli-auth'],
+      localHash: '2b8ef0…31', remoteHash: '2b8ef0…31'
+    },
+    {
+      name: 'tdd', scope: 'scoped', enabled: true, upgradable: true,
+      description: 'Test-driven development：red-green-refactor 工作流，先用测试定义行为再实现。',
+      source: 'https://github.com/anthropics/claude-code', srcUnknown: false,
+      platforms: ['claude', 'opencode'],
+      paths: ['~/.claude/skills/tdd'],
+      localHash: 'e77c1a…5b', remoteHash: '9a04d8…c0'
+    },
+    {
+      name: 'lark-doc', scope: 'scoped', enabled: true, upgradable: false,
+      description: '飞书文档操作：读取/创建/编辑云文档，组织内容结构。',
+      source: 'https://github.com/larksuite/oapi-sdk-nodejs', srcUnknown: false,
+      platforms: ['claude', 'opencode'],
+      paths: ['~/.claude/skills/lark-doc'],
+      localHash: '1af9c3…d4', remoteHash: '1af9c3…d4'
+    },
+    {
+      name: 'rust-engineer', scope: 'scoped', enabled: true, upgradable: false,
+      description: '编写、审查、调试惯用 Rust 代码：ownership / lifetimes / trait 设计 / tokio async / FFI。',
+      source: 'https://github.com/rust-lang/rust-analyzer', srcUnknown: false,
+      platforms: ['codex'],
+      paths: ['~/.codex/skills/rust-engineer'],
+      localHash: 'b3de70…2f', remoteHash: 'b3de70…2f'
+    },
+    {
+      name: 'tauri-v2', scope: 'scoped', enabled: true, upgradable: false,
+      description: 'Tauri v2 跨平台应用开发：tauri.conf.json、IPC（invoke/emit/channels）、capabilities 权限。',
+      source: 'https://github.com/tauri-apps/tauri', srcUnknown: false,
+      platforms: ['gemini'],
+      paths: ['~/.gemini/skills/tauri-v2'],
+      localHash: '77e5a1…9e', remoteHash: '77e5a1…9e'
+    },
+    {
+      name: 'webapp-testing', scope: 'scoped', enabled: true, upgradable: false,
+      description: '本地 Web 应用交互测试：Playwright 驱动、截图、浏览器日志查看。',
+      source: 'https://github.com/microsoft/playwright', srcUnknown: false,
+      platforms: ['cursor'],
+      paths: ['~/.cursor/skills/webapp-testing'],
+      localHash: 'c88f4b…6a', remoteHash: 'c88f4b…6a'
+    },
+    {
+      name: 'postgres', scope: 'scoped', enabled: true, upgradable: false,
+      description: 'PostgreSQL 数据库设计：表结构、索引、约束、迁移、pgvector / PostGIS。',
+      source: '', srcUnknown: true,
+      platforms: ['opencode'],
+      paths: ['~/.config/opencode/skills/postgres'],
+      localHash: 'a4d209…7c', remoteHash: ''
+    },
+    {
+      name: 'frontend-design', scope: 'scoped', enabled: false, upgradable: false,
+      description: '区分性视觉设计指导：排版、配色、避免模板化默认风格。',
+      source: 'https://github.com/anthropics/claude-code', srcUnknown: false,
+      platforms: ['claude'],
+      paths: ['~/.claude/skills/frontend-design'],
+      localHash: '3e6b8a…15', remoteHash: '3e6b8a…15'
+    },
+  ];
+
+  const PLATFORM_LABEL = { claude: 'claude', opencode: 'opencode', codex: 'codex', gemini: 'gemini', cursor: 'cursor', shared: 'shared' };
+
+  let pendingRemove = null;
+  let pendingUpgrade = null;
+  let toastTimer = null;
+
+  /* ---------- 渲染 ---------- */
+  function render() {
+    const q = document.getElementById('q').value.trim().toLowerCase();
+    const plat = document.getElementById('platform').value;
+    const onlyUp = document.getElementById('only-upgrade').checked;
+    const onlyOff = document.getElementById('only-disabled').checked;
+
+    const list = document.getElementById('list');
+    const filtered = SKILLS.filter(s => {
+      if (onlyOff && s.enabled) return false;
+      if (onlyUp && !s.upgradable) return false;
+      if (plat && !s.platforms.includes(plat)) return false;
+      if (q && !(s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q) || (s.source || '').toLowerCase().includes(q))) return false;
+      return true;
+    });
+
+    // 统计
+    document.getElementById('st-total').textContent = SKILLS.length;
+    document.getElementById('st-up').textContent = SKILLS.filter(s => s.upgradable).length;
+    document.getElementById('st-off').textContent = SKILLS.filter(s => !s.enabled).length;
+    document.getElementById('st-global').textContent = SKILLS.filter(s => s.scope === 'global').length;
+
+    if (!filtered.length) {
+      list.innerHTML = '<div class="empty"><div class="big">🔍</div>未找到匹配的 skill<br>试试调整搜索词或筛选条件</div>';
+      return;
+    }
+
+    list.innerHTML = filtered.map(s => `
+      <div class="skill ${s.upgradable ? 'upgradable' : ''} ${s.enabled ? '' : 'disabled'}">
+        <div class="skill-head">
+          <span class="skill-name">${escapeHtml(s.name)}</span>
+          <span class="skill-scope ${s.scope}">${s.scope === 'global' ? '全局' : '平台'}</span>
+          ${s.upgradable ? '<span class="upgrade-badge">▲ 可升级</span>' : ''}
+          ${s.enabled ? '' : '<span class="status-badge off">已禁用</span>'}
+          <div class="skill-actions">
+            ${s.upgradable
+              ? `<button class="upgrade" onclick="openUpgrade('${s.name}')">升级</button>`
+              : `<button disabled title="${s.srcUnknown ? '无法检测版本（无来源）' : '已是最新'}">升级</button>`}
+            <button class="danger" onclick="openRemove('${s.name}')">移除</button>
+            <label class="switch" title="启用/禁用">
+              <input type="checkbox" ${s.enabled ? 'checked' : ''} onchange="toggleSkill('${s.name}', this.checked)">
+              <span class="track"></span>
+            </label>
+          </div>
+        </div>
+        <div class="skill-desc">${escapeHtml(s.description)}</div>
+        <div class="skill-meta">
+          ${s.platforms.map(p => `<span class="badge">${PLATFORM_LABEL[p]}</span>`).join('')}
+          <span class="badge">${s.paths[0]}</span>
+          ${s.srcUnknown
+            ? `<span class="src-link" data-unknown="1">来源未知</span>`
+            : `<a class="src-link" onclick="openSource('${s.name}', event)">🔗 ${shortUrl(s.source)}</a>`}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function shortUrl(u) {
+    try {
+      const m = new URL(u);
+      return m.hostname.replace('www.', '') + m.pathname.replace(/\/$/, '');
+    } catch (e) { return u; }
+  }
+  function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function skill(name) { return SKILLS.find(s => s.name === name); }
+
+  /* ---------- 交互 ---------- */
+  function toggleInfo() {
+    const p = document.getElementById('info-panel');
+    p.classList.toggle('collapsed');
+    document.querySelector('.info-toggle').textContent = p.classList.contains('collapsed') ? '展开' : '收起';
+  }
+
+  function openRemove(name) {
+    const s = skill(name);
+    pendingRemove = name;
+    document.getElementById('rm-name').textContent = name;
+    document.getElementById('rm-paths').textContent = s.paths.join('\n');
+    document.getElementById('rm-plats').textContent = s.scope === 'global' ? '全部平台' : s.platforms.map(p => PLATFORM_LABEL[p]).join(' / ');
+    document.getElementById('rm-warn').style.display = s.scope === 'global' ? 'block' : 'none';
+    document.getElementById('remove-overlay').classList.add('show');
+  }
+  function closeRemove() { pendingRemove = null; document.getElementById('remove-overlay').classList.remove('show'); }
+  function doRemove() {
+    const i = SKILLS.findIndex(s => s.name === pendingRemove);
+    if (i >= 0) SKILLS.splice(i, 1);
+    closeRemove();
+    toast('已移除 ' + pendingRemove);
+    render();
+  }
+
+  function openUpgrade(name) {
+    const s = skill(name);
+    pendingUpgrade = name;
+    document.getElementById('up-name').textContent = name;
+    document.getElementById('up-src').textContent = s.source || '来源未知';
+    document.getElementById('up-local').textContent = s.localHash;
+    document.getElementById('up-remote').textContent = s.remoteHash || '—';
+    document.getElementById('upgrade-overlay').classList.add('show');
+  }
+  function closeUpgrade() { pendingUpgrade = null; document.getElementById('upgrade-overlay').classList.remove('show'); }
+  function doUpgrade() {
+    const s = skill(pendingUpgrade);
+    closeUpgrade();
+    toast('已升级 ' + pendingUpgrade + '（原子替换完成，失败已回滚兜底）');
+    if (s) { s.upgradable = false; s.localHash = s.remoteHash; }
+    render();
+  }
+
+  function toggleSkill(name, on) {
+    const s = skill(name);
+    s.enabled = on;
+    toast((on ? '已启用 ' : '已禁用 ') + name);
+    render();
+  }
+
+  function openSource(name, e) {
+    e.preventDefault();
+    const s = skill(name);
+    if (!s || s.srcUnknown) return;
+    toast('shell.openExternal → ' + s.source);
+    // 原型模拟：window.open 换真实打开
+    // window.open(s.source, '_blank');
+  }
+
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  /* ---------- 导航切换（模拟） ---------- */
+  document.querySelectorAll('.nav-item').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.nav-item').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      const isSkills = b.dataset.view === 'skills';
+      document.getElementById('skills-view').style.display = isSkills ? '' : 'none';
+      document.getElementById('placeholder-view').classList.toggle('show', !isSkills);
+    });
+  });
+
+  ['q', 'platform', 'only-upgrade', 'only-disabled'].forEach(id => {
+    document.getElementById(id).addEventListener('input', render);
+    document.getElementById(id).addEventListener('change', render);
+  });
+
+  render();
+</script>
+</body>
+</html>
