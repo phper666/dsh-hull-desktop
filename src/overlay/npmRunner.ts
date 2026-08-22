@@ -6,8 +6,9 @@ import { HullError } from '../shared/errors';
 import { NOOP_LOGGER, type ChildLike, type RuntimeLogger } from '../shared/types';
 import { INSTALL_ERRORS, type InstallErrorCode } from './OverlayManager';
 
-/** npm install 总超时（设计 D5/B5：实测冷装 dsh 234s（254 包/301MB），120s 不足 → 600s 留 2.5x 余量；不入配置面） */
-export const NPM_INSTALL_TIMEOUT_MS = 600_000;
+/** npm install 总超时（实测：dsh 依赖元数据解析极慢——淘宝源间歇 ETIMEDOUT，单包重试 87s/156s，254 包累积远超 600s。
+ *  600s → 3000s（50 分钟，留 5x 余量兜住网络抖动 + 大依赖慢装；用户确认） */
+export const NPM_INSTALL_TIMEOUT_MS = 3_000_000;
 /** npm fetch 挂起防呆（--fetch-timeout 参数；超时归 registry-unreachable 判定） */
 export const FETCH_TIMEOUT_MS = 30_000;
 /** kill 宽限（SIGTERM → SIGKILL） */
@@ -93,6 +94,9 @@ export class NpmRunner {
       '--prefix',
       stagingDir,
       `--fetch-timeout=${FETCH_TIMEOUT_MS}`,
+      // B 方案：--prefer-offline 优先用本地 npm 缓存（已装过/下载过的包不再逐包 revalidate，
+      // 大幅减少淘宝源间歇 ETIMEDOUT 的逐包重试开销；首次冷装仍走网络但超时已放宽到 3000s）
+      '--prefer-offline',
       // 改进：--loglevel=http 逐包输出（npm http fetch GET …）→ onLine → 升级输出框实时显示具体解析/下载进度。
       // 非 tty 下 npm 默认 notice 级几乎无输出；http 级含逐包行（error 分类正则仍命中——http 包含 error 输出）。
       `--loglevel=http`,
