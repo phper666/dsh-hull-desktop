@@ -93,7 +93,7 @@ test.describe('E2E-01 冷启动', () => {
       // 设置 → hull:showSettings → 壳内 settings section 显示（view=placeholder:settings）
       await shell.click('#nav-settings');
       await expect(shell.locator('#settings')).toBeVisible();
-      await expect(shell.locator('#settings h1')).toHaveText('Hull 设置');
+      await expect(shell.locator('#settings h1')).toHaveText('dsh-hull-desktop 设置');
       // 看板 → 已启用（B2）：点击 → 看板面板显示（placeholder:board）
       await expect(shell.locator('#nav-board')).toBeEnabled();
       await shell.click('#nav-board');
@@ -176,7 +176,7 @@ test.describe('E2E-06 托盘', () => {
       // 设置入口：nav-settings → 壳内 settings section（S8' 独立窗口移除）
       await shell.click('#nav-settings');
       await expect(shell.locator('#settings')).toBeVisible();
-      await expect(shell.locator('#settings h1')).toHaveText('Hull 设置');
+      await expect(shell.locator('#settings h1')).toHaveText('dsh-hull-desktop 设置');
       // 升级中禁用（T6-04）：设置视图「检查更新」确认 → installing 段托盘「检查更新…」禁用 → 完成后恢复
       await shell.click('#nav-settings');
       await shell.click('#check-dsh');

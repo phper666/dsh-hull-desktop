@@ -77,6 +77,10 @@ contextBridge.exposeInMainWorld('hull', {
   dismissHullUpdate: () => ipcRenderer.invoke('hull:dismissHullUpdate'),
   /** 打开数据目录（诊断） */
   openDataDir: () => ipcRenderer.invoke('hull:openDataDir'),
+  /** 复制文本到剪贴板（dsh web 地址复制；走主进程，渲染侧 file:// 无 clipboard 权限） */
+  copyText: (text: string) => ipcRenderer.invoke('hull:copyText', text),
+  /** 打开外部浏览器（dsh web 地址浏览器访问；主进程校验 http/https） */
+  openExternal: (url: string) => ipcRenderer.invoke('hull:openExternal', url),
 });
 
 // ─────────────────────────── B1 看板桥（M2） ───────────────────────────

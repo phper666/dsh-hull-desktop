@@ -30,7 +30,7 @@ test.describe('E2E-07 设置页', () => {
       const shell = await openSettings(app);
       // 设置 section 可见（view=placeholder:settings）
       await expect(shell.locator('#settings')).toBeVisible();
-      await expect(shell.locator('#settings h1')).toHaveText('Hull 设置');
+      await expect(shell.locator('#settings h1')).toHaveText('dsh-hull-desktop 设置');
       // 诊断区「打开日志目录」按钮唯一 id 可点（修复重复 id=open-logs 未绑定 bug）
       await expect(shell.locator('#open-logs-dir')).toBeEnabled();
       await expect(shell.locator('#open-logs-dir')).toBeVisible();

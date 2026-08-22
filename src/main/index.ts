@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, shell } from 'electron';
+import { app, clipboard, dialog, ipcMain, shell } from 'electron';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
@@ -578,6 +578,24 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   ipcMain.handle('hull:openDataDir', async () => {
     const errMsg = await shell.openPath(userDataPath);
     return { ok: !errMsg, message: errMsg };
+  });
+
+  // 复制文本到剪贴板（dsh web 地址复制按钮/左下角地址点击；渲染侧 file:// 无 clipboard 权限，走主进程）
+  ipcMain.handle('hull:copyText', async (_e, text: string) => {
+    if (typeof text !== 'string' || text.length > 4096) return { ok: false, message: '无效文本' };
+    clipboard.writeText(text);
+    return { ok: true };
+  });
+
+  // 打开外部浏览器（dsh web 地址在浏览器访问；shell.openExternal 校验 http/https 防任意协议注入）
+  ipcMain.handle('hull:openExternal', async (_e, url: string) => {
+    if (typeof url !== 'string' || !/^https?:\/\/.+/.test(url)) return { ok: false, message: '无效 URL' };
+    try {
+      await shell.openExternal(url);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: (err as Error).message };
+    }
   });
 
   // e2e 测试钩子（S7，HULL_E2E=1 时暴露；生产零影响——原生托盘菜单 Playwright 无法点击，需程序化入口）
