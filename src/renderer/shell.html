@@ -344,10 +344,10 @@
 
   const phaseNames = { idle: '未运行', starting: '启动中', ready: '运行中', failed: '启动失败' };
   const upgradeNames = {
-    idle: '无', checking: '检查中', confirm: '待确认', installing: '安装中',
+    idle: '无', checking: '正在检查更新…', confirm: '待确认', installing: '安装中',
     swapping: '切换中', verifying: '验证中', rollback: '回滚中',
   };
-  const hullPhaseNames = { idle: '无', checking: '检查中', confirm: '待确认', downloading: '下载中', restarting: '重启安装中', done: '已完成' };
+  const hullPhaseNames = { idle: '无', checking: '正在检查更新…', confirm: '待确认', downloading: '下载中', restarting: '重启安装中', done: '已完成' };
 
   // 安装进度轮询（250ms；状态离开 installing → 停止，主进程负责 view 切换）
   let polling = false;
@@ -636,7 +636,8 @@
     }
     // 非 confirm：进度/失败/回滚结果/空闲
     if (u.phase !== 'idle') {
-      const progress = ['installing', 'swapping', 'verifying', 'rollback', 'checking'].includes(u.phase);
+      // checking 无真实进度，不渲染进度条（否则空进度条 + 重复文案误导）；installing/swapping/verifying/rollback 有阶段步进
+      const progress = ['installing', 'swapping', 'verifying', 'rollback'].includes(u.phase);
       // 改进 3：诚实阶段文案——pct 是阶段步进（50=解析/下载，90=替换，95=验证，100=完成），非真实百分比。
       // 文字显示阶段文案（不裸显误导性 50%），进度条宽度保留（弱化百分比数字）。
       const stageText = {
@@ -644,15 +645,19 @@
         swapping: '正在替换…',
         verifying: '正在验证…',
         rollback: '正在回滚…',
-        checking: '正在检查…',
+        checking: '正在检查更新…',
       }[u.phase] || upgradeNames[u.phase] || u.phase;
       // 输出框：installing 段显示 npm 实时输出（最近 100 行，最新在最下）
       const outputHtml = u.phase === 'installing' && Array.isArray(u.output) && u.output.length
         ? `<div class="up-output">${u.output.map((l) => `<span class="line">${esc(l)}</span>`).join('')}</div>` : '';
+      // message 与 stageText 去重：checking 时 u.message（Updater「正在检查更新…」）与 stageText 相同，只显示 stageText（badge）
+      const msgHtml = u.phase === 'checking'
+        ? ''
+        : `<div class="up-msg">${esc(u.message || '')}</div>`;
       body.innerHTML = `
         <div class="urow"><div class="info"><div class="label">状态</div></div><div class="badges">${badge(stageText, 'warn')}</div></div>
         ${progress ? `<div class="up-progress"><div class="bar"><i style="width:${pct}%"></i></div><span class="up-msg">${esc(stageText)}</span></div>` : ''}
-        <div class="up-msg">${esc(u.message || '')}</div>
+        ${msgHtml}
         ${outputHtml}
         ${u.phase === 'installing' ? '<div class="urow"><div><button id="up-dsh-cancel" class="sbtn">取消</button></div></div>' : ''}`;
       const cancelBtn = document.getElementById('up-dsh-cancel');
@@ -723,11 +728,16 @@
       return;
     }
     if (h.phase !== 'idle') {
-      const progress = ['checking', 'downloading'].includes(h.phase);
+      // checking 无真实进度，不渲染进度条（否则空进度条 + 0% 误导）；downloading 有 pct
+      const progress = ['downloading'].includes(h.phase);
+      // checking 时 h.message（HullUpdater「正在检查更新…」）与 badge 相同 → 去重只显示 badge
+      const msgHtml = h.phase === 'checking'
+        ? ''
+        : `<div class="up-msg">${esc(h.message || '')}</div>`;
       body.innerHTML = `
         <div class="urow"><div class="info"><div class="label">状态</div></div><div class="badges">${badge(hullPhaseNames[h.phase] || h.phase, 'warn')}</div></div>
         ${progress ? `<div class="up-progress"><div class="bar"><i style="width:${pct}%"></i></div><span class="up-msg">${pct}%</span></div>` : ''}
-        <div class="up-msg">${esc(h.message || '')}</div>
+        ${msgHtml}
         ${h.phase === 'downloading' ? '<div class="urow"><div><button id="up-hull-cancel" class="sbtn">取消</button></div></div>' : ''}`;
       const cancelBtn = document.getElementById('up-hull-cancel');
       if (cancelBtn) cancelBtn.addEventListener('click', async () => { try { await bridge.cancelHullUpdate(); } catch {} });

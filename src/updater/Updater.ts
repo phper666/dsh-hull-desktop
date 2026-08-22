@@ -65,6 +65,8 @@ export class Updater extends EventEmitter {
   private inFlight: Promise<UpgradeStatus> | null = null;
   /** 升级输出缓冲（最近 MAX_OUTPUT_LINES 行；npm 输出经 main onLine → pushOutput 灌入，改进 2） */
   private output: string[] = [];
+  /** npm http fetch 计数（改进 2：--loglevel=http 逐包行解析 → installing 段 pct 渐进 5→85） */
+  private fetchCount = 0;
   private readonly overlay: OverlayManager;
   private readonly swapManager: SwapManager;
   private readonly runtime: RuntimeManager;
@@ -100,17 +102,28 @@ export class Updater extends EventEmitter {
   private static readonly MAX_OUTPUT_LINES = 100;
 
   /** 输出缓冲灌入（main 的 npmRunner onLine → 本方法；改进 2 升级输出框数据源）。
-   *  仅 installing 段收集（其他段不相关输出不污染缓冲） */
+   *  仅 installing 段收集（其他段不相关输出不污染缓冲）。
+   *  改进 2：npm http fetch 行计数 → pct 渐进（5→85，+1/包），swap/verify/done 保持固定步进。 */
   pushOutput(line: string): void {
     if (this.phase !== UpgradePhase.Installing) return;
     this.output.push(line);
     if (this.output.length > Updater.MAX_OUTPUT_LINES) this.output.splice(0, this.output.length - Updater.MAX_OUTPUT_LINES);
+    // npm http fetch 逐包行 → 计数渐进 pct（方案 A：简单诚实，配合输出框具体行）
+    if (/^npm http fetch/.test(line)) {
+      this.fetchCount += 1;
+      // 映射 50→85：overlay 起步 50（npm-install 开始），fetch 每 +1 → +1%（封顶 85）；
+      // 总包数未知，用阶段内渐进不承诺真实百分比；单调不回落
+      this.pct = Math.min(85, 50 + this.fetchCount);
+      this.emit('status', this.snapshot());
+      return;
+    }
     this.emit('status', this.snapshot());
   }
 
-  /** 输出缓冲清空（升级开始/完成时调用，防跨次升级残留） */
+  /** 输出缓冲清空 + fetch 计数重置（升级开始/完成时调用，防跨次升级残留） */
   private clearOutput(): void {
     if (this.output.length > 0) this.output = [];
+    this.fetchCount = 0;
   }
 
   /** 状态/进度通知（契约 #7） */
