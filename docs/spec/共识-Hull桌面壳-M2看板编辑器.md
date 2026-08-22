@@ -164,11 +164,11 @@
 
 ### 14.1 子需求清单（E1，单子需求）
 
-> 需求标识 kanban-editor；负责人 phper666。待评审定案后转实现（判级见 §15.3）。
+> 需求标识 kanban-editor；负责人 phper666。判级：**常规**（无需技术方案文档）。待评审定案后转实现。
 
-| # | 子需求 | 验收标准（可测试，PRD §7） | 规则绑定 | 来源 PRD |
-|:--|:-------|:---------------------------|:---------|:---------|
-| E1 | 看板 ticket 内容编辑器升级（EasyMDE + markdown-it + DOMPurify） | ① create/edit 打开显示 EasyMDE（工具栏 + 预览）；输入 Markdown 保存后 boards.json 中 description 为对应 Markdown 字符串（空内容为 null）；② 含标题/加粗/列表/代码块/链接的描述在 detail 渲染为对应 HTML；纯文本描述渲染与原文一致；③ XSS 载荷（`<img onerror=...>` / `<script>alert(1)</script>` / `[link](javascript:alert(1))`）注入后打开详情**不执行**（DOMPurify 拦截）且以文本显示；④ 旧 ticket（纯文本）打开详情正常渲染，不报错不丢内容；⑤ 编辑保存后重启壳 boards.json 数据完整、description 为保存的 Markdown（schema 未变）；⑥ 新增依赖体积 ≤ ~160KB gzip 总量，三库均本地 `<script src>` 加载无 CDN 请求；⑦ comment 框行为符合 U-1 定案结论（comment 升级 EasyMDE，与 create/edit 同规格；评论渲染走 DOMPurify 消毒）；⑧ 预览/渲染一致性（Q-047）：e2e 比对 EasyMDE preview vs markdown-it+GFM 渲染同一 Markdown 的结构（标题/加粗/列表/表格/任务列表）语义一致，视觉差异记录不阻断 | CON-R-editor-001/002/003/004/005/006 | 2026-08-22-kanban-editor-prd.md |
+| # | 子需求 | 验收标准（可测试） | 规则绑定 | 依赖 | 来源 PRD | 飞书 ticket |
+|:--|:-------|:-------------------|:---------|:-----|:---------|:------------|
+| E1 | 看板 ticket 内容编辑器升级（EasyMDE + markdown-it + DOMPurify） | ① create/edit/comment 打开显示 EasyMDE（工具栏+预览）；输入 Markdown 保存后 boards.json description 为对应 Markdown 字符串（空为 null）；② detail 只读渲染 markdown（标题/加粗/列表/代码块/链接→HTML），纯文本描述渲染与原文一致；③ XSS 载荷（`<img onerror=...>` / `<script>alert(1)</script>` / `[link](javascript:alert(1))`）注入后打开详情**不执行**（DOMPurify 拦截）；④ 旧 ticket 纯文本正常渲染，不报错不丢内容；⑤ 编辑保存后重启壳 boards.json 数据完整、description 为保存的 Markdown（schema 未变）；⑥ 新增依赖体积 ≤ ~160KB gzip 总量，三库均本地 `<script src>` 加载无 CDN 请求；⑦ EasyMDE 弹窗关闭 `editor.destroy()` + 移除事件监听（Q-041）；⑧ CSP/CM5 兼容实测记录（Q-042）；⑨ innerHTML 站点全消毒审计清单入实现记录（Q-043）；⑩ 预览/渲染一致性 e2e：EasyMDE preview vs markdown-it+GFM 同一 Markdown 结构语义一致，视觉差异记录不阻断（Q-047） | CON-R-editor-001~006 | 无（renderer 独立） | 2026-08-22-kanban-editor-prd.md | E1（待 ticket 化） |
 
 ## 15. 附录与版本记录
 
@@ -180,7 +180,7 @@
 
 | 版本 | 日期 | 变更摘要条目 | 说明 |
 |:-----|:-----|:-------------|:-----|
-| v1.2 已发布 | 2026-08-22 | 变更摘要-M2看板.md（2026-08-22 kanban-editor 扫描回写） | 扫描 Q-041~Q-047 全部 closed 回写（实例生命周期/CSP 兼容/DOMPurify 覆盖面/GFM 插件清单/暗色主题/焦点 ESC/预览一致性）；U-2 一并关闭；CON-R-editor-005 定案 |
+| v1.2 已发布 | 2026-08-22 | 变更摘要-M2看板.md（2026-08-22 kanban-editor 扫描回写） | 扫描 Q-041~Q-047 全部 closed 回写（实例生命周期/CSP 兼容/DOMPurify 覆盖面/GFM 插件清单/暗色主题/焦点 ESC/预览一致性）；U-2 一并关闭；CON-R-editor-005 定案；§14.1 E1 子需求清单补全（对齐父共识 7 列格式 + 判级常规） |
 | v1.1 已发布 | 2026-08-22 | 变更摘要-M2看板.md（2026-08-22 kanban-editor） | U-1 定案：comment 框升级 EasyMDE；CON-R-editor-006 生效；PRD v0.2；规则索引已回写 |
 | v1.0 草稿 | 2026-08-22 | 变更摘要-M2看板.md | 首次建立：EasyMDE + markdown-it + DOMPurify 编辑器升级；CON-R-editor-001~006；U-1~U-3（PRD T1~T3） |
 
