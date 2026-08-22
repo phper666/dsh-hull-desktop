@@ -1,0 +1,78 @@
+/* S1 Skills 检查器样式——深色主题沿用 shell.html/kanban.css 设计语言（sk-* 前缀） */
+/* 覆盖 .placeholder 居中：占满内容区（同 #board 先例；非 hidden 才生效，z-index 压过官方容器） */
+#skills:not(.hidden) { position: absolute; inset: 0; z-index: 10; display: block; }
+#skills-root {
+  width: 100%; height: 100%; display: flex; flex-direction: column;
+  overflow: hidden; background: #1e2430; color: #e8ecf3; font-size: 13px;
+}
+
+/* 工具条 */
+.sk-toolbar {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+  border-bottom: 1px solid #2a3342; background: #171c26; flex-wrap: wrap;
+}
+.sk-tabs, .sk-filters { display: flex; align-items: center; gap: 6px; }
+.sk-tab {
+  padding: 6px 12px; border-radius: 8px; border: none; cursor: pointer;
+  font-size: 12px; background: #2a3342; color: #c6d0dd;
+}
+.sk-tab:hover { background: #33405a; }
+.sk-tab.active { background: #2e8bf5; color: #fff; }
+.sk-input, .sk-select {
+  background: #171c26; border: 1px solid #2a3342; border-radius: 8px; color: #e8ecf3;
+  padding: 7px 10px; font-size: 12px; outline: none;
+}
+.sk-input:focus, .sk-select:focus { border-color: #2e8bf5; }
+.sk-input { width: 200px; }
+.sk-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #c6d0dd; cursor: pointer; user-select: none; }
+.sk-spacer { flex: 1; }
+.sk-btn {
+  padding: 6px 12px; border-radius: 8px; border: none; cursor: pointer;
+  font-size: 12px; background: #2a3342; color: #c6d0dd;
+}
+.sk-btn:hover { background: #33405a; }
+
+/* 状态栏 */
+.sk-statusbar {
+  display: flex; align-items: center; gap: 14px; padding: 6px 14px;
+  background: #171c26; border-bottom: 1px solid #2a3342; font-size: 12px; color: #9aa5b5;
+}
+.sk-statusbar b { color: #e8ecf3; font-weight: 600; }
+.sk-scanstate { color: #2e8bf5; }
+.sk-scanstate.error { color: #f85149; }
+
+/* 列表 */
+.sk-list { flex: 1; overflow-y: auto; padding: 8px 14px; }
+.sk-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 12px; margin-bottom: 6px; border-radius: 10px; background: #232b3b;
+}
+.sk-main { flex: 1; min-width: 0; }
+.sk-name { font-weight: 600; font-size: 13px; color: #e8ecf3; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sk-desc {
+  margin-top: 3px; color: #9aa5b5; font-size: 12px; line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.sk-meta { margin-top: 5px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; }
+.sk-badge {
+  display: inline-block; padding: 1px 8px; border-radius: 999px;
+  background: #2a3342; color: #c6d0dd; font-size: 11px;
+}
+.sk-badge.global { background: #2e8bf533; color: #6db3ff; }
+.sk-badge.upgradable { background: #d2992233; color: #e3b341; }
+.sk-badge.latest { background: #2ea04333; color: #56d364; }
+.sk-badge.unknown { background: #6b768833; color: #9aa5b5; }
+.sk-badge.notinstalled { background: #f8514933; color: #f85149; }
+.sk-source { color: #6db3ff; cursor: pointer; text-decoration: none; word-break: break-all; }
+.sk-source:hover { text-decoration: underline; }
+.sk-source.none { color: #6b7688; cursor: default; }
+.sk-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: 11px; color: #9aa5b5; white-space: nowrap; }
+
+/* 骨架屏（FR-10：扫描中先骨架不阻塞） */
+.sk-skeleton { height: 58px; border-radius: 10px; margin-bottom: 6px; background: linear-gradient(90deg, #232b3b 25%, #2a3342 50%, #232b3b 75%); background-size: 200% 100%; animation: sk-shimmer 1.2s infinite; }
+@keyframes sk-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* 空态 */
+.sk-empty { margin: auto; text-align: center; color: #9aa5b5; }
+.sk-empty h2 { font-size: 18px; font-weight: 600; margin: 0 0 8px; color: #e8ecf3; }
+.sk-error { color: #f85149; font-size: 12px; }

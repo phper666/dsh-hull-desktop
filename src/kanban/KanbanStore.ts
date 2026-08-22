@@ -48,7 +48,7 @@ const BOARDS_FILE = 'boards.json';
 /** 变更防抖写盘延迟（共识 §9：500ms） */
 const DEBOUNCE_MS = 500;
 
-/** 任务创建入参（B1 契约 createTask） */
+/** 任务创建入参（B1 契约 createTask + T2 增量 startDate） */
 export interface CreateTaskInput {
   title: string;
   columnId?: string;
@@ -59,6 +59,7 @@ export interface CreateTaskInput {
   priority?: Priority;
   assignee?: string | null;
   dueDate?: string | null;
+  startDate?: string | null;
   labels?: string[];
   description?: string | null;
 }
@@ -71,6 +72,7 @@ export interface UpdateTaskPatch {
   priority?: Priority;
   assignee?: string | null;
   dueDate?: string | null;
+  startDate?: string | null;
   acceptanceCriteria?: AcceptanceCriteria | null;
   executionMode?: ExecutionMode;
   dependencies?: string[];
@@ -100,6 +102,13 @@ function newId(prefix: string): string {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+/** date-only 合法性：YYYY-MM-DD 格式 + 日历真实存在（回读比对，拒 2026-02-30 类滚转） */
+function isValidDateOnly(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
 }
 
 /** 生成默认看板（空看板自动建 6 态模板列，CON-R017） */
@@ -183,7 +192,14 @@ export class KanbanStore {
       // 更高版本文件：无法降级，走备份重建兜底
       return this.backupAndRebuild(`boards.json version ${version} 高于当前，重建默认`);
     }
-    return { version, boards: obj.boards as Board[] };
+    const data: KanbanData = { version, boards: obj.boards as Board[] };
+    // 读取侧归一化（T2 契约 T2-9）：v2 直载不走 migrate，脏/缺 startDate 在此统一 coerce
+    for (const b of data.boards) {
+      for (const t of b.tasks) {
+        t.startDate = this.coerceStartDate(t.startDate);
+      }
+    }
+    return data;
   }
 
   /** 损坏/迁移失败兜底：备份 corrupt-<ts> + 重建默认看板（CON-R017） */
@@ -199,13 +215,23 @@ export class KanbanStore {
   }
 
   /**
-   * schema 迁移（CON-R017）：version < 当前 → 逐版迁移到当前。
-   * B1 契约当前仅 version=1；v1→当前无迁移函数（不兼容演进递增时才写）。
-   * 未来新增迁移：在此按版本号递增补 transform（B5 契约 P2-B5-2 复用此 migrate）。
+   * schema 迁移（CON-R017 + T2 CON-R-timeline-004）：version < 当前 → 逐版迁移到当前。
+   * v1→v2：boards[]→columns[]→tasks[] 三层遍历为每个任务补 startDate:null（只加字段不动存量）；
+   * 幂等——已含 startDate 的任务原样跳过，脏值归一化 null；version > 当前 → store-migrate-failed
+   * （load 路径捕获后走 backupAndRebuild 静默兜底；直调/B5 导入路径错误码可见）。
+   * B5 importVersionOlder 复用此 migrate（P2-B5-2），v1 导入自动升 v2。
    */
   migrate(data: KanbanData): KanbanData {
-    let current = { ...data, boards: data.boards.map((b) => ({ ...b, tasks: b.tasks.map((t) => ({ ...t })) })) };
-    // v1 → v2 等：预留迁移链（YAGNI——当前无迁移函数）
+    const current = { ...data, boards: data.boards.map((b) => ({ ...b, tasks: b.tasks.map((t) => ({ ...t })) })) };
+    if (current.version < 2) {
+      for (const b of current.boards) {
+        // 第 2 层 columns[] 不动（迁移只加任务字段）
+        for (const t of b.tasks) {
+          t.startDate = t.startDate === undefined ? null : this.coerceStartDate(t.startDate);
+        }
+      }
+      current.version = 2;
+    }
     if (current.version > KANBAN_SCHEMA_VERSION) {
       throw new HullError(ERR.migrateFailed, `boards.json version ${current.version} 高于当前 schema`);
     }
@@ -349,6 +375,7 @@ export class KanbanStore {
       priority: input.priority ?? 'P2',
       assignee: input.assignee ?? null,
       dueDate: input.dueDate ?? null,
+      startDate: this.normalizeStartDate(input.startDate ?? null),
       order: this.nextOrder(board, columnId),
       blockedFromColumnId: null,
       archivedAt: null,
@@ -374,6 +401,7 @@ export class KanbanStore {
     if (patch.priority !== undefined) task.priority = patch.priority;
     if (patch.assignee !== undefined) task.assignee = patch.assignee;
     if (patch.dueDate !== undefined) task.dueDate = patch.dueDate;
+    if (patch.startDate !== undefined) task.startDate = this.normalizeStartDate(patch.startDate);
     if (patch.executionMode !== undefined) {
       // 切 auto 缺 AC 门控（CON-R018）
       if (patch.executionMode === 'auto') this.validateAc(patch.acceptanceCriteria ?? task.acceptanceCriteria);
@@ -600,6 +628,22 @@ export class KanbanStore {
   private validateTitle(title: string): void {
     if (!title || title.trim().length === 0) throw new HullError(ERR.validation, '标题不能为空');
     if (title.length > 200) throw new HullError(ERR.validation, '标题超长（≤200）');
+  }
+
+  /**
+   * startDate 写入侧归一化（权威，T2 契约/Q-052）：null 合法；
+   * 非 string/null 类型 → validation-error（编程错误要拒绝，field 经 message 标识 startDate）；
+   * string 但非合法 YYYY-MM-DD → 归一化 null 不拒绝（数据错误要容错，CON-R-timeline-007）。
+   */
+  private normalizeStartDate(v: unknown): string | null {
+    if (v === null) return null;
+    if (typeof v !== 'string') throw new HullError(ERR.validation, 'startDate 类型非法（须为 string|null）');
+    return isValidDateOnly(v) ? v : null;
+  }
+
+  /** startDate 读取侧宽松归一化（load/migrate 路径）：任何非法输入置 null，不抛错不阻塞加载（T2-9） */
+  private coerceStartDate(v: unknown): string | null {
+    return typeof v === 'string' && isValidDateOnly(v) ? v : null;
   }
 
   /** CON-R018：auto 模式 AC 四字段强校验必填 */

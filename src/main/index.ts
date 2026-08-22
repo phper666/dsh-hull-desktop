@@ -1,6 +1,7 @@
 import { app, clipboard, dialog, ipcMain, shell } from 'electron';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { acquireSingleInstanceLock } from '../runtime/SingleInstance';
@@ -31,6 +32,8 @@ import { ProviderRegistry } from '../exec/provider/ProviderRegistry';
 import { ApprovalManager } from '../exec/approval/ApprovalManager';
 import { AcEditor } from '../exec/approval/AcEditor';
 import { registerExecIpc } from '../exec/ipc/ExecIpc';
+import { SkillsScanner } from '../skills/SkillsScanner';
+import { registerSkillsIpc } from '../skills/ipc/SkillsIpc';
 import { Logger } from '../log/Logger';
 
 /**
@@ -70,6 +73,10 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     maxAttachmentSizeMB: 10,
   });
   registerKanbanIpc(kanbanStore);
+  // S1：Skills 扫描器（只读扫描 + 快照；写面归 S2）+ 4 IPC 注册（feishu-s1-skills-api-contract）
+  // homeDir 注入（Q-037 DI）；hash-cache.json 落 <userData>/skills/（CON-R-skills-006，不触 DSH_HOME）
+  const skillsScanner = new SkillsScanner({ homeDir: homedir(), userDataPath, logger });
+  registerSkillsIpc(skillsScanner);
   // B3+B4：执行引擎门面（ExecutionEngine 组装 Scheduler/Heartbeat/Convergence/VerifyGate）+ ProviderManager
   // + ProviderRegistry（M2 注册 'dsh' ACP）+ ApprovalManager + AcEditor + 执行控制 IPC（B3 10 + B4 3）
   const providerManager = new ProviderManager();
@@ -504,6 +511,13 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     winMgr.showPlaceholder('board', '');
     return { ok: true };
   });
+  // S1：壳导航 Skills 入口 → 主进程切 view 到 placeholder:skills（官方 WebContentsView 隐藏，
+  // 渲染侧 section#skills 显示；镜像 showBoard，D6 view 单一事实源不破）
+  ipcMain.handle('hull:showSkills', async () => {
+    if (quitting) return { ok: false, message: '正在退出' };
+    winMgr.showSkills();
+    return { ok: true };
+  });
   // B2 补丁：壳导航 dsh web 入口 → 恢复官方 view（与 showBoard 对称；无新通道）
   // 语义照 onStatus 映射：Ready → loadOfficialUrl（officialDirty 则重载，否则复用）；
   // Failed → failed 占位；其余（idle/starting）→ starting 占位
@@ -587,9 +601,14 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     return { ok: true };
   });
 
-  // 打开外部浏览器（dsh web 地址在浏览器访问；shell.openExternal 校验 http/https 防任意协议注入）
+  // 打开外部浏览器（shell.openExternal 校验防任意协议注入）。
+  // S1 收紧（CON-R-skills-007/Q-038）：https 全放行；http 仅限本机回环（dsh web 地址行
+  // http://127.0.0.1:port 依赖此通道打开，不能一刀切拒绝）；file:/javascript:/data:/任意 host http 全拒。
+  // skill 来源跳转在渲染侧额外强制 ^https://（skills.js），双层防御。
+  const isSafeExternalUrl = (url: string): boolean =>
+    /^https:\/\/.+/.test(url) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?([/?#]|$)/.test(url);
   ipcMain.handle('hull:openExternal', async (_e, url: string) => {
-    if (typeof url !== 'string' || !/^https?:\/\/.+/.test(url)) return { ok: false, message: '无效 URL' };
+    if (typeof url !== 'string' || !isSafeExternalUrl(url)) return { ok: false, message: '无效 URL' };
     try {
       await shell.openExternal(url);
       return { ok: true };

@@ -4,15 +4,16 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { HullError } from '../shared/errors';
 import { KanbanStore } from './KanbanStore';
-import { KANBAN_SCHEMA_VERSION, KANBAN_STORE_ERRORS } from './types';
+import { KANBAN_SCHEMA_VERSION, KANBAN_STORE_ERRORS, type KanbanData } from './types';
 
 const tempDirs: string[] = [];
 after(() => {
   for (const d of tempDirs) rmSync(d, { recursive: true, force: true });
 });
 
-function makeStore(files: Record<string, string> = {}, opts: { maxAttachmentSizeMB?: number; onWriteError?: (e: Error) => void } = {}) {
+function makeStore(files: Record<string, string> = {}, opts: { maxAttachmentSizeMB?: number; onWriteError?: (e: Error) => void; cls?: new (o: ConstructorParameters<typeof KanbanStore>[0]) => KanbanStore } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'hull-kanban-'));
   tempDirs.push(dir);
   for (const [name, content] of Object.entries(files)) {
@@ -27,7 +28,7 @@ function makeStore(files: Record<string, string> = {}, opts: { maxAttachmentSize
     writeFileSync(join(dir, name), content);
   }
   const logger = { info() {}, warn() {}, error() {}, dshLog() {} };
-  const store = new KanbanStore({ userDataPath: dir, logger, ...opts });
+  const store = new (opts.cls ?? KanbanStore)({ userDataPath: dir, logger, maxAttachmentSizeMB: opts.maxAttachmentSizeMB, onWriteError: opts.onWriteError });
   cleanup.push(() => store.dispose());
   return { store, dir, filePath: join(dir, 'kanban', 'boards.json') };
 }
@@ -109,7 +110,7 @@ test('K4 损坏重建：store-corrupt 备份 corrupt-<ts> + 重建默认看板',
 
 // ─────────────────────── K5 schema 迁移成功 ───────────────────────
 test('K5 schema 迁移成功：version=1 数据 + 迁移函数 → version=2', () => {
-  // 当前 schema=1，构造 version=1 数据应直接加载（无需迁移）
+  // v1 数据加载即触发 v1→v2 迁移（补 startDate:null），看板内容原样保留
   const v1 = JSON.stringify({ version: 1, boards: [{ id: 'b_x', name: '旧板', columns: [], tasks: [], order: 0, createdAt: 'x', updatedAt: 'x' }] });
   const { store } = makeStore({ 'kanban/boards.json': v1 });
   const boards = store.getBoards();
@@ -421,4 +422,192 @@ test('K31 updateTask 已删任务 → store-not-found', () => {
   const { store } = makeStore();
   const board = store.getBoards()[0];
   throws(() => store.updateTask(board.id, 't_不存在', { title: 'x' }), (e: unknown) => (e as { code: string }).code === KANBAN_STORE_ERRORS.notFound);
+});
+
+// ═══════════════════════ T2 startDate 字段 + schema v2 迁移（feishu-t2 契约） ═══════════════════════
+
+/** 构造 v1 多板多列多任务数据（任务无 startDate 字段，CON-R-timeline-004 三层遍历对象）。
+ * 返回纯 JSON 形状（非 Task 类型）：v1 数据本就无 startDate，经文件注入走 load/migrate 路径。 */
+function makeV1Data() {
+  const tl = (id: string, type: 'system' | 'comment', content: string) => ({
+    id, type, content, attachments: [], createdAt: '2026-01-02T00:00:00.000Z',
+    author: type === 'system' ? 'system' : 'user',
+    source: type === 'system' ? { type: 'system' } : { type: 'user', provider: 'dsh' },
+    execution: null,
+  });
+  const col = (id: string, type: string, order: number) => ({ id, type, name: type, order, color: '#58a6ff', hidden: false });
+  const task = (id: string, columnId: string, timeline: ReturnType<typeof tl>[], extra: Record<string, unknown> = {}) => ({
+    id, parentId: null, columnId, title: `任务${id}`, executionMode: 'manual', executionStatus: 'idle',
+    currentExecutionId: null, acceptanceCriteria: null,
+    agentSpec: { provider: 'dsh', agent: null, model: null, subagentPolicy: 'auto' },
+    dependencies: [], description: null, labels: [], priority: 'P2', assignee: null,
+    dueDate: '2026-03-01', order: 0, blockedFromColumnId: null, archivedAt: null, archivedFromColumnId: null,
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', timeline, ...extra,
+  });
+  return {
+    version: 1,
+    boards: [
+      {
+        id: 'b_v1a', name: 'V1板A', order: 0,
+        createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+        columns: [col('c_todo', 'todo', 0), col('c_done', 'done', 1)],
+        tasks: [
+          task('t_v1_1', 'c_todo', [tl('tl_a1', 'system', '任务创建'), tl('tl_a2', 'comment', '备注')]),
+          task('t_v1_2', 'c_done', [tl('tl_b1', 'system', '任务创建')], { priority: 'P0' }),
+        ],
+      },
+      {
+        id: 'b_v1b', name: 'V1板B', order: 1,
+        createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+        columns: [col('c_todo2', 'todo', 0)],
+        tasks: [task('t_v1_3', 'c_todo2', [])],
+      },
+    ],
+  };
+}
+
+/** T2-1/V1：v1 数据迁移成功——三层遍历补 startDate:null、version 升 2、落盘 v2、数据零丢失 */
+test('T2-1 v1 数据迁移成功：全任务补 startDate=null、version 升 2、落盘 v2、零丢失', () => {
+  const v1 = JSON.stringify(makeV1Data());
+  const { store, filePath } = makeStore({ 'kanban/boards.json': v1 });
+  const snap = store.snapshot();
+  equal(snap.version, 2, 'KANBAN_SCHEMA_VERSION 升 2');
+  const all = snap.boards.flatMap((b) => b.tasks);
+  equal(all.length, 3);
+  for (const t of all) ok('startDate' in t && t.startDate === null, `每任务补 startDate:null（${t.id}）`);
+  // 只加不动：标题/timeline/dueDate/priority 原样保留
+  const t1 = all.find((t) => t.id === 't_v1_1')!;
+  equal(t1.timeline.length, 2, 'timeline 条目数不变');
+  equal(t1.timeline[1].content, '备注');
+  equal(t1.dueDate, '2026-03-01');
+  equal(all.find((t) => t.id === 't_v1_2')!.priority, 'P0');
+  // 迁移成功即落盘为 v2（load 路径 flushNow）
+  store.flushSync();
+  equal(JSON.parse(readFileSync(filePath, 'utf8')).version, 2);
+});
+
+/** T2-2/V2：迁移幂等——v2 数据重复加载/migrate 直调不重复加字段不报错，已有值原样保留 */
+test('T2-2 迁移幂等：重复 migrate 无 diff，已有 startDate 原样跳过', () => {
+  const data = makeV1Data();
+  (data.boards[0].tasks[0] as { startDate?: string | null }).startDate = '2026-08-25'; // 预置已有值
+  data.version = 2;
+  const { store } = makeStore({ 'kanban/boards.json': JSON.stringify(data) });
+  equal(store.snapshot().version, 2);
+  equal(store.getTasks('b_v1a').find((t) => t.id === 't_v1_1')!.startDate, '2026-08-25', '重启加载原值保留');
+  // migrate() 直调两次 → 无 diff（幂等）
+  const once = store.migrate(store.snapshot());
+  const twice = store.migrate(once);
+  equal(JSON.stringify(twice), JSON.stringify(once));
+  equal(twice.boards[0].tasks[0].startDate, '2026-08-25', '直调不覆盖已有值');
+});
+
+/** T2-3：迁移失败兜底——migrate 抛错 → corrupt-<ts> 备份 + 默认看板重建，无错误码外泄 */
+test('T2-3 迁移失败兜底：备份 corrupt-<ts> + 重建默认看板（load 路径静默恢复）', () => {
+  class FailingMigrateStore extends KanbanStore {
+    override migrate(_data: KanbanData): KanbanData {
+      throw new HullError(KANBAN_STORE_ERRORS.migrateFailed, 'mock 迁移失败');
+    }
+  }
+  const { store, dir } = makeStore({ 'kanban/boards.json': JSON.stringify(makeV1Data()) }, { cls: FailingMigrateStore });
+  // 构造器不抛错；renderer 收到默认看板（无错误码）
+  const boards = store.getBoards();
+  equal(boards.length, 1);
+  equal(boards[0].name, '默认看板');
+  ok(readdirSync(join(dir, 'kanban')).some((f) => f.startsWith('boards.json.corrupt-')), '备份存在');
+});
+
+/** T2-4/V3：version 过新拒绝——备份含原 version=3 数据 + 默认看板重建 */
+test('T2-4 version 过新：corrupt 备份保留原数据 + 默认看板重建，无错误码返回', () => {
+  const v3 = JSON.stringify({ version: 3, boards: [{ id: 'b_new', name: '未来板', columns: [], tasks: [], order: 0, createdAt: 'x', updatedAt: 'x' }] });
+  const { store, dir } = makeStore({ 'kanban/boards.json': v3 });
+  equal(store.getBoards().length, 1);
+  equal(store.getBoards()[0].name, '默认看板');
+  const backup = readdirSync(join(dir, 'kanban')).find((f) => f.startsWith('boards.json.corrupt-'));
+  ok(backup, '备份存在');
+  equal(JSON.parse(readFileSync(join(dir, 'kanban', backup!), 'utf8')).version, 3, '备份含原 version=3 数据');
+});
+
+/** T2-5/T2-6：createTask 带 startDate 持久化 + 不带向后兼容（null） */
+test('T2-5/6 createTask startDate：带值持久化重启保持 + 不传向后兼容 null', () => {
+  const { store, filePath } = makeStore();
+  const board = store.getBoards()[0];
+  const t1 = store.createTask(board.id, { title: '带开始日期', startDate: '2026-08-25' });
+  equal(t1.startDate, '2026-08-25');
+  const t2 = store.createTask(board.id, { title: '不带开始日期' }); // 既有调用零影响
+  equal(t2.startDate, null);
+  store.flushSync();
+  const raw = JSON.parse(readFileSync(filePath, 'utf8')) as { boards: Array<{ tasks: Array<{ id: string; startDate: string | null }> }> };
+  equal(raw.boards[0].tasks.find((t) => t.id === t1.id)!.startDate, '2026-08-25', '落盘含该字段');
+  equal(raw.boards[0].tasks.find((t) => t.id === t2.id)!.startDate, null);
+  // 重启保持
+  const { store: s2 } = makeStore({ 'kanban/boards.json': readFileSync(filePath, 'utf8') });
+  equal(s2.getTasks(board.id).find((t) => t.id === t1.id)!.startDate, '2026-08-25');
+  s2.dispose();
+});
+
+/** T2-7/T2-8：updateTask 设/清生效 + 不传保持原值（部分更新语义同 dueDate） */
+test('T2-7/8 updateTask startDate：设/清生效 + 不传保持 + updatedAt 刷新', () => {
+  const { store, filePath } = makeStore();
+  const board = store.getBoards()[0];
+  const t = store.createTask(board.id, { title: 'X', startDate: '2026-08-01' });
+  const u1 = store.updateTask(board.id, t.id, { startDate: '2026-09-01' });
+  equal(u1.startDate, '2026-09-01');
+  ok(u1.updatedAt >= t.updatedAt, 'updatedAt 刷新');
+  const u2 = store.updateTask(board.id, t.id, { priority: 'P1' });
+  equal(u2.startDate, '2026-09-01', '部分更新：不传不变');
+  const u3 = store.updateTask(board.id, t.id, { startDate: null });
+  equal(u3.startDate, null, '显式 null 清空');
+  store.flushSync();
+  const raw = JSON.parse(readFileSync(filePath, 'utf8')) as { boards: Array<{ tasks: Array<{ id: string; startDate: string | null }> }> };
+  equal(raw.boards[0].tasks.find((x) => x.id === t.id)!.startDate, null, '清空落盘同步');
+});
+
+/** T2-9：脏数据读取归一化——v2 文件手工脏 startDate → 加载置 null 不阻塞（CON-R-timeline-007） */
+test('T2-9 脏数据读取归一化：startDate:"not-a-date" 加载置 null，其余任务正常', () => {
+  const dirty = makeV1Data();
+  dirty.version = 2;
+  (dirty.boards[0].tasks[0] as { startDate?: unknown }).startDate = 'not-a-date';
+  (dirty.boards[0].tasks[1] as { startDate?: unknown }).startDate = '2026-02-30'; // 格式对但日历不存在
+  const { store } = makeStore({ 'kanban/boards.json': JSON.stringify(dirty) });
+  const tasks = store.getTasks('b_v1a');
+  equal(tasks.find((t) => t.id === 't_v1_1')!.startDate, null, '非法串归一化 null');
+  equal(tasks.find((t) => t.id === 't_v1_2')!.startDate, null, '不存在日期归一化 null');
+  equal(tasks.length, 2, '不阻塞加载');
+});
+
+/** T2-10：startDate > dueDate 存储层照存不报错（展示层以 dueDate 为准属 T1 渲染行为） */
+test('T2-10 startDate>dueDate 照存：存储层不校验不报错', () => {
+  const { store } = makeStore();
+  const board = store.getBoards()[0];
+  const t = store.createTask(board.id, { title: 'Y', startDate: '2026-10-01', dueDate: '2026-09-01' });
+  equal(t.startDate, '2026-10-01');
+  equal(t.dueDate, '2026-09-01');
+});
+
+/** T2-11：startDate 非 string/null 类型拒参 → validation-error（field=startDate 经 message 标识） */
+test('T2-11 类型错误拒参：createTask/updateTask startDate 非 string|null → validation-error', () => {
+  const { store } = makeStore();
+  const board = store.getBoards()[0];
+  const t = store.createTask(board.id, { title: 'Z' });
+  throws(() => store.createTask(board.id, { title: 'W', startDate: 123 as unknown as string }), (e: unknown) => {
+    const err = e as { code: string; message: string };
+    return err.code === KANBAN_STORE_ERRORS.validation && /startDate/.test(err.message);
+  });
+  throws(() => store.updateTask(board.id, t.id, { startDate: true as unknown as string }), (e: unknown) => {
+    const err = e as { code: string; message: string };
+    return err.code === KANBAN_STORE_ERRORS.validation && /startDate/.test(err.message);
+  });
+});
+
+/** T2-13：IPC 写入非法日期串归一化——写入侧存 null 不拒绝（类型错误仍拒见 T2-11） */
+test('T2-13 非法日期串归一化：createTask/updateTask 非法串 → 响应与落盘均 null', () => {
+  const { store, filePath } = makeStore();
+  const board = store.getBoards()[0];
+  const t = store.createTask(board.id, { title: 'W', startDate: 'not-a-date' });
+  equal(t.startDate, null, 'createTask 非法串 → null');
+  const u = store.updateTask(board.id, t.id, { startDate: '2026-13-99' });
+  equal(u.startDate, null, 'updateTask 非法月日 → null');
+  store.flushSync();
+  const raw = JSON.parse(readFileSync(filePath, 'utf8')) as { boards: Array<{ tasks: Array<{ id: string; startDate: string | null }> }> };
+  equal(raw.boards[0].tasks.find((x) => x.id === t.id)!.startDate, null, '落盘 null');
 });

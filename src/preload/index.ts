@@ -45,6 +45,8 @@ contextBridge.exposeInMainWorld('hull', {
   showBoard: () => ipcRenderer.invoke('hull:showBoard'),
   /** B2 补丁：壳导航 dsh web 入口 → main 恢复官方 view（Ready 复用/重载，否则占位态） */
   showWeb: () => ipcRenderer.invoke('hull:showWeb'),
+  /** S1：壳导航 Skills 入口 → main 切 view 到 placeholder:skills（与官方 UI 互斥） */
+  showSkills: () => ipcRenderer.invoke('hull:showSkills'),
 
   // ─────────── S8' D2：设置页桥 15 方法并入（原 src/preload/settings.ts 删除） ───────────
   /** 读全量设置（settings.json 持久化，CON-R002 走主进程 SettingsProvider） */
@@ -81,6 +83,19 @@ contextBridge.exposeInMainWorld('hull', {
   copyText: (text: string) => ipcRenderer.invoke('hull:copyText', text),
   /** 打开外部浏览器（dsh web 地址浏览器访问；主进程校验 http/https） */
   openExternal: (url: string) => ipcRenderer.invoke('hull:openExternal', url),
+});
+
+// ─────────────────────────── S1 Skills 扫描桥 ───────────────────────────
+/** window.skills 4 原语（feishu-s1-skills-api-contract §接口清单；本地搜索 frontend-only 无通道） */
+contextBridge.exposeInMainWorld('skills', {
+  /** 触发后台扫描（幂等；返回即时快照，通常 scanning + 上次结果） */
+  scan: () => invoke('skills:scan'),
+  /** 当前快照（轮询至 status=ready） */
+  getSnapshot: () => invoke('skills:getSnapshot'),
+  /** 状态栏计数 */
+  getStatus: () => invoke('skills:getStatus'),
+  /** 远程 marketplace 检索（仅浏览不安装） */
+  searchRemote: (query: string) => invoke('skills:searchRemote', query),
 });
 
 // ─────────────────────────── B1 看板桥（M2） ───────────────────────────

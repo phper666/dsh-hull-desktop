@@ -33,6 +33,34 @@
   const visibleCols = () => (currentBoard?.columns || []).filter((c) => !c.hidden);
   const subDone = (t) => { const ch = childrenOf(t.id); return ch.length ? ch.filter((c) => c.executionStatus === 'succeeded' || colById(c.columnId)?.type === 'done').length + '/' + ch.length : ''; };
 
+  // ── E1 Markdown 渲染管线（markdown-it v14.1.0 + DOMPurify；CON-R-editor-002/004/005）──
+  // 库经 shell.html <script src="vendor/*"> 本地加载（CSP 'self'，无 CDN）；缺失时兜底 esc（纯文本降级，不抛错）
+  // breaks:true 兼容旧纯文本 description 换行显示（E5 场景：textarea 时代换行可见）；html:false 默认——原始 HTML 转义为文本
+  const md = (() => {
+    if (!window.markdownit || !window.DOMPurify) return null;
+    const inst = window.markdownit({ breaks: true, linkify: false });
+    if (window.markdownitTaskLists) inst.use(window.markdownitTaskLists);
+    return inst;
+  })();
+  // 唯一用户内容进 HTML 的出口：markdown-it 渲染 → DOMPurify 消毒（XSS 载荷移除事件属性/script/javascript: href）
+  const mdRender = (text) => (md && window.DOMPurify ? window.DOMPurify.sanitize(md.render(String(text ?? ''))) : esc(text));
+
+  // ── E1 EasyMDE 编辑器工厂（create/edit/comment 三入口；Q-041 每开新建、关即 destroy 不复用）──
+  function createEditor(textarea, initialValue) {
+    if (!window.EasyMDE || !textarea) return null;
+    return new window.EasyMDE({
+      element: textarea,
+      initialValue: initialValue ?? textarea.value,
+      spellChecker: false,
+      autoDownloadFontAwesome: false, // E14/Q-042：禁运行时注入 FA CDN <link>（CSP 违规源）；图标用本地 unicode 兜底（easymde-dark.css）
+      status: false,
+      // 工具栏裁剪：去 guide（外链导航风险）/fullscreen（弹窗内无意义），保留 GFM 全套 + 双预览切换
+      toolbar: ['bold', 'italic', 'strikethrough', 'heading', '|', 'unordered-list', 'ordered-list', 'check-list', 'table', '|', 'link', '|', 'preview', 'side-by-side'],
+      previewRender: (plainText) => mdRender(plainText), // Q-047：预览与详情读态同一管线，GFM 语义两端一致
+    });
+  }
+  const destroyEditor = (editor) => { try { editor?.destroy(); } catch {} };
+
   // ── 主渲染 ──
   function render() {
     if (!currentBoard) { renderEmpty(); return; }
@@ -162,7 +190,18 @@
     wrap.className = 'kb-modal';
     wrap.innerHTML = `<div class="kb-modal-box"><div class="kb-modal-head"><h3>${esc(title)}</h3><button class="kb-icon" data-close>✕</button></div><div class="kb-modal-body">${bodyHtml}</div></div>`;
     boardRoot.appendChild(wrap);
-    const close = () => { if (wrap.parentNode) wrap.remove(); };
+    // E1/Q-041：关闭清理栈（EasyMDE destroy 等，onOpen 内经 wrap.kbOnClose 注册）；Q-046：ESC 关闭
+    // （document 冒泡层处理——CM5 默认不拦 ESC，编辑器不吞；随 close 移除监听防泄漏）
+    const cleanups = [];
+    const close = () => {
+      if (!wrap.parentNode) return;
+      while (cleanups.length) { try { cleanups.pop()(); } catch {} }
+      wrap.remove();
+    };
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', onKey);
+    cleanups.push(() => document.removeEventListener('keydown', onKey));
+    wrap.kbOnClose = cleanups;
     wrap.addEventListener('click', (e) => { if (e.target === wrap || e.target.closest('[data-close]')) close(); });
     onOpen?.(wrap, close);
     return wrap;
@@ -192,8 +231,12 @@
       <div class="kb-f"><label>描述</label><textarea id="kb-desc" class="kb-input"></textarea></div>
       <div class="kb-modal-ops"><button class="kb-btn kb-primary" data-ok>创建</button><button class="kb-btn" data-close>取消</button></div>`, (w, close) => {
       $('#kb-mode', w).addEventListener('change', (e) => { $('#kb-ac-wrap', w).style.display = e.target.value === 'auto' ? '' : 'none'; });
+      // E1：描述 textarea → EasyMDE（Q-041 新实例；关闭随 kbOnClose destroy）
+      const descEditor = createEditor($('#kb-desc', w));
+      w.kbOnClose.push(() => destroyEditor(descEditor));
+      descEditor?.codemirror.focus(); // Q-046：初始化后编辑器获得焦点
       const ok = async () => {
-        const input = { title: $('#kb-tt', w).value.trim(), columnId: colId, priority: $('#kb-pri', w).value, description: $('#kb-desc', w).value.trim() || null, executionMode: $('#kb-mode', w).value };
+        const input = { title: $('#kb-tt', w).value.trim(), columnId: colId, priority: $('#kb-pri', w).value, description: (descEditor ? descEditor.value() : $('#kb-desc', w).value).trim() || null, executionMode: $('#kb-mode', w).value };
         if (!input.title) return;
         if (input.executionMode === 'auto') {
           input.acceptanceCriteria = { what: $('#kb-ac-what', w).value.trim(), expected: $('#kb-ac-exp', w).value.trim(), verify: $('#kb-ac-ver', w).value.trim() };
@@ -216,17 +259,23 @@
     modal('卡片详情', `
       <div class="kb-detail-head"><h3>${esc(t.title)}</h3><span class="kb-pri kb-pri-${t.priority}">${esc(t.priority)}</span>${t.labels.map((l) => `<span class="kb-label">${esc(l)}</span>`).join('')}</div>
       <div class="kb-detail-meta"><span>列：${col ? esc(col.name) : ''}</span><span>模式：${t.executionMode}</span><span class="kb-exec kb-exec-${t.executionStatus}">${execNames[t.executionStatus] || t.executionStatus}</span>${t.dueDate ? `<span>截止：${t.dueDate}</span>` : ''}</div>
-      ${t.description ? `<div class="kb-detail-desc">${esc(t.description)}</div>` : ''}
+      ${t.description ? `<div class="kb-detail-desc kb-md">${mdRender(t.description)}</div>` : ''}
       ${sub.length ? `<div class="kb-sub-list"><h4>子任务</h4>${sub.map((s) => `<div class="kb-sub-item">${esc(s.title)} <span class="kb-exec kb-exec-${s.executionStatus}">${execNames[s.executionStatus] || s.executionStatus}</span></div>`).join('')}</div>` : ''}
       <div class="kb-tl"><h4>时间线</h4>${tl.length === 0 ? '<div class="kb-empty-tl">暂无记录</div>' : tl.map((i) => {
         const who = i.author || (i.source.type === 'agent' ? 'agent' : i.source.type);
         const execTag = i.execution ? `<span class="kb-exec kb-exec-${i.execution.status}">${execNames[i.execution.status] || i.execution.status}${i.execution.exitCode !== null ? ` (${i.execution.exitCode})` : ''}</span>` : '';
-        return `<div class="kb-tl-item"><span class="kb-tl-who">${esc(who)}</span><span class="kb-tl-time">${new Date(i.createdAt).toLocaleString()}</span>${execTag}<div class="kb-tl-content">${esc(i.content)}</div></div>`;
+        // E1/FE-2：comment 条目走 Markdown 管线（DOMPurify 消毒）；execution/system 条目维持 esc 纯文本
+        const contentHtml = i.type === 'comment' ? mdRender(i.content) : esc(i.content);
+        return `<div class="kb-tl-item"><span class="kb-tl-who">${esc(who)}</span><span class="kb-tl-time">${new Date(i.createdAt).toLocaleString()}</span>${execTag}<div class="kb-tl-content kb-md">${contentHtml}</div></div>`;
       }).join('')}</div>
       <div class="kb-comment"><textarea id="kb-comment-text" class="kb-input" placeholder="添加评论…"></textarea><button class="kb-btn kb-primary" data-comment>评论</button></div>
       <div class="kb-modal-ops"><button class="kb-btn" data-edit>编辑</button>${t.archivedAt ? '' : `<button class="kb-btn" data-archive>归档</button>`}<button class="kb-btn kb-danger" data-del>删除</button></div>`, (w, close) => {
+      // E1：评论框 → EasyMDE（CON-R-editor-006 U-1；Q-041 生命周期同 create/edit）
+      const cmtEditor = createEditor($('#kb-comment-text', w));
+      w.kbOnClose.push(() => destroyEditor(cmtEditor));
+      cmtEditor?.codemirror.focus();
       $('[data-comment]', w).addEventListener('click', async () => {
-        const c = $('#kb-comment-text', w).value.trim();
+        const c = (cmtEditor ? cmtEditor.value() : $('#kb-comment-text', w).value).trim();
         if (!c) return;
         const r = await kanban.addComment({ boardId: currentBoard.id, taskId: t.id, content: c });
         if (r.ok) { close(); await loadBoard(currentBoard.id); openDetail(t.id); } else alert('评论失败：' + (r.message || r.code));
@@ -249,8 +298,12 @@
       <div class="kb-f"><label>描述</label><textarea id="kb-desc" class="kb-input">${esc(t.description || '')}</textarea></div>
       <div class="kb-f"><label>优先级</label><select id="kb-pri" class="kb-input">${['P0', 'P1', 'P2', '无'].map((p) => `<option ${t.priority === p ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
       <div class="kb-modal-ops"><button class="kb-btn kb-primary" data-ok>保存</button><button class="kb-btn" data-close>取消</button></div>`, (w, close) => {
+      // E1：预填现值（FE-1 editor.value(t.description ?? '')）；旧纯文本 = 合法 Markdown（E10 兼容）
+      const descEditor = createEditor($('#kb-desc', w), t.description ?? '');
+      w.kbOnClose.push(() => destroyEditor(descEditor));
+      descEditor?.codemirror.focus(); // Q-046/E19：编辑弹窗初始 focus 在编辑器
       $('[data-ok]', w).addEventListener('click', async () => {
-        const r = await kanban.updateTask(currentBoard.id, t.id, { title: $('#kb-tt', w).value.trim(), description: $('#kb-desc', w).value.trim() || null, priority: $('#kb-pri', w).value });
+        const r = await kanban.updateTask(currentBoard.id, t.id, { title: $('#kb-tt', w).value.trim(), description: (descEditor ? descEditor.value() : $('#kb-desc', w).value).trim() || null, priority: $('#kb-pri', w).value });
         if (r.ok) { close(); await loadBoard(currentBoard.id); } else alert('保存失败：' + (r.message || r.code));
       });
     });
@@ -351,6 +404,16 @@
       approvalModal.querySelector('[data-deny]').addEventListener('click', async () => { const reason = prompt('拒绝原因（可选）') || ''; await exec.approvalRespond(currentBoard.id, p.taskId, p.requestId, 'denied', reason); approvalModal = null; });
     });
   }
+
+  // ── E1 markdown 链接代理（detail desc / timeline comment / EasyMDE 预览内 <a>）──
+  // 壳页不可导航：http(s) 走 hull:openExternal（主进程协议校验），其余 href 一律阻止默认行为
+  boardRoot.addEventListener('click', (e) => {
+    const a = e.target.closest('.kb-md a[href], .EasyMDEContainer .editor-preview a[href], .EasyMDEContainer .editor-preview-side a[href]');
+    if (!a || !boardRoot.contains(a)) return;
+    e.preventDefault();
+    const href = a.getAttribute('href') || '';
+    if (/^https?:/i.test(href)) window.hull?.openExternal?.(href);
+  });
 
   // ── 初始化 ──
   refreshBoards();

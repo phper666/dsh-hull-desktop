@@ -51,11 +51,21 @@ export const KANBAN_B4_EXEC_IPC_CHANNELS = [
   'kanban:getAgentProviders',
 ] as const;
 
-/** 全部 channel 白名单（B1+B5+B3+B4 共面） */
+/** S1 Skills 扫描 4 channel（feishu-s1-skills-api-contract §接口清单）+ hull:showSkills 壳导航 */
+export const SKILLS_IPC_CHANNELS = [
+  'hull:showSkills',
+  'skills:scan',
+  'skills:getSnapshot',
+  'skills:searchRemote',
+  'skills:getStatus',
+] as const;
+
+/** 全部 channel 白名单（B1+B5+B3+B4+S1 共面） */
 export const ALL_IPC_CHANNELS = [
   ...KANBAN_IPC_CHANNELS,
   ...KANBAN_EXEC_IPC_CHANNELS,
   ...KANBAN_B4_EXEC_IPC_CHANNELS,
+  ...SKILLS_IPC_CHANNELS,
 ] as const;
 
 export type KanbanIpcChannel = (typeof KANBAN_IPC_CHANNELS)[number];

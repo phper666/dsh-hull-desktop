@@ -55,8 +55,9 @@ export type PlaceholderView =
   | 'placeholder:failed'
   | 'placeholder:not-installed'
   | 'placeholder:board'
+  | 'placeholder:skills'
   | 'placeholder:settings';
-export type PlaceholderMode = 'starting' | 'installing' | 'failed' | 'not-installed' | 'board' | 'settings';
+export type PlaceholderMode = 'starting' | 'installing' | 'failed' | 'not-installed' | 'board' | 'skills' | 'settings';
 
 /**
  * 主窗口壳框架（S8 D1-D7 唯一实现依据）：
@@ -221,6 +222,11 @@ export class WindowManager {
   /** S8' D1：壳导航/托盘设置入口 → 切 settings 视图（封装 showPlaceholder + 推送，§4.1） */
   showSettings(): void {
     this.showPlaceholder('settings', '');
+  }
+
+  /** S1：壳导航 Skills 入口 → 切 skills 视图（镜像 showSettings/showBoard，D6 view 单一事实源不破） */
+  showSkills(): void {
+    this.showPlaceholder('skills', '');
   }
 
   /** 官方 view 边界同步（D2）：幂等；resize/maximize/unmaximize/全屏/display-metrics-changed 统一入口 */

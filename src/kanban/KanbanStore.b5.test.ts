@@ -57,7 +57,7 @@ function sampleBoard(id: string, name: string): Board {
         executionStatus: 'idle', currentExecutionId: null, acceptanceCriteria: null,
         agentSpec: { provider: 'dsh', agent: null, model: null, subagentPolicy: 'auto' },
         dependencies: [], description: null, labels: [], priority: 'P2', assignee: null,
-        dueDate: null, order: 0, blockedFromColumnId: null, archivedAt: null, archivedFromColumnId: null,
+        dueDate: null, startDate: null, order: 0, blockedFromColumnId: null, archivedAt: null, archivedFromColumnId: null,
         createdAt: now, updatedAt: now, timeline: [],
       },
       {
@@ -65,7 +65,7 @@ function sampleBoard(id: string, name: string): Board {
         executionStatus: 'idle', currentExecutionId: null, acceptanceCriteria: null,
         agentSpec: { provider: 'dsh', agent: null, model: null, subagentPolicy: 'auto' },
         dependencies: [], description: null, labels: [], priority: 'P2', assignee: null,
-        dueDate: null, order: 1, blockedFromColumnId: null, archivedAt: null, archivedFromColumnId: null,
+        dueDate: null, startDate: null, order: 1, blockedFromColumnId: null, archivedAt: null, archivedFromColumnId: null,
         createdAt: now, updatedAt: now,
         timeline: [
           { id: 'tl_c', type: 'comment', content: '带附件', attachments: [{ name: 'a.txt', size: 100, path: 'kanban/attachments/tl_c/a.txt' }], createdAt: now, author: 'user', source: { type: 'user' }, execution: null },
@@ -76,7 +76,7 @@ function sampleBoard(id: string, name: string): Board {
         executionStatus: 'succeeded', currentExecutionId: null, acceptanceCriteria: null,
         agentSpec: { provider: 'dsh', agent: null, model: null, subagentPolicy: 'auto' },
         dependencies: [], description: null, labels: [], priority: 'P2', assignee: null,
-        dueDate: null, order: 0, blockedFromColumnId: null, archivedAt: now, archivedFromColumnId: 'c_done',
+        dueDate: null, startDate: null, order: 0, blockedFromColumnId: null, archivedAt: now, archivedFromColumnId: 'c_done',
         createdAt: now, updatedAt: now, timeline: [],
       },
     ],
@@ -312,7 +312,7 @@ test('X17 合并 id 冲突自动重映射：冲突板重 id + 内部引用（par
     executionStatus: 'idle', currentExecutionId: null, acceptanceCriteria: null,
     agentSpec: { provider: 'dsh', agent: null, model: null, subagentPolicy: 'auto' },
     dependencies: [], description: null, labels: [], priority: 'P2', assignee: null,
-    dueDate: null, order: 2, blockedFromColumnId: null, archivedAt: null, archivedFromColumnId: null,
+    dueDate: null, startDate: null, order: 2, blockedFromColumnId: null, archivedAt: null, archivedFromColumnId: null,
     createdAt: 'x', updatedAt: 'x', timeline: [],
   };
   b.tasks.push(sibling);

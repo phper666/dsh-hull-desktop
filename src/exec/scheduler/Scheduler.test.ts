@@ -120,6 +120,7 @@ function makeTask(id: string, over: Partial<Task> = {}): Task {
     priority: 'P2',
     assignee: null,
     dueDate: null,
+    startDate: null,
     order: 0,
     blockedFromColumnId: null,
     archivedAt: null,

@@ -3,8 +3,8 @@
  * 字段唯一事实源 = B1 契约；本文件为 TS 类型镜像。
  */
 
-/** schema 版本（B1 契约：当前 1；不兼容演进递增 + 迁移函数） */
-export const KANBAN_SCHEMA_VERSION = 1;
+/** schema 版本（B1 契约 + T2 增量：v2 起 Task 携带 startDate；不兼容演进递增 + 迁移函数） */
+export const KANBAN_SCHEMA_VERSION = 2;
 
 /** 模板列类型（6 态；仅模板列有 type，唯一不可删） */
 export type ColumnType = 'backlog' | 'todo' | 'in_progress' | 'verify' | 'done' | 'blocked';
@@ -100,6 +100,8 @@ export interface Task {
   priority: Priority;
   assignee: string | null;
   dueDate: string | null;
+  /** 计划开始日期（ISO YYYY-MM-DD，与 dueDate 同型可空；T2 契约 FR-3/Q-052） */
+  startDate: string | null;
   order: number;
   /** Blocked 来源列；解除时恢复（来源列已删/隐藏则回 Todo） */
   blockedFromColumnId: string | null;

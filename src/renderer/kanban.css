@@ -130,13 +130,13 @@ textarea.kb-input { min-height: 56px; resize: vertical; font-family: inherit; }
 .kb-detail-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
 .kb-detail-head h3 { font-size: 15px; flex: 1; }
 .kb-detail-meta { display: flex; gap: 10px; color: #9aa5b5; font-size: 12px; margin-bottom: 10px; flex-wrap: wrap; }
-.kb-detail-desc { color: #c6d0dd; font-size: 13px; margin-bottom: 10px; white-space: pre-wrap; }
+.kb-detail-desc { color: #c6d0dd; font-size: 13px; margin-bottom: 10px; }
 .kb-sub-list h4, .kb-tl h4 { font-size: 12px; color: #9aa5b5; margin: 10px 0 6px; }
 .kb-sub-item { padding: 4px 0; }
 .kb-tl-item { padding: 6px 0; border-bottom: 1px solid #232b3a; font-size: 12px; }
 .kb-tl-who { color: #58a6ff; font-weight: 600; }
 .kb-tl-time { color: #6b7688; font-size: 11px; margin-left: 6px; }
-.kb-tl-content { color: #c6d0dd; margin-top: 3px; white-space: pre-wrap; }
+.kb-tl-content { color: #c6d0dd; margin-top: 3px; }
 .kb-empty-tl { color: #6b7688; font-size: 12px; }
 .kb-comment { display: flex; gap: 8px; margin-top: 12px; }
 .kb-comment .kb-input { flex: 1; }
@@ -148,3 +148,50 @@ textarea.kb-input { min-height: 56px; resize: vertical; font-family: inherit; }
 .kb-col-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #232b3a; }
 .kb-col-row .kb-col-chip { flex: 1; }
 .kb-tpl { font-size: 10px; color: #6b7688; }
+
+/* ── E1 markdown 渲染产物（detail desc / timeline comment / EasyMDE 预览；Q-045 暗色可读）── */
+/* 选择器与 vendor/easymde-dark.css 的预览面板共用，保证 Q-047 两端视觉语义一致 */
+.kb-md h1, .EasyMDEContainer .editor-preview h1, .EasyMDEContainer .editor-preview-side h1,
+.kb-md h2, .EasyMDEContainer .editor-preview h2, .EasyMDEContainer .editor-preview-side h2,
+.kb-md h3, .EasyMDEContainer .editor-preview h3, .EasyMDEContainer .editor-preview-side h3,
+.kb-md h4, .EasyMDEContainer .editor-preview h4, .EasyMDEContainer .editor-preview-side h4,
+.kb-md h5, .EasyMDEContainer .editor-preview h5, .EasyMDEContainer .editor-preview-side h5,
+.kb-md h6, .EasyMDEContainer .editor-preview h6, .EasyMDEContainer .editor-preview-side h6 {
+  margin: 8px 0 4px; line-height: 1.35;
+}
+.kb-md h1, .EasyMDEContainer .editor-preview h1, .EasyMDEContainer .editor-preview-side h1 { font-size: 17px; }
+.kb-md h2, .EasyMDEContainer .editor-preview h2, .EasyMDEContainer .editor-preview-side h2 { font-size: 15px; }
+.kb-md h3, .EasyMDEContainer .editor-preview h3, .EasyMDEContainer .editor-preview-side h3 { font-size: 14px; }
+.kb-md h4, .kb-md h5, .kb-md h6,
+.EasyMDEContainer .editor-preview h4, .EasyMDEContainer .editor-preview h5, .EasyMDEContainer .editor-preview h6,
+.EasyMDEContainer .editor-preview-side h4, .EasyMDEContainer .editor-preview-side h5, .EasyMDEContainer .editor-preview-side h6 { font-size: 13px; }
+.kb-md p, .EasyMDEContainer .editor-preview p, .EasyMDEContainer .editor-preview-side p { margin: 4px 0; }
+.kb-md ul, .kb-md ol, .EasyMDEContainer .editor-preview ul, .EasyMDEContainer .editor-preview ol,
+.EasyMDEContainer .editor-preview-side ul, .EasyMDEContainer .editor-preview-side ol { margin: 4px 0; padding-left: 20px; }
+.kb-md li, .EasyMDEContainer .editor-preview li, .EasyMDEContainer .editor-preview-side li { margin: 2px 0; }
+.kb-md code, .EasyMDEContainer .editor-preview code, .EasyMDEContainer .editor-preview-side code {
+  background: #232b3a; border-radius: 4px; padding: 1px 4px; font-size: 12px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+.kb-md pre, .EasyMDEContainer .editor-preview pre, .EasyMDEContainer .editor-preview-side pre {
+  background: #171c26; border: 1px solid #2a3342; border-radius: 8px; padding: 8px 10px;
+  overflow-x: auto; margin: 6px 0;
+}
+.kb-md pre code, .EasyMDEContainer .editor-preview pre code, .EasyMDEContainer .editor-preview-side pre code { background: transparent; padding: 0; }
+.kb-md blockquote, .EasyMDEContainer .editor-preview blockquote, .EasyMDEContainer .editor-preview-side blockquote {
+  border-left: 3px solid #2a3342; color: #9aa5b5; margin: 6px 0; padding: 2px 10px;
+}
+.kb-md a, .EasyMDEContainer .editor-preview a, .EasyMDEContainer .editor-preview-side a { color: #58a6ff; }
+.kb-md table, .EasyMDEContainer .editor-preview table, .EasyMDEContainer .editor-preview-side table {
+  border-collapse: collapse; margin: 6px 0; display: block; overflow-x: auto; max-width: 100%;
+}
+.kb-md th, .kb-md td, .EasyMDEContainer .editor-preview th, .EasyMDEContainer .editor-preview td,
+.EasyMDEContainer .editor-preview-side th, .EasyMDEContainer .editor-preview-side td {
+  border: 1px solid #2a3342; padding: 3px 8px; text-align: left;
+}
+.kb-md th, .EasyMDEContainer .editor-preview th, .EasyMDEContainer .editor-preview-side th { background: #232b3a; }
+.kb-md hr, .EasyMDEContainer .editor-preview hr, .EasyMDEContainer .editor-preview-side hr { border: none; border-top: 1px solid #2a3342; margin: 8px 0; }
+.kb-md img, .EasyMDEContainer .editor-preview img, .EasyMDEContainer .editor-preview-side img { max-width: 100%; }
+/* GFM 任务列表 checkbox（markdown-it-task-lists；E17） */
+.kb-md .task-list-item, .EasyMDEContainer .editor-preview .task-list-item, .EasyMDEContainer .editor-preview-side .task-list-item { list-style: none; margin-left: -16px; }
+.kb-md input[type="checkbox"], .EasyMDEContainer .editor-preview input[type="checkbox"], .EasyMDEContainer .editor-preview-side input[type="checkbox"] { margin-right: 4px; }

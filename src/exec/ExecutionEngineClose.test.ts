@@ -267,7 +267,7 @@ test('Scheduler.respondApproval：转发到 running 句柄', async () => {
       name: 'b',
       columns: [{ id: 'c_todo', type: 'todo', name: 'Todo', order: 0, color: '#000', hidden: false }],
       tasks: [
-        { id: 'T', parentId: null, columnId: 'c_todo', title: 't', executionMode: 'auto', executionStatus: 'idle', currentExecutionId: null, acceptanceCriteria: { what: 'w', expected: 'e', verify: 'v' }, agentSpec: { provider: 'dsh', agent: null, model: null, subagentPolicy: 'auto' }, dependencies: [], description: null, labels: [], priority: 'P2', assignee: null, dueDate: null, order: 0, blockedFromColumnId: null, archivedAt: null, archivedFromColumnId: null, createdAt: '', updatedAt: '', timeline: [] },
+        { id: 'T', parentId: null, columnId: 'c_todo', title: 't', executionMode: 'auto', executionStatus: 'idle', currentExecutionId: null, acceptanceCriteria: { what: 'w', expected: 'e', verify: 'v' }, agentSpec: { provider: 'dsh', agent: null, model: null, subagentPolicy: 'auto' }, dependencies: [], description: null, labels: [], priority: 'P2', assignee: null, dueDate: null, startDate: null, order: 0, blockedFromColumnId: null, archivedAt: null, archivedFromColumnId: null, createdAt: '', updatedAt: '', timeline: [] },
       ],
       order: 0,
       createdAt: '',

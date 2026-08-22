@@ -4,7 +4,11 @@
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline' 'self'; img-src data:; base-uri 'none'; form-action 'none'" />
   <title>dsh-hull-desktop</title>
+  <!-- E1 看板编辑器 vendoring（CON-R-editor-001/004）：本地 CSS 先于 kanban.css，style-src 'self' 无 CDN -->
+  <link rel="stylesheet" href="vendor/easymde.min.css" />
+  <link rel="stylesheet" href="vendor/easymde-dark.css" />
   <link rel="stylesheet" href="kanban.css" />
+  <link rel="stylesheet" href="skills.css" />
 <style>
   /* 深色系（延续 placeholder #1e2430） */
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -142,6 +146,7 @@
     <div id="nav-items">
       <button id="nav-web" class="nav-item active">dsh web</button>
       <button id="nav-board" class="nav-item">任务看板</button>
+      <button id="nav-skills" class="nav-item">Skills</button>
       <button id="nav-settings" class="nav-item">设置</button>
     </div>
     <div id="nav-status">
@@ -196,6 +201,10 @@
     <!-- B2 任务看板：view=placeholder:board 时显示；数据经 window.kanban/window.exec 桥消费 -->
     <section id="board" class="placeholder hidden">
       <div id="board-root"></div>
+    </section>
+    <!-- S1 Skills 检查器：view=placeholder:skills 时显示；数据经 window.skills 桥消费 -->
+    <section id="skills" class="placeholder hidden">
+      <div id="skills-root"></div>
     </section>
     <!-- S8' S6'：设置视图（D1 迁移自 settings.html，重渲染；持久化走 hull:setSettings，CON-R002 不破）。
          通用/dsh/Hull/诊断 4 卡；dsh/Hull 升级反馈（确认/进度/失败/回滚/重启安装提示）内联各自区块底部 -->
@@ -385,6 +394,7 @@
   // ── S8' §4.4 nav 高亮回写（view 字段驱动） ──
   const navActiveByView = {
     'placeholder:board': 'nav-board',
+    'placeholder:skills': 'nav-skills',
     'placeholder:settings': 'nav-settings',
   };
   // 升级进行中例外（M1-重构）：升级已并入 settings 视图——view=placeholder:settings 且 upgrade.phase ∈ 进行中
@@ -864,6 +874,10 @@
     setActive('nav-board');
     if (bridge) await bridge.showBoard(); // main 切 view → placeholder:board → section#board 显示
   });
+  document.getElementById('nav-skills').addEventListener('click', async () => {
+    setActive('nav-skills');
+    if (bridge) await bridge.showSkills(); // main 切 view → placeholder:skills → section#skills 显示
+  });
 
   // autoscroll：输出框 scroll 事件维护「是否在底部」标志——用户拉回底部 → 恢复跟随；滚动离开底部 → 停止跟随（保持位置）
   const dshOutputBox = document.getElementById('up-dsh-output');
@@ -950,6 +964,13 @@
   }
   if (bridge && bridge.getSettings) tick();
 </script>
+<!-- E1 vendored 库（CON-R-editor-001/004）：本地 <script src>（CSP 'self'，禁 CDN），先于 kanban.js 保证全局就绪。
+     markdown-it 锁 v14.1.0（v15 起无 UMD build）；EasyMDE 2.21.0 含捆绑 CM5；DOMPurify UMD；task-lists 为 CJS 源码 + UMD shim 包装 -->
+<script src="vendor/easymde.min.js"></script>
+<script src="vendor/markdown-it.min.js"></script>
+<script src="vendor/purify.min.js"></script>
+<script src="vendor/markdown-it-task-lists.js"></script>
 <script src="kanban.js"></script>
+<script src="skills.js"></script>
 </body>
 </html>
