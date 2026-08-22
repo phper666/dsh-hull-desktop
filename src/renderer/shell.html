@@ -600,6 +600,9 @@
     dshConfirmLatest: null,
     hullConfirmLatest: null,
     restartPromptShown: false,
+    /** 升级输出框「跟随模式」：上次是否停在底部（用户手动上拉过 → 不再强制滚底，保持用户位置） */
+    dshOutputAtBottom: true,
+    dshOutputScrollTop: 0,
   };
   function upCard(targetId) { return document.getElementById(targetId); }
   // dsh 通道确认卡片（hull:status upgrade.phase=confirm → 渲染；立即升级 → hull:upgradeDsh）
@@ -662,9 +665,19 @@
         ${u.phase === 'installing' ? '<div class="urow"><div><button id="up-dsh-cancel" class="sbtn">取消</button></div></div>' : ''}`;
       const cancelBtn = document.getElementById('up-dsh-cancel');
       if (cancelBtn) cancelBtn.addEventListener('click', async () => { try { await bridge.cancelDshUpgrade(); } catch {} });
-      // 输出框滚到底（最新行可见）
+      // 输出框「跟随模式」：用户停在底部 → 自动滚到底（新行可见）；用户手动上拉过 → 保持用户位置，不强制滚底。
+      // 每 250ms tick 整体重建 DOM，故重建前读旧框位置记录，重建后据此决定。
+      const oldOutBox = document.querySelector('.up-output');
+      if (oldOutBox) {
+        const nearBottom = oldOutBox.scrollHeight - oldOutBox.scrollTop - oldOutBox.clientHeight < 24;
+        up.dshOutputAtBottom = nearBottom;
+        up.dshOutputScrollTop = oldOutBox.scrollTop;
+      }
       const outBox = body.querySelector('.up-output');
-      if (outBox) outBox.scrollTop = outBox.scrollHeight;
+      if (outBox) {
+        if (up.dshOutputAtBottom) outBox.scrollTop = outBox.scrollHeight;
+        else outBox.scrollTop = Math.min(up.dshOutputScrollTop, outBox.scrollHeight);
+      }
       return;
     }
     // idle：失败/回滚结果/空闲
