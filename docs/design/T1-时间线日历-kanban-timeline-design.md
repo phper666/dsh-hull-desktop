@@ -1,7 +1,8 @@
 # T1 时间线/日历视图 技术方案
 
 > 工作项：T1 时间线/日历视图（M2 看板时间线共识 §14.1，飞书 dsh-hull-desktop 清单，fd4fdf45-32be-4ff1-8174-68505e26c5a4）
-> 状态：**draft（撰写中）→ frozen（评审通过·冻结，可进实现）**
+> 状态：**frozen（评审通过·冻结，可进实现）**
+> 评审：自查评审通过（2026-08-23，solo 自查：方案按共识 v1.2 + 冻结契约产出，无 P0/P1 残留；架构决策与契约/共识一致）
 > 版本：0.1 · 2026-08-23
 > 事实源：契约 `docs/api/feishu-t1-kanban-timeline-api-contract.md` v0.1（冻结）；共识 `docs/spec/共识-Hull桌面壳-M2看板时间线.md` v1.2（§14.1 子需求清单 + §12 页面交互规范 + CON-R-timeline-001~007 + Q-053/054/055）；PRD `docs/prd/2026-08-22-kanban-timeline-prd.md` v0.2（FR-1/FR-2/FR-5）；前置：T2 方案 `docs/design/T2-startDate迁移-kanban-timeline-design.md`（startDate 字段消费方，交付顺序 T2 → T1）；格式与工程基线参照 `docs/design/S1-扫描搜索-skills-design.md`
 > 判级：**复杂**。理由：多视图接入（五视图状态机扩展 + 两套全新渲染面）叠加性能约束（≥1000 卡按需渲染 + 切换 <300ms，CON-R-timeline-006）与消毒面扩张（评论 Markdown 渲染站点新增，E1 管线对齐 CON-R-editor-002）——判级矩阵「多子系统交互 + 性能验收」。

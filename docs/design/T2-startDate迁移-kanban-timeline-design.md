@@ -1,7 +1,8 @@
 # T2 startDate 字段 + schema v2 迁移 技术方案
 
 > 工作项：T2 startDate 字段 + schema v2 迁移（M2 看板时间线共识 §14.1，飞书 dsh-hull-desktop 清单，bda6a7df-327c-462d-b459-c5d25ff7bc34）
-> 状态：**draft（撰写中）→ frozen（评审通过·冻结，可进实现）**
+> 状态：**frozen（评审通过·冻结，可进实现）**
+> 评审：自查评审通过（2026-08-23，solo 自查：方案按共识 v1.2 + 冻结契约产出，无 P0/P1 残留；架构决策与契约/共识一致）
 > 版本：0.1 · 2026-08-23
 > 事实源：契约 `docs/api/feishu-t2-kanban-timeline-api-contract.md` v0.1（冻结，对 B1 契约的增量契约）；共识 `docs/spec/共识-Hull桌面壳-M2看板时间线.md` v1.2（§14.1 子需求清单 + §5.2 迁移流程 + §7 字段定义 + CON-R-timeline-003/004/007 + Q-051/052）；PRD `docs/prd/2026-08-22-kanban-timeline-prd.md` v0.2（FR-3/FR-4）；格式与工程基线参照 `docs/design/S1-扫描搜索-skills-design.md`
 > 判级：**复杂**。理由：schema v1→v2 数据迁移（三层遍历 / 幂等 / 失败兜底）叠加 startDate 契约变更传播（B1 契约 + preload 类型 + IPC 校验三处同步，Q-052）——判级矩阵「数据迁移 + 契约变更」，跨数据层与契约面。

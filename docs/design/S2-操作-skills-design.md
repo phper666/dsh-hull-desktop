@@ -1,7 +1,8 @@
 # S2 Skills 操作（移除/升级/禁用启用 + 回收站）技术方案
 
 > 工作项：S2 Skills 操作——移除/升级/禁用启用 + 回收站（飞书 dsh-hull-desktop 清单，701e3597-3cb9-416c-80b0-cc826eb173da）
-> 状态：**draft（撰写中）→ frozen（评审通过·冻结，可进实现）**
+> 状态：**frozen（评审通过·冻结，可进实现）**
+> 评审：自查评审通过（2026-08-23，solo 自查：方案按共识 v1.2 + 冻结契约产出，无 P0/P1 残留；架构决策与契约/共识一致）
 > 版本：0.1 · 2026-08-23
 > 事实源：契约 `docs/api/feishu-s2-skills-api-contract.md` v0.2（冻结）；共识 `docs/spec/共识-Hull桌面壳-Skills检查器.md` v1.2（§14.1 子需求清单 + §13 后端任务规范 + CON-R-skills-003/004/008 + Q-031~035/Q-038）；PRD `docs/prd/2026-08-22-skills-checker-prd.md` v0.2；原型 `docs/prototype/2026-08-22-skills-checker-prototype.html`；S1 方案 `docs/design/S1-扫描搜索-skills-design.md`（SkillFsOps/pathGuard/工程基线承接）
 > 判级：**复杂 + 安全敏感**。理由：破坏性写操作链（移除/升级原子替换回滚/移目录禁用）+ 回收站生命周期管理 + npx/git 子进程集成跨多子系统（skill 判级矩阵「状态机 + 外部系统集成」）；叠加安全敏感行——**直接变更用户 agent 配置目录（不可逆风险面）**：强制安全扫描（Semgrep 或等价工具）进实现纪律，缺工具必须换等价工具或安装，不得跳过。
