@@ -15,14 +15,16 @@ export function dshBinPath(overlayDir: string): string {
  * --expose-internals 为 node flag，必须在脚本名之前（契约 §接口详情 #1）。
  * ⚠️ dsh CLI：`web` 子命令即 `--profile web` 别名，--profile 是顶层选项，
  * 不能跟在 web 后（实测 dsh 0.1.0-rc.7 报 unknown option '--profile'）。
+ * ⚠️ `--no-open`：dsh web 默认会用系统浏览器打开 UI（用户反馈「打开壳自动弹浏览器」）——
+ * 壳内嵌官方 WebContentsView，不重复弹浏览器，必须显式 --no-open（dsh web --help 确认选项）。
  */
 export function buildSpawnArgv(nodePath: string, overlayBin: string): string[] {
-  return [nodePath, '--expose-internals', overlayBin, 'web', '--host', '127.0.0.1', '--port', '0'];
+  return [nodePath, '--expose-internals', overlayBin, 'web', '--no-open', '--host', '127.0.0.1', '--port', '0'];
 }
 
 /** spawn(nodePath, buildDshArgv(...)) 用的参数（不含 node 自身） */
 export function buildDshArgv(overlayBin: string): string[] {
-  return ['--expose-internals', overlayBin, 'web', '--host', '127.0.0.1', '--port', '0'];
+  return ['--expose-internals', overlayBin, 'web', '--no-open', '--host', '127.0.0.1', '--port', '0'];
 }
 
 /** 就绪行正则（契约 §就绪行协议；匹配前须 strip ANSI CSI + trim） */
@@ -37,7 +39,7 @@ export function cleanLine(line: string): string {
 }
 
 /** 命令行签名（兜底清理校验，防误杀用户手动跑的 dsh——其命令行不含该签名组合，设计 D3/§4.5） */
-export const DSH_CLI_SIGNATURE = 'web --host 127.0.0.1 --port 0';
+export const DSH_CLI_SIGNATURE = 'web --no-open --host 127.0.0.1 --port 0';
 
 /** 命令行是否含 dsh 签名（`ps -p <pid> -o command=` 输出校验用） */
 export function matchesDshSignature(commandLine: string): boolean {
