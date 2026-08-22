@@ -271,6 +271,8 @@
             <h3>dsh 更新</h3>
             <div class="urow"><div class="info"><div class="label">当前版本</div></div><div class="badges"><span id="up-dsh-current" class="badge muted">—</span></div></div>
             <div id="up-dsh-body"></div>
+            <!-- autoscroll 输出框：静态容器（不随 up-dsh-body 重建），scroll 事件维护 atBottom 标志（标准 tail -f 跟随语义） -->
+            <div id="up-dsh-output" class="up-output hidden" role="log" aria-live="polite"></div>
           </div>
         </section>
 
@@ -600,9 +602,8 @@
     dshConfirmLatest: null,
     hullConfirmLatest: null,
     restartPromptShown: false,
-    /** 升级输出框「跟随模式」：上次是否停在底部（用户手动上拉过 → 不再强制滚底，保持用户位置） */
+    /** autoscroll：输出框是否停在底部（scroll 事件实时维护）。true=跟随最新，false=用户滚动中保持位置 */
     dshOutputAtBottom: true,
-    dshOutputScrollTop: 0,
   };
   function upCard(targetId) { return document.getElementById(targetId); }
   // dsh 通道确认卡片（hull:status upgrade.phase=confirm → 渲染；立即升级 → hull:upgradeDsh）
@@ -650,9 +651,23 @@
         rollback: '正在回滚…',
         checking: '正在检查更新…',
       }[u.phase] || upgradeNames[u.phase] || u.phase;
-      // 输出框：installing 段显示 npm 实时输出（最近 100 行，最新在最下）
-      const outputHtml = u.phase === 'installing' && Array.isArray(u.output) && u.output.length
-        ? `<div class="up-output">${u.output.map((l) => `<span class="line">${esc(l)}</span>`).join('')}</div>` : '';
+      // 输出框：静态容器 #up-dsh-output（autoscroll）。installing 段显示 npm 实时输出 + 跟随滚动；其他 phase 隐藏。
+      const outputBox = document.getElementById('up-dsh-output');
+      if (outputBox) {
+        if (u.phase === 'installing') {
+          outputBox.classList.remove('hidden');
+          const lines = Array.isArray(u.output) && u.output.length ? u.output : [];
+          // 仅行数变化时重建（避免每 tick 无谓重写 scroll 状态）
+          if (lines.length !== outputBox.dataset.lineCount) {
+            outputBox.innerHTML = lines.map((l) => `<span class="line">${esc(l)}</span>`).join('');
+            outputBox.dataset.lineCount = String(lines.length);
+          }
+          // autoscroll：仅当用户停在底部时滚到底（scroll 事件维护 up.dshOutputAtBottom）
+          if (up.dshOutputAtBottom) outputBox.scrollTop = outputBox.scrollHeight;
+        } else {
+          outputBox.classList.add('hidden');
+        }
+      }
       // message 与 stageText 去重：checking 时 u.message（Updater「正在检查更新…」）与 stageText 相同，只显示 stageText（badge）
       const msgHtml = u.phase === 'checking'
         ? ''
@@ -661,23 +676,9 @@
         <div class="urow"><div class="info"><div class="label">状态</div></div><div class="badges">${badge(stageText, 'warn')}</div></div>
         ${progress ? `<div class="up-progress"><div class="bar"><i style="width:${pct}%"></i></div><span class="up-msg">${esc(stageText)}</span></div>` : ''}
         ${msgHtml}
-        ${outputHtml}
         ${u.phase === 'installing' ? '<div class="urow"><div><button id="up-dsh-cancel" class="sbtn">取消</button></div></div>' : ''}`;
       const cancelBtn = document.getElementById('up-dsh-cancel');
       if (cancelBtn) cancelBtn.addEventListener('click', async () => { try { await bridge.cancelDshUpgrade(); } catch {} });
-      // 输出框「跟随模式」：用户停在底部 → 自动滚到底（新行可见）；用户手动上拉过 → 保持用户位置，不强制滚底。
-      // 每 250ms tick 整体重建 DOM，故重建前读旧框位置记录，重建后据此决定。
-      const oldOutBox = document.querySelector('.up-output');
-      if (oldOutBox) {
-        const nearBottom = oldOutBox.scrollHeight - oldOutBox.scrollTop - oldOutBox.clientHeight < 24;
-        up.dshOutputAtBottom = nearBottom;
-        up.dshOutputScrollTop = oldOutBox.scrollTop;
-      }
-      const outBox = body.querySelector('.up-output');
-      if (outBox) {
-        if (up.dshOutputAtBottom) outBox.scrollTop = outBox.scrollHeight;
-        else outBox.scrollTop = Math.min(up.dshOutputScrollTop, outBox.scrollHeight);
-      }
       return;
     }
     // idle：失败/回滚结果/空闲
@@ -831,6 +832,15 @@
     setActive('nav-board');
     if (bridge) await bridge.showBoard(); // main 切 view → placeholder:board → section#board 显示
   });
+
+  // autoscroll：输出框 scroll 事件维护「是否在底部」标志——用户拉回底部 → 恢复跟随；滚动离开底部 → 停止跟随（保持位置）
+  const dshOutputBox = document.getElementById('up-dsh-output');
+  if (dshOutputBox) {
+    dshOutputBox.addEventListener('scroll', () => {
+      const box = dshOutputBox;
+      up.dshOutputAtBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+    });
+  }
 
   // 失败/引导态按钮（照 placeholder.html 桥绑定；retry 成功不再 reload——视图切换由主进程推送驱动）
   document.getElementById('retry').addEventListener('click', async () => {
