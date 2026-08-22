@@ -41,11 +41,10 @@ test.describe('E2E-01 冷启动', () => {
       const elapsed = Date.now() - t0;
       console.log(`[E2E-01] 冷启动总时长: ${elapsed}ms`);
       expect(elapsed, `冷启动总时长 ${elapsed}ms 应 ≤ 10s（Q-009）`).toBeLessThan(10_000);
-      // 壳框架：nav 四入口 + 状态区可见
+      // 壳框架：nav 三入口（dsh/任务看板/设置，M1-重构 去 nav-upgrade）+ 状态区可见
       await expect(shell.locator('#nav')).toBeVisible();
       await expect(shell.locator('#nav-web')).toBeVisible();
       await expect(shell.locator('#nav-settings')).toBeVisible();
-      await expect(shell.locator('#nav-upgrade')).toBeVisible();
       await expect(shell.locator('#nav-board')).toBeVisible(); // M2 看板已启用（B2）
       await expect(shell.locator('#nav-board')).not.toHaveAttribute('aria-disabled', 'true');
       await expect(shell.locator('#nav-status')).toBeVisible();
@@ -58,10 +57,15 @@ test.describe('E2E-01 冷启动', () => {
       const viewState = await officialViewState(app);
       expect(viewState.url.startsWith('http://127.0.0.1:')).toBe(true);
       expect(viewState.visible).toBe(true);
-      // nav 状态区渲染（runtime.phase=ready + currentVersion + upgrade.phase=idle）
+      // nav 状态区渲染（runtime.phase=ready + currentVersion + hullVersion + upgrade.phase=idle）
       await expect(shell.locator('#status-phase')).toHaveText('运行中');
       await expect(shell.locator('#status-version')).toHaveText('0.1.0-rc.7');
+      await expect(shell.locator('#status-hull-version')).not.toHaveText('…'); // Hull 版本已渲染
       await expect(shell.locator('#status-upgrade')).toHaveText('无');
+      // nav 排序（M1-重构）：dsh web → 任务看板 → 设置（设置恒最后，无 nav-upgrade）
+      const navOrder = await shell.locator('#nav-items .nav-item').evaluateAll((els) => els.map((e) => e.id));
+      expect(navOrder).toEqual(['nav-web', 'nav-board', 'nav-settings']);
+      await expect(shell.locator('#nav-upgrade')).toHaveCount(0);
       // 占位区块：official 时全隐藏
       await expect(shell.locator('#starting')).toBeHidden();
       await expect(shell.locator('#installing')).toBeHidden();
@@ -97,8 +101,10 @@ test.describe('E2E-01 冷启动', () => {
       // 回官方 view（showWeb 对称恢复）
       await shell.click('#nav-web');
       await expect(shell.locator('#board')).toBeHidden();
-      // 升级 → showUpgrade + checkDshUpdate → updater.check 命中 registry（无更新 → 静默，无 dialog）
-      await shell.click('#nav-upgrade');
+      // 升级入口已并入设置视图（M1-重构）：设置「检查更新」→ checkDshUpdate → updater.check 命中 registry
+      // （无更新 → 静默，无 dialog）
+      await shell.click('#nav-settings');
+      await shell.click('#check-dsh');
       await waitForRegistryHits(reg, 1, 15_000);
       const status = await navStatus(app);
       expect(status?.upgrade).toBe('无');
@@ -171,8 +177,9 @@ test.describe('E2E-06 托盘', () => {
       await shell.click('#nav-settings');
       await expect(shell.locator('#settings')).toBeVisible();
       await expect(shell.locator('#settings h1')).toHaveText('Hull 设置');
-      // 升级中禁用（T6-04）：upgrade 视图确认 → installing 段托盘「检查更新…」禁用 → 完成后恢复
-      await shell.click('#nav-upgrade');
+      // 升级中禁用（T6-04）：设置视图「检查更新」确认 → installing 段托盘「检查更新…」禁用 → 完成后恢复
+      await shell.click('#nav-settings');
+      await shell.click('#check-dsh');
       await shell.waitForSelector('#up-dsh-yes', { timeout: 15_000 });
       await shell.click('#up-dsh-yes');
       await waitForTrayItemEnabled(app, '检查更新…', false, 30_000);

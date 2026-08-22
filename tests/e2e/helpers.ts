@@ -174,10 +174,10 @@ export async function waitForMainWindow(app: ElectronApplication, timeoutMs = 30
   throw new Error(`壳窗口未在 ${timeoutMs}ms 内创建`);
 }
 
-/** 壳 nav 状态区快照（hull:status 渲染结果：phase/version/upgrade；未就绪 → null） */
+/** 壳 nav 状态区快照（hull:status 渲染结果：phase/version/hullVersion/upgrade；未就绪 → null） */
 export async function navStatus(
   app: ElectronApplication
-): Promise<{ phase: string; version: string; upgrade: string } | null> {
+): Promise<{ phase: string; version: string; hullVersion: string; upgrade: string } | null> {
   const shell = shellPage(app);
   if (!shell) return null;
   try {
@@ -188,7 +188,12 @@ export async function navStatus(
       }
       const doc = (globalThis as unknown as { document: { getElementById(id: string): MinEl | null } }).document;
       const t = (id: string) => doc.getElementById(id)?.textContent ?? '';
-      return { phase: t('status-phase'), version: t('status-version'), upgrade: t('status-upgrade') };
+      return {
+        phase: t('status-phase'),
+        version: t('status-version'),
+        hullVersion: t('status-hull-version'),
+        upgrade: t('status-upgrade'),
+      };
     });
   } catch {
     return null; // 页面导航中

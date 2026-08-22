@@ -27,7 +27,7 @@
   .nav-item.active { background: #2e8bf5; color: #fff; }
   .nav-item[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
   .nav-item .tag { float: right; font-size: 10px; color: #6b7688; margin-top: 2px; }
-  /* 状态区（hull:status 渲染：runtime.phase + currentVersion + upgrade.phase） */
+  /* 状态区（hull:status 渲染：runtime.phase + currentVersion + hullVersion + upgrade.phase） */
   #nav-status { padding: 12px 16px; border-top: 1px solid #2a3342; font-size: 12px; color: #9aa5b5; }
   #nav-status .row { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
   #nav-status .row:last-child { margin-bottom: 0; }
@@ -52,8 +52,8 @@
   .bar-fill { height: 100%; width: 0; background: #2e8bf5; border-radius: 4px; transition: width 0.25s ease; }
   .muted { font-size: 12px; color: #6b7688; margin-top: 16px; }
 
-  /* S8' S6'/S3'：设置 + 升级 section（settings.html 视觉 token 迁移，浅色面板） */
-  #settings, #upgrade {
+  /* 设置 section：通用/dsh/Hull/诊断/升级区块（settings.html 视觉 token 迁移，浅色面板） */
+  #settings {
     align-items: flex-start;
     justify-content: flex-start;
     padding: 20px;
@@ -131,13 +131,13 @@
     <div id="nav-title">Hull</div>
     <div id="nav-items">
       <button id="nav-web" class="nav-item active">dsh web</button>
-      <button id="nav-settings" class="nav-item">设置</button>
-      <button id="nav-upgrade" class="nav-item">升级</button>
       <button id="nav-board" class="nav-item">任务看板<span class="tag">M2</span></button>
+      <button id="nav-settings" class="nav-item">设置</button>
     </div>
     <div id="nav-status">
       <div class="row"><span>dsh 状态</span><span id="status-phase" class="val">…</span></div>
       <div class="row"><span>版本</span><span id="status-version" class="val">…</span></div>
+      <div class="row"><span>Hull 版本</span><span id="status-hull-version" class="val">…</span></div>
       <div class="row"><span>升级</span><span id="status-upgrade" class="val">…</span></div>
       <div id="status-upgrade-bar" class="bar hidden"><div id="status-upgrade-fill" class="bar-fill"></div></div>
     </div>
@@ -187,7 +187,7 @@
       <div id="board-root"></div>
     </section>
     <!-- S8' S6'：设置视图（D1 迁移自 settings.html，重渲染；持久化走 hull:setSettings，CON-R002 不破）。
-         双区块（dsh/Hull）+ 通用设置 + 诊断；确认/进度流迁 upgrade 视图（D6 边界） -->
+         双区块（dsh/Hull）+ 通用设置 + 诊断 + 升级区块（M1-重构：升级并入设置，确认/进度/失败/回滚/重启安装提示） -->
     <section id="settings" class="placeholder hidden" aria-label="设置">
       <div class="panel">
         <h1>Hull 设置</h1>
@@ -275,7 +275,7 @@
           <div class="srow">
             <div class="info">
               <div class="label">检查 Hull 更新</div>
-              <div class="sub">GitHub Releases · 升级需重启应用；确认/进度在升级视图</div>
+              <div class="sub">GitHub Releases · 升级需重启应用；确认/进度在本页下方升级区块</div>
             </div>
             <button id="check-hull" class="sbtn primary">检查更新</button>
           </div>
@@ -291,6 +291,27 @@
           <div id="hull-alert" class="status-alert" role="alert"></div>
         </section>
 
+        <!-- M1-重构：升级区块并入设置视图（原独立 section#upgrade 删除）。
+             双通道确认/进度/失败/回滚/重启安装提示统一卡片；编排逻辑（UpgradeQueue/SwapManager/Updater/HullUpdater）零改动（CON-R005）。
+             250ms 轮询 hull:status + 双通道快照渲染（tick 内 renderDshUpgrade/renderHullUpgrade） -->
+        <section class="scard" aria-labelledby="sec-upgrade">
+          <h2 id="sec-upgrade">升级</h2>
+          <div id="up-dsh" class="ucard">
+            <h3>dsh 更新</h3>
+            <div class="urow"><div class="info"><div class="label">当前版本</div></div><div class="badges"><span id="up-dsh-current" class="badge muted">—</span></div></div>
+            <div id="up-dsh-body"></div>
+          </div>
+          <div id="up-hull" class="ucard">
+            <h3>Hull 应用更新</h3>
+            <div class="urow"><div class="info"><div class="label">当前版本</div></div><div class="badges"><span id="up-hull-current" class="badge muted">—</span></div></div>
+            <div id="up-hull-body"></div>
+          </div>
+          <div id="up-restart-prompt" class="ucard hidden">
+            <h3>更新安装提示</h3>
+            <p class="up-warn">更新后若无法打开：<br>① 右键 → 打开（隔离/未公证）<br>② 若仍无法打开，请重新下载安装包</p>
+          </div>
+        </section>
+
         <section class="scard" aria-labelledby="sec-diag">
           <h2 id="sec-diag">诊断</h2>
           <div class="srow">
@@ -303,39 +324,18 @@
         </section>
       </div>
     </section>
-    <!-- S8' S3'：升级视图（D4 独立右侧视图）。dsh/Hull 双通道确认/进度/失败/回滚/重启安装提示统一卡片；
-         编排逻辑（UpgradeQueue/SwapManager/Updater）零改动（CON-R005）。250ms 轮询 hull:status + 双通道快照 -->
-    <section id="upgrade" class="placeholder hidden" aria-label="升级">
-      <div class="panel">
-        <h1>升级</h1>
-        <div id="up-dsh" class="ucard">
-          <h3>dsh 更新</h3>
-          <div class="urow"><div class="info"><div class="label">当前版本</div></div><div class="badges"><span id="up-dsh-current" class="badge muted">—</span></div></div>
-          <div id="up-dsh-body"></div>
-        </div>
-        <div id="up-hull" class="ucard">
-          <h3>Hull 应用更新</h3>
-          <div class="urow"><div class="info"><div class="label">当前版本</div></div><div class="badges"><span id="up-hull-current" class="badge muted">—</span></div></div>
-          <div id="up-hull-body"></div>
-        </div>
-        <div id="up-restart-prompt" class="ucard hidden">
-          <h3>更新安装提示</h3>
-          <p class="up-warn">更新后若无法打开：<br>① 右键 → 打开（隔离/未公证）<br>② 若仍无法打开，请重新下载安装包</p>
-        </div>
-      </div>
-    </section>
   </main>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script>
   // 壳框架页（S8 D4/D5/D6 + S8' M1-重构）：
   // - 右侧内容区显示完全由主进程 hull:status 的 view 字段驱动（renderer 无 view 控制通道）
-  // - 状态区渲染 runtime.phase + currentVersion + upgrade.phase
-  // - 安装进度 installStatus 250ms 轮询（B6）；设置/升级 section 250ms 轮询 hull:status + 双通道快照
+  // - 状态区渲染 runtime.phase + currentVersion + hullVersion + upgrade.phase
+  // - 安装进度 installStatus 250ms 轮询（B6）；设置 section 250ms 轮询 hull:status + 双通道快照
   // - S8' §4.4：nav 高亮由 hull:status view 字段派生（主进程单一事实源），本地点击即时高亮 + 推送校正
   const bridge = window.hull;
   const PLACEHOLDER_PREFIX = 'placeholder:';
-  // S8' S8'：sections 扩 2（settings/upgrade）——view 2→4 态
-  const sections = ['starting', 'installing', 'failed', 'not-installed', 'board', 'settings', 'upgrade'];
+  // S8' S8'：sections 扩 1（settings）——view 2→3 态（official/board/settings）
+  const sections = ['starting', 'installing', 'failed', 'not-installed', 'board', 'settings'];
 
   // 占位视图切换（view 字段驱动；official → 全隐藏）
   function setView(view) {
@@ -380,18 +380,17 @@
   const navActiveByView = {
     'placeholder:board': 'nav-board',
     'placeholder:settings': 'nav-settings',
-    'placeholder:upgrade': 'nav-upgrade',
   };
-  // 升级进行中例外（M3）：placeholder:upgrade 且 upgrade.phase ∈ 进行中 → 保持 nav-upgrade；空闲回落 nav-web
-  // P3-3：rollback 补进（手动回滚时 phase=rollback → nav-upgrade 保持高亮，与进度段一致）
+  // 升级进行中例外（M1-重构）：升级已并入 settings 视图——view=placeholder:settings 且 upgrade.phase ∈ 进行中
+  // → nav-settings 保持高亮（含 rollback：手动回滚时 phase=rollback 与进度段一致）
   const UPGRADE_ACTIVE_PHASES = ['checking', 'confirm', 'installing', 'swapping', 'verifying', 'rollback'];
   function setActive(id) {
     for (const el of document.querySelectorAll('.nav-item')) el.classList.remove('active');
     document.getElementById(id).classList.add('active');
   }
   function renderNavHighlight(view, upgradePhase) {
-    if (view === 'placeholder:upgrade' && UPGRADE_ACTIVE_PHASES.includes(upgradePhase)) {
-      setActive('nav-upgrade');
+    if (view === 'placeholder:settings' && UPGRADE_ACTIVE_PHASES.includes(upgradePhase)) {
+      setActive('nav-settings');
       return;
     }
     const id = navActiveByView[view];
@@ -566,13 +565,13 @@
     }
   }
 
-  // dsh 区块「检查更新」→ 发现新版 → 跳 upgrade 视图渲染确认（D6 边界：导航切换由主进程 showUpgrade 驱动）
+  // dsh 区块「检查更新」→ 发现新版 → 设置视图内渲染确认卡片（M1-重构：升级并入 settings）
   sett.els.checkDsh.addEventListener('click', async () => {
     try {
       const res = await bridge.checkDshUpdate();
       if (res.phase === 'confirm' && res.latest) {
-        // check 已置 phase=confirm（hull:status 推送）→ 切 upgrade 视图渲染确认卡片（无需二次 check）
-        await bridge.showUpgrade();
+        // check 已置 phase=confirm（hull:status 推送）→ 切 settings 视图渲染确认卡片（无需二次 check）
+        await bridge.showSettings();
       } else if (res.hasUpdate === false) {
         toast('当前已是最新版本');
       }
@@ -581,12 +580,12 @@
   sett.els.rollbackDsh.addEventListener('click', async () => {
     try { await bridge.rollbackDsh(); } catch {}
   });
-  // Hull 区块「检查更新」→ 确认/进度在 upgrade 视图（D6）
+  // Hull 区块「检查更新」→ 确认/进度在设置视图（M1-重构：升级并入 settings）
   sett.els.checkHull.addEventListener('click', async () => {
     try {
       const res = await bridge.checkHullUpdate();
       if (res.hasUpdate && res.targetVersion) {
-        toast('发现 Hull 新版本，请到升级视图确认');
+        toast('发现 Hull 新版本，请在设置视图确认');
       } else if (res.hasUpdate === false) {
         toast('当前已是最新版本');
       }
@@ -595,7 +594,7 @@
   sett.els.openLogs.addEventListener('click', () => bridge.openLogs());
   sett.els.openDataDir.addEventListener('click', () => bridge.openDataDir());
 
-  // ── upgrade 视图渲染（S3'：dsh/Hull 双通道确认/进度/失败/回滚/重启安装提示） ──
+  // ── 设置视图升级区块渲染（M1-重构：S3' 双通道确认/进度/失败/回滚/重启安装提示迁入设置视图） ──
   const up = {
     dshConfirmLatest: null,
     hullConfirmLatest: null,
@@ -717,7 +716,7 @@
     }
     body.innerHTML = '<div class="up-msg">无进行中的 Hull 更新</div>';
   }
-  // preventive-prompt（H2 裁决 2：迁 upgrade 视图重启安装提示区）
+  // preventive-prompt（H2 裁决 2：设置视图升级区块重启安装提示区）
   function renderRestartPrompt() {
     up.restartPromptShown = true;
     document.getElementById('up-restart-prompt').classList.remove('hidden');
@@ -729,6 +728,7 @@
     const runtime = payload.runtime || {};
     document.getElementById('status-phase').textContent = phaseNames[runtime.phase] || runtime.phase || '…';
     document.getElementById('status-version').textContent = payload.currentVersion || '未安装';
+    document.getElementById('status-hull-version').textContent = payload.hullVersion || '—';
     const upgrade = payload.upgrade || {};
     const upPhase = upgradeNames[upgrade.phase] || upgrade.phase || '…';
     const upPct = typeof upgrade.pct === 'number' ? Math.round(upgrade.pct) : 0;
@@ -750,8 +750,7 @@
       : payload.view === 'placeholder:starting' ? 'starting-msg' : null;
     if (msgId) document.getElementById(msgId).textContent = payload.message || '';
     if (payload.view === 'placeholder:installing') pollInstall();
-    // S8'：upgrade 视图需要时同步 dsh 快照（hull:status 已含 upgrade 字段；currentVersion 顶层）
-    renderDshUpgrade(upgrade, payload);
+    // M1-重构：升级已并入设置视图——dsh 确认/进度卡片由 250ms tick 的 getDshStatus 快照渲染（renderDshUpgrade 在 tick 内调用）
   }
 
   // S8' D5 导航切换：nav 点击 → 本地立即置 active + 触发 IPC；hull:status 推送校正（最终态主进程事实源）
@@ -762,14 +761,6 @@
   document.getElementById('nav-settings').addEventListener('click', async () => {
     setActive('nav-settings');
     if (bridge) await bridge.showSettings(); // S8'：主进程切 settings 视图
-  });
-  document.getElementById('nav-upgrade').addEventListener('click', async () => {
-    setActive('nav-upgrade');
-    // S8' §4.3 H1：两段职责分离——主进程切视图 + 渲染侧触发检查（渲染确认卡片）
-    if (bridge) {
-      await bridge.showUpgrade();
-      await bridge.checkDshUpdate(); // runCheck → phase=confirm → hull:status → 确认卡片
-    }
   });
   document.getElementById('nav-board').addEventListener('click', async () => {
     setActive('nav-board');
@@ -788,7 +779,7 @@
   document.getElementById('open-logs').addEventListener('click', () => bridge && bridge.openLogs());
   document.getElementById('open-logs-2').addEventListener('click', () => bridge && bridge.openLogs());
 
-  // 250ms 轮询（S8' §4.6：settings + upgrade 共享 hull:status 快照；三查一循环 Promise.all 搬移自 settings.html）
+  // 250ms 轮询（S8' §4.6：settings 视图共享 hull:status 快照 + 升级区块双通道渲染；三查一循环 Promise.all 搬移自 settings.html）
   let settingsTickRunning = false;
   async function tick() {
     if (settingsTickRunning) return;
@@ -806,12 +797,12 @@
       renderDsh(dsh);
       renderHull(hullStatus);
       renderHullUpgrade(hullStatus);
-      // P2/M4：upgrade 视图 dsh 进度实时刷新——Updater 的 this.pct 中间值不 emit status 事件，
+      // P2/M4：设置视图升级区块 dsh 进度实时刷新——Updater 的 this.pct 中间值不 emit status 事件，
       // 但 hull:status 事件仅 transition 边界携带 pct（50/90/95/100 步进）。250ms tick 的
       // getDshStatus() 返回实时快照（overlay installStatus 进度透传 snapshot），
-      // 此处用实时快照重渲 upgrade dsh 卡，补足进度刷新（编排层零改动，CON-R005）
+      // 此处用实时快照重渲设置视图升级区块 dsh 卡，补足进度刷新（编排层零改动，CON-R005）
       renderDshUpgrade(dsh.upgrade || {}, dsh);
-      // preventive-prompt 重放（Hull 重启安装态提示）
+      // preventive-prompt 重放（Hull 重启安装态提示；升级区块在设置视图内）
       if (hullStatus.phase === 'restarting' || hullStatus.phase === 'done') renderRestartPrompt();
     } catch (err) {
       // 轮询失败静默，避免弹窗轰炸

@@ -1,8 +1,8 @@
 /**
- * E2E-03 升级全流程 / E2E-04 坏版本注入（S8' S3' 重构：原生 dialog → 壳内 section#upgrade 确认/进度/失败）。
+ * E2E-03 升级全流程 / E2E-04 坏版本注入（M1-重构：原生 dialog → 壳内 section#settings 升级区块确认/进度/失败）。
  * 升级走本地假 registry（注入模拟，任务允许）：tiny tarball → npm install 秒级完成，
  * 全编排（check→confirm→install→swap→verify→rollback）真实执行，仅包内容为 fake。
- * 确认流（§4.5 M1）：nav 升级 → showUpgrade + checkDshUpdate → phase=confirm → 确认卡片 → 立即升级。
+ * 确认流（§4.5 M1）：设置视图「检查更新」→ checkDshUpdate → phase=confirm → 确认卡片 → 立即升级。
  */
 import { test, expect, type ElectronApplication } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -21,12 +21,14 @@ import {
   waitForReady,
 } from './helpers';
 
-/** 经壳导航进入 upgrade 视图 + 触发检查 + 确认升级（升级视图确认卡片，非原生 dialog） */
+/** 经设置视图「检查更新」进入确认流（设置视图内升级区块确认卡片，非原生 dialog） */
 async function confirmUpgrade(app: ElectronApplication): Promise<void> {
   const shell = await waitForMainWindow(app);
-  await shell.click('#nav-upgrade');
-  // 升级视图显示 + dsh 确认卡片（phase=confirm → hull:status 渲染）
-  await shell.waitForSelector('#upgrade:not(.hidden)', { timeout: 15_000 });
+  await shell.click('#nav-settings');
+  // 设置视图显示
+  await shell.waitForSelector('#settings:not(.hidden)', { timeout: 15_000 });
+  // 触发检查 → phase=confirm → 升级区块确认卡片（tick 轮询快照渲染）
+  await shell.click('#check-dsh');
   await shell.waitForSelector('#up-dsh-yes', { timeout: 15_000 });
   await shell.click('#up-dsh-yes');
 }

@@ -39,9 +39,7 @@ contextBridge.exposeInMainWorld('hull', {
   },
   /** S8' D1：壳导航设置入口 → hull:showSettings → 主进程切 settings 视图（原 hull:openSettings 独立窗口移除） */
   showSettings: () => ipcRenderer.invoke('hull:showSettings'),
-  /** S8' §4.3 H1：壳导航升级入口 → hull:showUpgrade → 主进程切 upgrade 视图（渲染侧再触发检查） */
-  showUpgrade: () => ipcRenderer.invoke('hull:showUpgrade'),
-  /** S8' §4.3 H1：检查收敛——统一映射 hull:checkDshUpdate（无 dialog 返回结果） */
+  /** S8' §4.3 H1：检查收敛——统一映射 hull:checkDshUpdate（无 dialog 返回结果；设置区块消费） */
   checkDshUpdate: () => ipcRenderer.invoke('hull:checkDshUpdate'),
   /** B2：壳导航任务看板入口 → main 切 view 到 placeholder:board（官方 UI 隐藏，看板面板显示） */
   showBoard: () => ipcRenderer.invoke('hull:showBoard'),

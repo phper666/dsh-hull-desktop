@@ -35,6 +35,8 @@ export interface DshStatusBase {
   runtime: RuntimeSnapshot;
   upgrade: UpgradeStatus;
   currentVersion: string | null;
+  /** Hull 应用版本（app.getVersion；nav 状态区「Hull 版本」行，M1-重构） */
+  hullVersion: string;
   canRollback: boolean;
 }
 
@@ -53,9 +55,8 @@ export type PlaceholderView =
   | 'placeholder:failed'
   | 'placeholder:not-installed'
   | 'placeholder:board'
-  | 'placeholder:settings'
-  | 'placeholder:upgrade';
-export type PlaceholderMode = 'starting' | 'installing' | 'failed' | 'not-installed' | 'board' | 'settings' | 'upgrade';
+  | 'placeholder:settings';
+export type PlaceholderMode = 'starting' | 'installing' | 'failed' | 'not-installed' | 'board' | 'settings';
 
 /**
  * 主窗口壳框架（S8 D1-D7 唯一实现依据）：
@@ -204,7 +205,7 @@ export class WindowManager {
     });
   }
 
-  /** 占位视图（D4 + S8'：view 4 态扩展——starting/installing/failed/not-installed/board/settings/upgrade 迁 shell.html 内容区；
+  /** 占位视图（D4 + S8'：view 3 态扩展——starting/installing/failed/not-installed/board/settings 迁 shell.html 内容区；
    *  main 的 crash/installFlow/导航调用点 + runtime 驱动共用）。
    *  仅切换 view 状态 + hull:status 推送——右侧内容区显示完全由主进程 view 字段驱动（D6） */
   showPlaceholder(mode: PlaceholderMode, message: string): void {
@@ -220,11 +221,6 @@ export class WindowManager {
   /** S8' D1：壳导航/托盘设置入口 → 切 settings 视图（封装 showPlaceholder + 推送，§4.1） */
   showSettings(): void {
     this.showPlaceholder('settings', '');
-  }
-
-  /** S8' D4：壳导航/托盘升级入口 → 切 upgrade 视图（封装 showPlaceholder + 推送，§4.1） */
-  showUpgrade(): void {
-    this.showPlaceholder('upgrade', '');
   }
 
   /** 官方 view 边界同步（D2）：幂等；resize/maximize/unmaximize/全屏/display-metrics-changed 统一入口 */

@@ -191,6 +191,8 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
       runtime: runtime.snapshot(),
       upgrade: updater.snapshot(),
       currentVersion: overlay.currentVersion(),
+      // M1-重构：nav 状态区「Hull 版本」行（HullUpdater 同源——getVersion = app.getVersion）
+      hullVersion: app.getVersion(),
       canRollback: swapManager.canRollback(),
     }),
     isCloseToQuit: () => settings.getSettings().closeToQuit,
@@ -201,7 +203,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     },
     logger,
   });
-  // S8' D5：托盘补充入口（聚焦主窗口 + 切视图；S6' 设置 → showSettings，S3' 检查 dsh → showUpgrade）
+  // S8' D5：托盘补充入口（聚焦主窗口 + 切视图；设置 → showSettings，检查 dsh → 聚焦主窗口 + 切 settings 视图渲染确认）
   const tray = new TrayController({
     runtime,
     updater,
@@ -355,19 +357,24 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   });
   ipcMain.handle('hull:installStatus', async () => overlay.installStatus());
 
-  // S8' §4.5 M1 确认流：runCheck → phase=confirm → hull:status（upgrade.phase=confirm + latest/current）
-  // → upgrade 视图渲染确认卡片 → 「立即升级」→ hull:upgradeDsh（渲染侧触发）。无原生 dialog。
-  // 手动触发（托盘）→ 切 upgrade 视图渲染确认；自动检查（maybeAutoCheck，M2）→ 不强制切 view（nav 打标）。
+  // S8' §4.5 M1 确认流（M1-重构：升级并入设置视图）：runCheck → phase=confirm → hull:status
+  // （upgrade.phase=confirm + latest/current）→ 设置视图升级区块渲染确认卡片 → 「立即升级」→ hull:upgradeDsh。
+  // 手动触发（托盘）→ 聚焦主窗口 + 切 settings 视图渲染确认；自动检查（maybeAutoCheck，M2）→ 不强制切 view（nav 打标）。
   const runCheck = async (auto = false): Promise<void> => {
     if (quitting) return;
     const result = await updater.check();
     if (quitting) return;
     if (result.phase === UpgradePhase.Confirm && result.latest) {
-      if (!auto) winMgr.showUpgrade();
+      if (!auto) {
+        winMgr.show();
+        winMgr.focus();
+        winMgr.restore();
+        winMgr.showSettings();
+      }
       return;
     }
-    // checkFailed：upgrade 视图失败卡片（按钮下方红字，S3 契约 T3-05 语义）——hull:status 推送驱动，无 dialog
-    // 无更新：静默（upgrade 视图 / nav 状态区显示「无」）
+    // checkFailed：设置视图升级区块失败卡片（按钮下方红字，S3 契约 T3-05 语义）——hull:status 推送驱动，无 dialog
+    // 无更新：静默（设置视图升级区块 / nav 状态区显示「无」）
   };
 
   // 启动自动检查（🟢-2：start() 成功后触发更稳；S6 B4：autoCheckDsh 门控 + DismissStore 当日去重 T3-06）
@@ -391,11 +398,14 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     return { ok: true, hasUpdate: result.hasUpdate, latest: result.latest, phase: result.phase };
   });
 
-  // S5：Hull 自更新编排（S8' S3'：预防性提示 dialog → upgrade 视图重启安装提示卡片；编排零改动 CON-R005）
+  // S5：Hull 自更新编排（M1-重构：预防性提示 dialog → 设置视图升级区块重启安装提示卡片；编排零改动 CON-R005）
   hullUpdater.on('preventive-prompt', () => {
     if (quitting) return;
-    // H2 裁决 2：预防性提示（T5-05：更新后无法打开 → 右键打开 / 重下载引导）收进 upgrade 视图重启安装提示区
-    winMgr.showUpgrade();
+    // H2 裁决 2：预防性提示（T5-05：更新后无法打开 → 右键打开 / 重下载引导）收进设置视图升级区块重启安装提示区
+    winMgr.show();
+    winMgr.focus();
+    winMgr.restore();
+    winMgr.showSettings();
   });
 
   const runHullCheck = async (auto = false): Promise<void> => {
@@ -403,12 +413,17 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     const result = await hullUpdater.check();
     if (quitting) return;
     if (result.hasUpdate && result.targetVersion) {
-      // S8' S3'：Hull 确认流壳内化——切 upgrade 视图渲染 Hull 确认卡片；「立即下载」→ hull:downloadHullUpdate
+      // M1-重构：Hull 确认流壳内化——切 settings 视图升级区块渲染 Hull 确认卡片；「立即下载」→ hull:downloadHullUpdate
       // 自动检查（M2 同 dsh）不强制切 view（nav 打标），仅手动触发切
-      if (!auto) winMgr.showUpgrade();
+      if (!auto) {
+        winMgr.show();
+        winMgr.focus();
+        winMgr.restore();
+        winMgr.showSettings();
+      }
       return;
     }
-    // checkFailed：upgrade 视图 Hull 失败卡片（hull:status 推送驱动，无 dialog）
+    // checkFailed：设置视图升级区块 Hull 失败卡片（hull:status 推送驱动，无 dialog）
   };
 
   // 启动自动检查（Hull）：autoCheckHull 门控 + DismissStore('hull') 当日去重（T5-06）
@@ -476,12 +491,6 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     winMgr.showSettings();
     return { ok: true };
   });
-  // S8' §4.3 H1：壳导航升级入口 → 主进程切 upgrade 视图（渲染侧再触发检查渲染确认卡片）
-  ipcMain.handle('hull:showUpgrade', async () => {
-    if (quitting) return { ok: false, message: '正在退出' };
-    winMgr.showUpgrade();
-    return { ok: true };
-  });
   // B2：壳导航任务看板入口 → 主进程切 view 到 placeholder:board（官方 WebContentsView 隐藏，
   // 渲染侧 section#board 显示；复用 showPlaceholder 机制，D6 view 单一事实源不破）
   ipcMain.handle('hull:showBoard', async () => {
@@ -504,8 +513,8 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     }
     return { ok: true };
   });
-  // S8' §4.3 H1 收敛：统一 checkDshUpdate（无 dialog 返回结果）——壳导航/设置区块共用。
-  // 壳导航「升级」两段职责：① showUpgrade（主进程切 view）→ ② 渲染侧调 checkDshUpdate（触发检查渲染确认卡片）。
+  // S8' §4.3 H1 收敛：统一 checkDshUpdate（无 dialog 返回结果）——设置区块「检查更新」消费。
+  // 渲染侧调 checkDshUpdate → phase=confirm → 切 settings 视图渲染确认卡片。
   // 原 hull:promptDshUpdate 孤儿通道已删除（托盘走 runCheck 直连，不经过本通道）。
   ipcMain.handle('hull:checkDshUpdate', async () => {
     if (quitting) return { hasUpdate: false, current: null, latest: null, phase: UpgradePhase.Idle };
