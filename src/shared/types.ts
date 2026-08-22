@@ -89,6 +89,8 @@ export interface UpgradeStatus {
   pct: number;
   /** 状态说明（用户可见） */
   message: string;
+  /** npm 安装输出缓冲（最近 N 行，改进：升级输出框数据源；主进程 Updater 维护，切视图回来经快照恢复） */
+  output: string[];
 }
 
 /** S5 Hull 自更新阶段（契约 §HullUpdateStatus：6 态 + restart-prompt 枚举保留） */

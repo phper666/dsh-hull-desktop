@@ -121,6 +121,9 @@
   .up-progress { margin: 8px 0; }
   .up-progress .bar { width: 100%; height: 6px; margin: 8px 0 4px; }
   .up-progress .bar i { display: block; height: 100%; width: 0; background: #4c6ef5; border-radius: 999px; transition: width 0.3s; }
+  /* 改进 3：升级输出框（npm 实时输出，等宽 + 滚动，最新在最下） */
+  .up-output { margin-top: 8px; max-height: 140px; overflow-y: auto; background: #f4f4f1; border: 1px solid #e3e3df; border-radius: 8px; padding: 8px 10px; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; line-height: 1.5; color: #3a424d; white-space: pre-wrap; word-break: break-all; }
+  .up-output .line { display: block; }
   .up-msg { font-size: 12px; color: #5a6370; }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
 </style>
@@ -634,13 +637,29 @@
     // 非 confirm：进度/失败/回滚结果/空闲
     if (u.phase !== 'idle') {
       const progress = ['installing', 'swapping', 'verifying', 'rollback', 'checking'].includes(u.phase);
+      // 改进 3：诚实阶段文案——pct 是阶段步进（50=解析/下载，90=替换，95=验证，100=完成），非真实百分比。
+      // 文字显示阶段文案（不裸显误导性 50%），进度条宽度保留（弱化百分比数字）。
+      const stageText = {
+        installing: '正在安装…（解析依赖 / 下载中）',
+        swapping: '正在替换…',
+        verifying: '正在验证…',
+        rollback: '正在回滚…',
+        checking: '正在检查…',
+      }[u.phase] || upgradeNames[u.phase] || u.phase;
+      // 输出框：installing 段显示 npm 实时输出（最近 100 行，最新在最下）
+      const outputHtml = u.phase === 'installing' && Array.isArray(u.output) && u.output.length
+        ? `<div class="up-output">${u.output.map((l) => `<span class="line">${esc(l)}</span>`).join('')}</div>` : '';
       body.innerHTML = `
-        <div class="urow"><div class="info"><div class="label">状态</div></div><div class="badges">${badge(upgradeNames[u.phase] || u.phase, 'warn')}</div></div>
-        ${progress ? `<div class="up-progress"><div class="bar"><i style="width:${pct}%"></i></div><span class="up-msg">${pct}%</span></div>` : ''}
+        <div class="urow"><div class="info"><div class="label">状态</div></div><div class="badges">${badge(stageText, 'warn')}</div></div>
+        ${progress ? `<div class="up-progress"><div class="bar"><i style="width:${pct}%"></i></div><span class="up-msg">${esc(stageText)}</span></div>` : ''}
         <div class="up-msg">${esc(u.message || '')}</div>
+        ${outputHtml}
         ${u.phase === 'installing' ? '<div class="urow"><div><button id="up-dsh-cancel" class="sbtn">取消</button></div></div>' : ''}`;
       const cancelBtn = document.getElementById('up-dsh-cancel');
       if (cancelBtn) cancelBtn.addEventListener('click', async () => { try { await bridge.cancelDshUpgrade(); } catch {} });
+      // 输出框滚到底（最新行可见）
+      const outBox = body.querySelector('.up-output');
+      if (outBox) outBox.scrollTop = outBox.scrollHeight;
       return;
     }
     // idle：失败/回滚结果/空闲
@@ -740,15 +759,15 @@
 
   // hull:status 渲染（主进程单一事实源）
   // Bug2 修复：左下角「dsh 升级」行渲染独立成函数——event（hull:status）与 tick（getDshStatus 实时快照）双源统一。
-  // 数据源 = payload.upgrade（dsh 通道）；installing 段显示 pct 进度条（50→90→95→100），其他 phase 仅文本。
+  // 数据源 = payload.upgrade（dsh 通道）；installing 段显示进度条宽度 + 诚实阶段文案（改进 3：不裸显误导性 50%）。
   function renderStatusUpgradeRow(upgrade) {
     if (!upgrade) return;
     const upPhase = upgradeNames[upgrade.phase] || upgrade.phase || '…';
     const upPct = typeof upgrade.pct === 'number' ? Math.round(upgrade.pct) : 0;
-    // P1 补丁：installing 显示 pct 进度条；其他 phase 仅文本
+    // 改进 3：installing 文案「安装中…」+ 进度条宽度（pct 为阶段步进，非真实百分比）
     const upBar = document.getElementById('status-upgrade-bar');
     if (upgrade.phase === 'installing') {
-      document.getElementById('status-upgrade').textContent = `${upPhase} ${upPct}%`;
+      document.getElementById('status-upgrade').textContent = '安装中…';
       document.getElementById('status-upgrade-fill').style.width = upPct + '%';
       upBar.classList.remove('hidden');
     } else {

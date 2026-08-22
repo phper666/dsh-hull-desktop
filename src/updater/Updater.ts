@@ -63,6 +63,8 @@ export class Updater extends EventEmitter {
   private pct = 0;
   private message = '未开始';
   private inFlight: Promise<UpgradeStatus> | null = null;
+  /** 升级输出缓冲（最近 MAX_OUTPUT_LINES 行；npm 输出经 main onLine → pushOutput 灌入，改进 2） */
+  private output: string[] = [];
   private readonly overlay: OverlayManager;
   private readonly swapManager: SwapManager;
   private readonly runtime: RuntimeManager;
@@ -94,6 +96,23 @@ export class Updater extends EventEmitter {
     });
   }
 
+  /** 升级输出缓冲上限（环形保留最近 N 行，防止无限增长；渲染输出框数据源） */
+  private static readonly MAX_OUTPUT_LINES = 100;
+
+  /** 输出缓冲灌入（main 的 npmRunner onLine → 本方法；改进 2 升级输出框数据源）。
+   *  仅 installing 段收集（其他段不相关输出不污染缓冲） */
+  pushOutput(line: string): void {
+    if (this.phase !== UpgradePhase.Installing) return;
+    this.output.push(line);
+    if (this.output.length > Updater.MAX_OUTPUT_LINES) this.output.splice(0, this.output.length - Updater.MAX_OUTPUT_LINES);
+    this.emit('status', this.snapshot());
+  }
+
+  /** 输出缓冲清空（升级开始/完成时调用，防跨次升级残留） */
+  private clearOutput(): void {
+    if (this.output.length > 0) this.output = [];
+  }
+
   /** 状态/进度通知（契约 #7） */
   on(event: 'status', listener: (s: UpgradeStatus) => void): this;
   on(event: string | symbol, listener: (...args: any[]) => void): this {
@@ -109,6 +128,7 @@ export class Updater extends EventEmitter {
       error: this.error,
       pct: this.pct,
       message: this.message,
+      output: [...this.output],
     };
   }
 
@@ -246,6 +266,7 @@ export class Updater extends EventEmitter {
 
   private async doUpgrade(target: string): Promise<UpgradeStatus> {
     try {
+      this.clearOutput(); // 输出缓冲重置（跨次升级不残留）
       this.transition(UpgradePhase.Installing, `正在安装 dsh@${target}…`);
       this.pct = 50;
       try {

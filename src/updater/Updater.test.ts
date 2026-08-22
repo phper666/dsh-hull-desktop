@@ -539,3 +539,55 @@ test('Bug3 overlay progress → installing 段 Updater pct 实时透传 + status
   equal(s.phase, 'idle');
   equal(s.pct, 100);
 });
+
+test('改进 2：pushOutput 缓冲 → snapshot.output（installing 段收集 + 环形截断 + 快照透传）', async () => {
+  const { updater, releaseInstall } = makeUpdater({ installPending: true });
+  await updater.check();
+  const p = updater.upgrade('1.0.0');
+  equal(updater.snapshot().phase, 'installing');
+  // installing 段 push → 缓冲 + snapshot.output 透传
+  updater.pushOutput('npm notice resolving: foo@1.0.0');
+  updater.pushOutput('added 1 package in 2s');
+  deepEqual(updater.snapshot().output, ['npm notice resolving: foo@1.0.0', 'added 1 package in 2s']);
+  // 非 installing 段（release 后 phase 离开）→ push 被忽略
+  releaseInstall();
+  await p;
+  equal(updater.snapshot().phase, 'idle');
+  updater.pushOutput('stray line');
+  ok(!updater.snapshot().output.includes('stray line'), '非 installing 段不收集');
+});
+
+test('改进 2：输出缓冲环形截断上限（MAX=100，超限丢最旧）', async () => {
+  const { updater, releaseInstall } = makeUpdater({ installPending: true });
+  await updater.check();
+  const p = updater.upgrade('1.0.0');
+  equal(updater.snapshot().phase, 'installing');
+  for (let i = 0; i < 150; i++) updater.pushOutput(`line-${i}`);
+  const out = updater.snapshot().output;
+  equal(out.length, 100, '缓冲封顶 100 行');
+  equal(out[0], 'line-50', '最旧 50 行被丢弃');
+  equal(out[99], 'line-149', '最新行保留');
+  releaseInstall();
+  await p;
+});
+
+test('改进 2：跨次升级输出缓冲重置（clearOutput）', async () => {
+  // 第一次升级失败（installThrow）→ 输出缓冲保留失败段；第二次升级 → doUpgrade clearOutput → 缓冲空
+  const { updater, releaseInstall } = makeUpdater({ installPending: true });
+  await updater.check();
+  const p = updater.upgrade('1.0.0');
+  equal(updater.snapshot().phase, 'installing');
+  updater.pushOutput('first upgrade output');
+  // 取消 → idle（overlayVersion 仍 0.9.0，第二次升级 target 1.0.0 不触发 version-invalid guard）
+  await updater.cancel();
+  equal(updater.snapshot().phase, 'idle');
+  releaseInstall();
+  await p;
+  // 第二次升级 → Installing 起点 clearOutput → 缓冲空（不残留第一次输出）
+  await updater.check();
+  const p2 = updater.upgrade('1.0.0');
+  equal(updater.snapshot().phase, 'installing');
+  equal(updater.snapshot().output.length, 0, '新升级缓冲已清空');
+  releaseInstall();
+  await p2;
+});

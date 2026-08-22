@@ -147,10 +147,14 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   const runtime = new RuntimeManager({ userDataPath, logger });
   // S2：overlay 管理栈（首装自动触发 / ensure 三态 / 取消）
   const bundledNode = join(userDataPath, 'node', 'bin', 'node');
+  // 改进 2：npmRunner onLine 接线——npm install 逐行输出 → Updater 输出缓冲（升级输出框数据源）。
+  // updater 在后面装配，先占位 holder、装配后赋真实引用（onLine 触发时 upgrade 已初始化）。
+  const npmOutputTarget: { fn: ((line: string) => void) | null } = { fn: null };
   const npmRunner = new NpmRunner({
     nodePath: existsSync(bundledNode) ? bundledNode : 'node',
     logger,
     getRegistry: () => settings.getSettings().registry, // S6 B7：settings.registry 优先 + env 兜底
+    onLine: (line) => npmOutputTarget.fn?.(line),
   });
   const overlay = new OverlayManager({
     userDataPath,
@@ -174,6 +178,8 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     settingsProvider: settings, // S6 B4：autoCheckDsh 门控
     logger,
   });
+  // 改进 2：npmRunner onLine → Updater 输出缓冲（升级输出框数据源）
+  npmOutputTarget.fn = (line) => updater.pushOutput(line);
   // S5：Hull 自更新栈（adapter → HullUpdater；与 dsh Updater 共享 UpgradeQueue 互斥）
   // owner/repo：发布链核对注记（与 electron-builder.yml publish 一致，S6/发布时确认）
   const hullUpdater = new HullUpdater({
