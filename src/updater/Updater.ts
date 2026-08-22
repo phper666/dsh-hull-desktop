@@ -19,14 +19,16 @@ import type { ChannelService } from '../channel/ChannelService';
 
 /**
  * 7 态迁移表（契约 §升级状态机 + 补充边注记）：
- * idle→checking；checking→confirm/idle；confirm→installing/idle；installing→swapping/idle；
+ * idle→checking；checking→confirm/idle；confirm→installing/idle/checking；installing→swapping/idle；
  * swapping→verifying/idle；verifying→idle/rollback；rollback→idle；
  * 补充边：idle→rollback（手动回滚承载，W3——契约表 idle 仅列 checking，S3 设计 D7 决策补充）。
+ * 补充边：confirm→checking（Bug1 修复——Confirm 态允许重新 check，runCheck 幂等刷新确认卡；
+ * 仅升级执行中拦截，Confirm 只是待确认非进行中）。
  */
 const TRANSITIONS: Record<UpgradePhase, UpgradePhase[]> = {
   [UpgradePhase.Idle]: [UpgradePhase.Checking, UpgradePhase.Rollback],
   [UpgradePhase.Checking]: [UpgradePhase.Confirm, UpgradePhase.Idle],
-  [UpgradePhase.Confirm]: [UpgradePhase.Installing, UpgradePhase.Idle],
+  [UpgradePhase.Confirm]: [UpgradePhase.Checking, UpgradePhase.Installing, UpgradePhase.Idle],
   [UpgradePhase.Installing]: [UpgradePhase.Swapping, UpgradePhase.Idle],
   [UpgradePhase.Swapping]: [UpgradePhase.Verifying, UpgradePhase.Idle],
   [UpgradePhase.Verifying]: [UpgradePhase.Idle, UpgradePhase.Rollback],
@@ -82,6 +84,14 @@ export class Updater extends EventEmitter {
     this.settingsProvider = options.settingsProvider;
     this.logger = options.logger ?? NOOP_LOGGER;
     this.dev = options.dev ?? false;
+    // Bug3 修复：订阅 overlay 细粒度 npm 进度 → installing 段实时透传 snapshot pct
+    // （替代 P2/M4 渲染侧折衷的根因修法；CON-R005 只加进度事件流，不改 installing→swapping→verifying 迁移与原子替换）
+    this.overlay.on('progress', (p) => {
+      if (this.phase === UpgradePhase.Installing && p && typeof p.pct === 'number') {
+        this.pct = p.pct;
+        this.emit('status', this.snapshot());
+      }
+    });
   }
 
   /** 状态/进度通知（契约 #7） */
@@ -119,8 +129,10 @@ export class Updater extends EventEmitter {
 
   /** 版本检查（契约 #1）：自身 scope 内 acquire/release（gamma 裁决）；hasUpdate → confirm */
   async check(): Promise<CheckResult & { phase: UpgradePhase }> {
-    if (this.phase !== UpgradePhase.Idle) {
-      return { hasUpdate: false, current: this.currentVersion, latest: null, phase: this.phase }; // 冲突：非 idle 忽略
+    // 冲突保护：仅升级执行中（installing/swapping/verifying/rollback）拦截；
+    // Confirm 只是待确认非进行中——允许重新 check（幂等刷新确认卡，Bug1 修复）
+    if (this.phase !== UpgradePhase.Idle && this.phase !== UpgradePhase.Confirm) {
+      return { hasUpdate: false, current: this.currentVersion, latest: null, phase: this.phase }; // 冲突：升级执行中忽略
     }
     this.currentVersion = this.overlay.currentVersion();
     // Y-1：acquire 成功后才进 checking（失败直接返回，无 checking→idle 闪事件）

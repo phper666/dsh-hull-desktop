@@ -72,6 +72,7 @@ function makeUpdater(overrides: Partial<Knobs> = {}) {
   };
   const calls: string[] = [];
   const starts: Array<{ n: number; probeTarget: string | undefined }> = [];
+  const progressHooks: Array<(...args: unknown[]) => void> = [];
   let installGate: (() => void) | null = null;
   let stopGate: (() => void) | null = null;
   let overlayPhase: InstallPhase = InstallPhase.Ready;
@@ -89,6 +90,10 @@ function makeUpdater(overrides: Partial<Knobs> = {}) {
     },
     currentVersion: () => (overlayPhase === InstallPhase.Ready ? knobs.overlayVersion! : null),
     canRollback: () => knobs.canRollback!,
+    // Bug3 修复：Updater 构造订阅 overlay 'progress' → fake 提供 on() 存根（progressHooks 记录订阅回调供测试触发）
+    on: (evt: string, cb: (...args: unknown[]) => void) => {
+      if (evt === 'progress') progressHooks.push(cb);
+    },
     swap: async () => {
       calls.push('overlay.swap');
       if (knobs.swapThrowCode) {
@@ -159,6 +164,8 @@ function makeUpdater(overrides: Partial<Knobs> = {}) {
     releaseInstall: () => installGate?.(),
     releaseStop: () => stopGate?.(),
     getEvents: () => events,
+    /** Bug3：触发 overlay progress（installing 段透传 pct） */
+    emitProgress: (pct: number) => progressHooks.forEach((cb) => cb({ phase: 'npm-install', pct })),
     channelCalls: () => (fakeChannel ? fakeChannel.calls : []),
     setChannelState: (c: 'latest' | 'pinned') => {
       if (fakeChannel) fakeChannel.state.channel = c;
@@ -465,4 +472,52 @@ test('🟡-1 dismiss 后再次 check 可执行（S3 稍后再说路径）', asyn
   const r = await updater.check(); // 若 phase 卡 Confirm 则被忽略（hasUpdate=false）
   equal(r.hasUpdate, true, '再次 check 正常执行');
   equal(r.phase, 'confirm');
+});
+
+test('Bug1 Confirm 态重新 check 返回真实结果（不误报「已是最新」）', async () => {
+  const { updater, getEvents } = makeUpdater({ registryHasUpdate: true });
+  await updater.check(); // idle → checking → confirm（发现新版，未点安装）
+  equal(updater.snapshot().phase, 'confirm');
+  equal(updater.snapshot().targetVersion, '1.0.0');
+  // 再次 check：Confirm 态不拦截 → 重新查 registry（幂等刷新确认卡）
+  const r = await updater.check();
+  equal(r.hasUpdate, true, 'Confirm 态重新 check 返回真实结果（非 hasUpdate:false）');
+  equal(r.phase, 'confirm');
+  equal(updater.snapshot().targetVersion, '1.0.0');
+  // 事件序列含 confirm→checking→confirm 合法迁移
+  deepEqual(
+    getEvents().map((s) => s.phase),
+    ['checking', 'confirm', 'checking', 'confirm']
+  );
+});
+
+test('Bug1 升级执行中 check 仍拦截（installing 态忽略，冲突保护保留）', async () => {
+  const { updater, releaseInstall } = makeUpdater({ installPending: true });
+  await updater.check();
+  const p = updater.upgrade('1.0.0');
+  equal(updater.snapshot().phase, 'installing');
+  const r = await updater.check(); // installing = 执行中 → 拦截
+  equal(r.hasUpdate, false);
+  equal(r.phase, 'installing');
+  releaseInstall();
+  await p;
+});
+
+test('Bug3 overlay progress → installing 段 Updater pct 实时透传 + status 事件', async () => {
+  const { updater, releaseInstall, emitProgress, getEvents } = makeUpdater({ installPending: true });
+  await updater.check();
+  const p = updater.upgrade('1.0.0');
+  equal(updater.snapshot().phase, 'installing');
+  // overlay 细粒度进度 50 → 75 → 90 逐帧透传（之前固定 50，Bug3 修复后实时）
+  emitProgress(55);
+  equal(updater.snapshot().pct, 55, 'overlay progress 55 透传 snapshot pct');
+  emitProgress(72);
+  equal(updater.snapshot().pct, 72, 'overlay progress 72 透传 snapshot pct');
+  // 每次透传发 status 事件（event + tick 双源都读到真实进度）
+  const installingEvents = getEvents().filter((s) => s.phase === 'installing');
+  ok(installingEvents.some((s) => s.pct === 72), 'status 事件携带实时 pct');
+  releaseInstall();
+  const s = await p;
+  equal(s.phase, 'idle');
+  equal(s.pct, 100);
 });
