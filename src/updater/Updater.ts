@@ -128,17 +128,18 @@ export class Updater extends EventEmitter {
   }
 
   /** 版本检查（契约 #1）：自身 scope 内 acquire/release（gamma 裁决）；hasUpdate → confirm */
-  async check(): Promise<CheckResult & { phase: UpgradePhase }> {
+  async check(): Promise<(CheckResult & { phase: UpgradePhase }) & { error?: string | null }> {
     // 冲突保护：仅升级执行中（installing/swapping/verifying/rollback）拦截；
     // Confirm 只是待确认非进行中——允许重新 check（幂等刷新确认卡，Bug1 修复）
     if (this.phase !== UpgradePhase.Idle && this.phase !== UpgradePhase.Confirm) {
-      return { hasUpdate: false, current: this.currentVersion, latest: null, phase: this.phase }; // 冲突：升级执行中忽略
+      // 升级执行中 → 返回 error 码（UI recheck 据此提示「收尾中」，非静默无反应）
+      return { hasUpdate: false, current: this.currentVersion, latest: null, phase: this.phase, error: UPGRADE_ERRORS.queueBusy };
     }
     this.currentVersion = this.overlay.currentVersion();
     // Y-1：acquire 成功后才进 checking（失败直接返回，无 checking→idle 闪事件）
     if (!this.queue.acquire('dsh')) {
       this.error = UPGRADE_ERRORS.queueBusy;
-      return { hasUpdate: false, current: this.currentVersion, latest: null, phase: UpgradePhase.Idle };
+      return { hasUpdate: false, current: this.currentVersion, latest: null, phase: UpgradePhase.Idle, error: UPGRADE_ERRORS.queueBusy };
     }
     this.transition(UpgradePhase.Checking, '正在检查更新…');
     try {

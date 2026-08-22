@@ -503,6 +503,24 @@ test('Bug1 升级执行中 check 仍拦截（installing 态忽略，冲突保护
   await p;
 });
 
+test('Bug 修复：执行中/queue 占用 → check 返回 error=queue-busy（UI 反馈信号，非静默）', async () => {
+  // ① 升级执行中（install 挂起）→ check 返回 error 码
+  const a = makeUpdater({ installPending: true });
+  await a.updater.check();
+  const pa = a.updater.upgrade('1.0.0');
+  equal(a.updater.snapshot().phase, 'installing');
+  const ra = await a.updater.check();
+  equal(ra.error, 'queue-busy', '执行中 check 返回 queue-busy 供 UI 提示');
+  a.releaseInstall();
+  await pa;
+  // ② queue 被外部占用 → check 返回 error 码
+  const b = makeUpdater();
+  b.queue.acquire('hull');
+  const rb = await b.updater.check();
+  equal(rb.error, 'queue-busy', 'queue 占用 check 返回 queue-busy');
+  equal(rb.hasUpdate, false);
+});
+
 test('Bug3 overlay progress → installing 段 Updater pct 实时透传 + status 事件', async () => {
   const { updater, releaseInstall, emitProgress, getEvents } = makeUpdater({ installPending: true });
   await updater.check();

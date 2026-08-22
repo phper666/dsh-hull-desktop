@@ -533,7 +533,15 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
       };
     }
   });
-  ipcMain.handle('hull:cancelDshUpgrade', async () => updater.cancel());
+  // Bug 修复：升级取消同步 kill npm——Updater.cancel() 只清 staging 不杀 npm（install 仍 await 至
+  // 120s 超时/完成才 finally release queue），用户取消后立刻 recheck 会被 queueBusy 静默挡掉。
+  // 与 hull:cancelInstall 同模式（overlay.cancelInstall + npmRunner.cancel），杀 npm → install 快返回
+  // → doUpgrade finally 快 release → recheck 立即可用。
+  ipcMain.handle('hull:cancelDshUpgrade', async () => {
+    const status = updater.cancel();
+    npmRunner.cancel();
+    return status;
+  });
   ipcMain.handle('hull:dismissDshUpdate', async () => updater.dismiss());
   ipcMain.handle('hull:rollbackDsh', async () => updater.rollback());
 

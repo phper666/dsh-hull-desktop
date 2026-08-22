@@ -649,7 +649,18 @@
         <div class="up-error">${esc(u.message || u.error)}</div>
         <div class="urow"><div class="up-error retry"><button id="up-dsh-recheck" class="sbtn">重新检查</button></div></div>`;
       document.getElementById('up-dsh-recheck').addEventListener('click', async () => {
-        try { await bridge.checkDshUpdate(); } catch {}
+        try {
+          const res = await bridge.checkDshUpdate();
+          // Bug 修复：取消后 queue 未释放（升级收尾中）→ check 返回 queueBusy → toast 明确反馈，非静默
+          if (res && res.error === 'queue-busy') {
+            toast('升级正在收尾，请稍候再试');
+            return;
+          }
+          if (res && res.hasUpdate === false && res.error) {
+            toast(res.error === 'check-failed' ? '检查失败，请稍后再试' : (res.error || '检查失败'));
+            return;
+          }
+        } catch (err) { toast(err.message || '检查失败'); }
       });
       return;
     }
@@ -708,7 +719,14 @@
         <div class="up-error">${esc(h.message || h.error)}</div>
         <div class="urow"><div class="up-error retry"><button id="up-hull-recheck" class="sbtn">重新检查</button></div></div>`;
       document.getElementById('up-hull-recheck').addEventListener('click', async () => {
-        try { await bridge.checkHullUpdate(); } catch {}
+        try {
+          const res = await bridge.checkHullUpdate();
+          // Bug 修复：queue 占用/检查失败 → toast 明确反馈（HullUpdater.check 返回 error 码）
+          if (res && res.error) {
+            toast(res.error === 'queue-busy' ? '更新正在收尾，请稍候再试' : (res.error === 'check-failed' ? '检查失败，请稍后再试' : '检查失败'));
+            return;
+          }
+        } catch (err) { toast(err.message || '检查失败'); }
       });
       return;
     }
