@@ -137,7 +137,7 @@
       <div class="row"><span>dsh 状态</span><span id="status-phase" class="val">…</span></div>
       <div class="row"><span>版本</span><span id="status-version" class="val">…</span></div>
       <div class="row"><span>Hull 版本</span><span id="status-hull-version" class="val">…</span></div>
-      <div class="row"><span>升级</span><span id="status-upgrade" class="val">…</span></div>
+      <div class="row"><span>dsh 升级</span><span id="status-upgrade" class="val">…</span></div>
       <div id="status-upgrade-bar" class="bar hidden"><div id="status-upgrade-fill" class="bar-fill"></div></div>
     </div>
   </nav>
@@ -323,7 +323,7 @@
 <script>
   // 壳框架页（S8 D4/D5/D6 + S8' M1-重构）：
   // - 右侧内容区显示完全由主进程 hull:status 的 view 字段驱动（renderer 无 view 控制通道）
-  // - 状态区渲染 runtime.phase + currentVersion + hullVersion + upgrade.phase
+  // - 状态区渲染 runtime.phase + currentVersion + hullVersion + dsh 升级（upgrade.phase，仅 dsh 通道；Hull 状态在设置页 Hull 区块）
   // - 安装进度 installStatus 250ms 轮询（B6）；设置 section 250ms 轮询 hull:status + 双通道快照
   // - S8' §4.4：nav 高亮由 hull:status view 字段派生（主进程单一事实源），本地点击即时高亮 + 推送校正
   const bridge = window.hull;
@@ -378,6 +378,9 @@
   // 升级进行中例外（M1-重构）：升级已并入 settings 视图——view=placeholder:settings 且 upgrade.phase ∈ 进行中
   // → nav-settings 保持高亮（含 rollback：手动回滚时 phase=rollback 与进度段一致）
   const UPGRADE_ACTIVE_PHASES = ['checking', 'confirm', 'installing', 'swapping', 'verifying', 'rollback'];
+  // M1-重构：busy 判定「升级执行中」集合——仅 installing/swapping/verifying/rollback 算执行中；
+  // confirm（待确认）只是发现新版等确认的卡片，非升级在跑，允许再点「检查更新」（runCheck confirm 幂等刷新）
+  const UPGRADE_EXECUTING = new Set(['installing', 'swapping', 'verifying', 'rollback']);
   function setActive(id) {
     for (const el of document.querySelectorAll('.nav-item')) el.classList.remove('active');
     document.getElementById(id).classList.add('active');
@@ -527,7 +530,8 @@
     sett.els.dshStatusWrap.innerHTML = statusHtml;
     sett.els.dshVersionWrap.innerHTML = ds.currentVersion ? badge('v' + ds.currentVersion, 'muted') : badge('—', 'muted');
 
-    const busy = (upgrade?.phase ?? 'idle') !== 'idle' || (sett.state.hull && (sett.state.hull.phase ?? 'idle') !== 'idle');
+    // busy = 升级执行中（installing/swapping/verifying/rollback）；confirm/checking/idle 可点（confirm 幂等刷新确认卡）
+    const busy = UPGRADE_EXECUTING.has(upgrade?.phase ?? 'idle') || (sett.state.hull && UPGRADE_EXECUTING.has(sett.state.hull.phase ?? 'idle'));
     sett.els.checkDsh.disabled = busy;
     sett.els.rollbackDsh.disabled = busy || !ds.canRollback;
     if (ds.canRollback) sett.els.rollbackDsh.title = '回滚到上一版本';
@@ -548,7 +552,7 @@
   function renderHull(hs) {
     if (!hs) return;
     sett.els.hullVersionWrap.innerHTML = hs.currentVersion ? badge('v' + hs.currentVersion, 'muted') : badge('—', 'muted');
-    const busy = (hs?.phase ?? 'idle') !== 'idle' || (sett.state.dsh && sett.state.dsh.upgrade && (sett.state.dsh.upgrade.phase ?? 'idle') !== 'idle');
+    const busy = UPGRADE_EXECUTING.has(hs?.phase ?? 'idle') || (sett.state.dsh && sett.state.dsh.upgrade && UPGRADE_EXECUTING.has(sett.state.dsh.upgrade.phase ?? 'idle'));
     sett.els.checkHull.disabled = busy;
 
     if (hs.error && hs.phase === 'idle') {
