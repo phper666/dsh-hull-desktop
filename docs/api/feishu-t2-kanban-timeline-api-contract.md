@@ -53,7 +53,7 @@
 | 文件 | 变更 |
 |---|---|
 | `src/kanban/types.ts` | `KANBAN_SCHEMA_VERSION = 2`；`Task.startDate: string \| null` |
-| `src/kanban/KanbanStore.ts` | `CreateTaskInput`/`UpdateTaskPatch` 增 `startDate?`；createTask 组装补 `startDate: input.startDate ?? null`；updateTask 白名单补 `if (patch.startDate !== undefined)`；migrate() 补 v1→v2 transform |
+| `src/kanban/KanbanStore.ts` | `CreateTaskInput`/`UpdateTaskPatch` 增 `startDate?`；createTask 组装补 `startDate: input.startDate ?? null`；updateTask 白名单补 `if (patch.startDate !== undefined)`；**startDate 归一化（权威，主进程）**：写入侧 createTask/updateTask 对 string 值做 YYYY-MM-DD 格式校验、非法归一化 null；加载/migrate 读取侧对脏数据同样归一化（dueDate 不在本次范围，维持渲染层容错）；migrate() 补 v1→v2 transform |
 | `src/preload/index.ts` | bridge 方法签名类型同步（createTask/updateTask 入参含 startDate） |
 | `src/shared/ipc-channels.ts` | 无变化（channel 名不变，仅入参 schema 扩展） |
 
@@ -63,7 +63,7 @@
 
 | 字段 | 类型 | 必填 | 可空 | 约束 | 敏感性 | 说明 |
 |---|---|---|---|---|---|---|
-| startDate | string | 是（v2 起） | 是 | ISO 日期字符串（YYYY-MM-DD，与 dueDate 同型）；默认 null；非法日期串丢弃置 null 不阻塞加载（CON-R-timeline-007）；`startDate > dueDate` 存储层不校验不报错（展示层以 dueDate 为准单日显示） | 无 | 计划开始日期（日历区间跨格依据，FR-3） |
+| startDate | string | 是（v2 起） | 是 | ISO 日期字符串（YYYY-MM-DD，与 dueDate 同型）；默认 null；**非法日期串归一化归属：主进程 KanbanStore（权威）**——写入侧（createTask/updateTask）string 但非合法 YYYY-MM-DD → 归一化存 null；加载/迁移读取侧脏数据同样归一化置 null，不阻塞加载（CON-R-timeline-007）；renderer 仅做友好预校验（日期选择器约束），不承担权威校验；`startDate > dueDate` 存储层不校验不报错（展示层以 dueDate 为准单日显示） | 无 | 计划开始日期（日历区间跨格依据，FR-3） |
 
 > 其余 Task 字段沿用 B1 契约，不重复登记。枚举无新增。
 
@@ -106,16 +106,21 @@
     为每个 task 补 startDate: null（已有 startDate 的任务原样跳过）；
     其余字段一律原样保留（只加字段不动存量）；
     version 升 2 → 迁移成功后重新保存落盘为 v2
-  version > 2 → 抛 store-migrate-failed（高于当前 schema，拒绝降级加载）
-迁移抛错 → 沿用 M2 兜底：备份 boards.json.corrupt-<ts> → 重建默认看板并提示
+  version > 2 → 走备份重建兜底（load 路径，KanbanStore.loadStore 现行为）：
+    备份 boards.json.corrupt-<ts> → 重建默认看板；
+    renderer 收到默认看板数据 + 壳层状态提示，**无 IPC 错误码返回**
+迁移抛错（migrate() 直调 / B5 导入校验路径）→ 抛 store-migrate-failed；
+  load 路径捕获后同样走备份重建兜底（静默恢复，与 B1 K4/K6 现行为一致）
 ```
+
+> **错误码语义澄清（复核修正）**：load 路径的迁移失败/版本过新实际由 `backupAndRebuild()` 静默兜底——原文件 rename 为 `.corrupt-<ts>`、重建默认看板、warn 日志，renderer **不会收到 `store-migrate-failed` 错误码**；该错误码仅在 migrate() 直调与 B5 导入校验路径抛出。本契约测试场景按此实际行为断言。
 
 | 行为点 | 约束 | 依据 |
 |---|---|---|
 | 三层遍历 | boards[]→columns[]→tasks[] 全量覆盖，无任务遗漏 | Q-051 |
 | 幂等 | 重复执行不重复加字段、不报错；已含 startDate 任务原样跳过 | Q-051 |
 | 只加不动 | 除新增 startDate 与 version 外，任何字段（含 timeline/execution 记录）不得改动 | FR-4/R2 |
-| 失败兜底 | 备份 `boards.json.corrupt-<ts>` → 重建默认看板（store-migrate-failed，rebuilt=true） | CON-R-timeline-004/B1 K6 |
+| 失败兜底 | 备份 `boards.json.corrupt-<ts>` → 重建默认看板；load 路径 renderer 收默认看板+状态提示（无错误码），migrate() 直调/B5 导入路径抛 store-migrate-failed | CON-R-timeline-004/B1 K6 |
 | B5 导入复用 | B5 importVersionOlder 路径复用同一 migrate()（P2-B5-2），v1 导入自动升 v2 | B5 契约 |
 
 ### 迁移验证场景
@@ -124,11 +129,11 @@
 |---|---|---|---|
 | V1 | version=1，N 板 M 列 K 任务，均无 startDate | 加载 | 全部任务 startDate=null；version=2；落盘文件 version=2；任务数/标题/timeline 条目数与注入一致 |
 | V2 | version=2 且任务已含 startDate 值 | 再次加载/重复 migrate | 字段值不变、不报错（幂等） |
-| V3 | version=3 | 加载 | store-migrate-failed（高于当前 schema） |
+| V3 | version=3 | 加载 | 备份重建兜底：boards.json.corrupt-<ts> 生成、默认看板重建（无错误码返回；migrate() 直调路径则抛 store-migrate-failed） |
 
 ## 公共异常集
 
-> 沿用 B1 契约 `KANBAN_STORE_ERROR` 七错误码，无新增错误码。迁移相关：`store-migrate-failed`（触发条件扩为「v1→v2 迁移抛错或 version>当前」）、`validation-error`（startDate 非法类型时 field=startDate，置 null 或拒参见测试场景 T7/T8）。
+> 沿用 B1 契约 `KANBAN_STORE_ERROR` 七错误码，无新增错误码。迁移相关：`store-migrate-failed` 仅在 **migrate() 直调 / B5 导入校验路径**抛出（v1→v2 迁移抛错或 version>当前）；**load 路径**的迁移失败/版本过新走 `backupAndRebuild()` 静默兜底（备份 corrupt-<ts> + 重建默认看板），renderer 不收到错误码（与 B1 现行为一致）。`validation-error`：startDate 非 string/null 类型时 field=startDate。
 
 ## 接口详情（增量）
 
@@ -155,7 +160,7 @@
 |---|---:|---:|---|---|:---:|
 | validation-error | startDate 非 string/null 类型 | code+msg+field=startDate | 提示字段 | 否 |
 
-> 合法格式但语义异常（非日期串、startDate>dueDate）不在存储层拒绝：非法日期串读取时置 null（CON-R-timeline-007）；start>due 照存，展示层以 dueDate 为准（PRD §8）。
+> 归一化归属（复核修正）：非法日期串由**主进程 KanbanStore 权威归一化**——写入侧 string 但非合法 YYYY-MM-DD → 存 null（不拒绝，IPC 响应 startDate=null）；加载/迁移读取侧脏数据同样置 null 不阻塞加载。renderer 仅做友好预校验。`startDate > dueDate` 照存，展示层以 dueDate 为准（PRD §8）。
 
 #### 幂等与并发
 
@@ -194,16 +199,17 @@
 |---|---|---|---|---|---|---|
 | T2-1 | v1 数据迁移成功 | 注入 version=1 多板多列多任务数据（无 startDate） | 加载 store | 迁移成功：每任务 startDate=null、version=2；任务/时间线完整不丢 | 落盘 boards.json version=2 | T2 验收① |
 | T2-2 | 迁移幂等 | 已迁移 v2 数据 | 再次加载/重复跑 migrate() | 不重复加字段、不报错；已有 startDate 值原样保留 | 数据无 diff | T2 验收① |
-| T2-3 | 迁移失败兜底 | mock migrate() 抛错 | 加载 | **store-migrate-failed**（rebuilt=true）；提示已备份重建 | boards.json.corrupt-<ts> 生成 + 默认看板重建 | T2 验收① |
-| T2-4 | version 过新拒绝 | 注入 version=3 | 加载 | **store-migrate-failed**（高于当前 schema） | 原文件不动 | CON-R-timeline-004 |
+| T2-3 | 迁移失败兜底 | mock migrate() 抛错 | 加载 | 兜底生效：boards.json.corrupt-<ts> 备份生成 + 默认看板重建并展示；**无 IPC 错误码返回**（load 路径静默恢复，与 B1 K4/K6 现行为一致；store-migrate-failed 仅 migrate() 直调/B5 导入路径可见） | boards.json.corrupt-<ts> 生成 + 默认看板重建 | T2 验收① |
+| T2-4 | version 过新拒绝 | 注入 version=3 | 加载 | 备份重建兜底：原文件 rename 为 boards.json.corrupt-<ts>（内容保留于备份）+ 默认看板重建；无错误码返回 | corrupt-<ts> 备份含原 version=3 数据 | CON-R-timeline-004 |
 | T2-5 | createTask 带 startDate | 默认看板 | createTask{title, startDate:"2026-08-25"} | 创建成功，响应 startDate="2026-08-25"；重启后保持 | 落盘含该字段 | T2 验收③ |
 | T2-6 | createTask 不带 startDate（向后兼容） | 默认看板 | createTask{title}（无 startDate） | 创建成功，startDate=null；既有调用零影响 | 落盘 startDate:null | T2 验收③ |
 | T2-7 | updateTask 设/清 startDate | 既有任务 | updateTask{startDate:"2026-09-01"} → updateTask{startDate:null} | 先设后清均生效；updatedAt 刷新；重启保持 | 落盘同步 | T2 验收② |
 | T2-8 | updateTask 不传 startDate | 既有任务（startDate 有值） | updateTask{priority:"P1"} | startDate 保持原值不变（部分更新语义） | — | T2 验收③ |
-| T2-9 | 非法日期串置 null | 任务 startDate:"not-a-date" | 加载/读取 | 丢弃置 null，不阻塞加载 | 内存态 startDate=null | CON-R-timeline-007 |
+| T2-9 | 脏数据读取归一化 | boards.json 中任务 startDate:"not-a-date"（历史脏数据） | 加载/读取 | 主进程 KanbanStore 归一化置 null，不阻塞加载 | 内存态 startDate=null | CON-R-timeline-007 |
 | T2-10 | startDate > dueDate | 任务 startDate=2026-10-01, dueDate=2026-09-01 | createTask/updateTask 写入 | 存储层不报错照存（展示层以 dueDate 单日显示，属 T1 渲染行为） | 落盘两字段原值 | PRD §8 |
 | T2-11 | startDate 非法类型拒参 | 默认看板 | createTask{startDate:123} | **validation-error**（field=startDate） | 不落盘 | Q-052 |
 | T2-12 | 契约传播三处同步 | — | 对照检查 B1 契约 Task Schema/createTask/updateTask 章节 + preload 类型 + KanbanIpc 入参 | 三处均含 startDate 且类型一致（string\|null，可选） | — | T2 验收④/Q-052 |
+| T2-13 | IPC 写入非法日期串归一化 | 默认看板 | createTask{title, startDate:"not-a-date"} → updateTask{startDate:"2026-13-99"} | 主进程权威归一化：两次写入响应 startDate 均=null、落盘 null（不拒绝不报错）；类型错误仍拒（见 T2-11） | 落盘 startDate:null | CON-R-timeline-007/Q-052 |
 
 ## 开放问题
 
@@ -241,11 +247,12 @@
 | 时间 | 类型 | 摘要 |
 |---|---|---|
 | 2026-08-22 | 初次生成 | 基于 T2（bda6a7df-327c-462d-b459-c5d25ff7bc34）和共识-Hull桌面壳-M2看板时间线 v1.2 §7/§13/§14.1 + PRD v0.2 FR-3/FR-4 生成增量契约草案（对 B1 契约 4 项 MODIFIED） |
+| 2026-08-22 | 复核修复 | FE/QA 契约复核退回修复：① HIGH——迁移失败/version 过新错误语义对齐实际代码（load 路径 backupAndRebuild 静默兜底：备份 corrupt-<ts> + 重建默认看板，renderer 无错误码；store-migrate-failed 仅 migrate() 直调/B5 导入路径），修正 §迁移契约/公共异常集/V3/T2-3/T2-4；② MEDIUM——非法日期串归一化归属定案为主进程 KanbanStore（写入+读取权威归一化，renderer 友好预校验），修正 Schema 约束/受影响代码位/createTask 备注/T2-9，新增 T2-13 |
 
 ## 自检记录
 
 - 追踪完整性：PASS（T2 验收①~④ → CON-R-timeline-003/004 + Q-051/052 → 接口/迁移契约/测试场景全覆盖）
 - OpenAPI 一致性：不适用（本地文件数据契约，同 B1 模式；JSON Schema 即字段唯一事实源）
-- 示例与错误场景：PASS（12 个联调场景 T2-1~T2-12 含迁移成功/幂等/失败兜底/读写/边界 + 3 个迁移验证场景 V1~V3 + v2 最小示例）
+- 示例与错误场景：PASS（13 个联调场景 T2-1~T2-13 含迁移成功/幂等/失败兜底/读写/边界 + 3 个迁移验证场景 V1~V3 + v2 最小示例；错误断言已对齐 load 路径实际行为）
 - 安全与敏感字段：PASS（无敏感字段；DSH_HOME 零接触声明沿用）
 - 链接与格式：PASS

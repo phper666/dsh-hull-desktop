@@ -3,8 +3,8 @@
 ## 契约信息
 
 - 工作项：S2 Skills 操作——移除/升级/禁用启用 + 回收站（飞书 dsh-hull-desktop 清单，701e3597-3cb9-416c-80b0-cc826eb173da）
-- 契约状态：冻结（2026-08-23）
-- 版本：v0.1
+- 契约状态：冻结（2026-08-23，复核修订 v0.2）
+- 版本：v0.2
 - 适用版本：Skills Checker（共识 v1.2 + PRD v0.2）
 - 最后更新：2026-08-23
 - 说明：桌面壳本地 fs 管理契约（无 HTTP API 面）；核心 = 7 条新增 IPC 通道 + 破坏性操作安全行为约束（二次确认/回收站备份/staging 原子替换回滚/按路径粒度禁用）+ userData 状态文件 schema；依赖 S1 扫描结果与 SkillFsOps 抽象层（Q-037）。判级：复杂 + 安全敏感（变更用户 agent 配置目录）。
@@ -94,7 +94,7 @@ S1 扫描列表（paths/localHash/remoteHash/upgradable/enabled/source）→ 用
 ├── trash/<trashId>/            # 回收站条目（原目录整体 move 入驻）
 ├── trash.json                  # 回收站索引
 ├── staging/                    # 升级临时区（成功清理/失败回滚后清理）
-└── log/operations.jsonl        # 操作日志（append-only JSON Lines）
+└── log/operations.jsonl        # 操作日志（append-only JSON Lines；v1 不做滚动轮转——仅破坏性操作留痕、量级小；启动时 >10MB 则截断保留最近 1000 行）
 ```
 
 ### disabled.json 顶层
@@ -177,6 +177,7 @@ S1 扫描列表（paths/localHash/remoteHash/upgradable/enabled/source）→ 用
 - 二次确认归属 renderer UI 弹窗（§12 移除确认弹窗：物理路径+受影响平台清单+「不可恢复」警示；全局 skill 额外警示「移除后影响所有 agent 平台」）；IPC 收到调用即视为已确认，主进程不再重复弹窗，但**路径校验/mtime 检查不可跳过**（不信任 renderer）。
 - 批量请求 `paths[]` 逐条独立执行，返回逐条结果；部分失败不回滚已成功条目。
 - 恢复冲突（Q-035）：restoreFromTrash 目标 originalPath 已被占用 → restore-conflict，提示「先移走冲突项或手动处理」，**不覆盖**。
+- 恢复跨卷降级：trash（userData 卷）与原路径可能跨卷，move 降级 copy+delete——先完整复制并校验，再删源；copy 中途失败清理半成品、trash 条目保留可重试。
 
 ### 升级（CON-R-skills-004 + Q-033/Q-034）
 
@@ -219,9 +220,22 @@ S1 扫描列表（paths/localHash/remoteHash/upgradable/enabled/source）→ 用
 ### 并发与安全（全部写通道）
 
 - 写前 mtime 检查：目标目录 mtime ≠ S1 扫描快照 → `skills-conflict`「已被外部修改，请刷新」（共识 §5.3）。
+- 同路径写操作单飞（single-flight）：同一物理路径已有写操作（remove/upgrade/setEnabled/restore）进行中，再触发任一写操作 → `skills-op-in-progress`「操作进行中，请稍后」（壳内互斥，区别于 skills-conflict 的外部修改语义）。
 - 路径校验（Q-038）：basename(realpath) 拒绝 `../`、空名、非法字符；path 必须落在注册表目录（含 disabled/trash 白名单域）内，否则 validation-error。防路径穿越为**主进程强制**，renderer 输入不可信。
 - 权限不足 → skills-io-error + 提示以 `open` 手动处理，不静默失败。
 - DSH_HOME 零接触（CON-R002）：全部读写限于注册表目录 + `<userData>/skills/`。
+
+## 页面交互规范（renderer，回收站载体）
+
+> 复核修订新增：getTrashList/restoreFromTrash 此前无 UI 挂载点（共识 §12 无回收站行）。本节为操作性行为规范；共识 §12 补行见协调事项。
+
+- **入口**：Skills 主视图工具条新增「回收站」按钮（与「重新扫描」同排）；按钮带条目计数徽标（trash.json 条目数，进入视图时经 getTrashList 刷新）。
+- **回收站弹层**：点击弹出面板，逐条展示 TrashEntry 字段——skill 名 / 原路径 / 删除时间 / 体积（sizeBytes 格式化）+ 每条「恢复」按钮。
+- **恢复交互**：点「恢复」→ `skills:restoreFromTrash { trashId }`；
+  - 成功 → 条目出列、面板刷新、主列表刷新（该 skill 回到 enabled 态）。
+  - `restore-conflict` → 面板内该条目切冲突提示态：「原路径已被占用，先移走冲突项或手动处理」，不覆盖、条目保留可重试。
+  - `skills-not-found`（已被 TTL/容量清理）→ 提示刷新回收站。
+- **面板空态**：「回收站为空」。移除/清空后即时刷新徽标。
 
 ## 公共异常集
 
@@ -231,7 +245,8 @@ S1 扫描列表（paths/localHash/remoteHash/upgradable/enabled/source）→ 用
 |---|---:|---:|---|---:|
 | validation-error | 路径穿越/空名/非法字符/不在注册表白名单内（Q-038）；参数缺失或类型错 | code+msg(+field) | 提示具体原因 | 否 |
 | skills-not-found | 目标路径不存在（已被外部删除/已移除） | code+msg | 提示「已不存在，请刷新」 | 否 |
-| skills-conflict | 写前 mtime 冲突（壳与 agent 同时操作） | code+msg | 提示「已被外部修改，请刷新」→ 刷新后重试 | 是（刷新后） |
+| skills-conflict | 写前 mtime 冲突（壳与 agent 同时操作，外部修改） | code+msg | 提示「已被外部修改，请刷新」→ 刷新后重试 | 是（刷新后） |
+| skills-op-in-progress | 同一物理路径已有写操作进行中（壳内单飞互斥，非外部修改） | code+msg | 提示「操作进行中，请稍后」，完成后可重试 | 是 |
 | restore-conflict | 恢复/启用目标路径被占用（Q-035） | code+msg+targetPath | 提示「先移走冲突项或手动处理」，不覆盖 | 否 |
 | skills-upgrade-undetectable | 无 source+无 lock，远端哈希 unknown（Q-033） | code+msg | 升级入口禁用「无法检测版本」 | 否 |
 | skills-upgrade-failed | 升级执行失败（已自动回滚） | code+msg+method+rolledBack=true | 提示失败已回滚，可重试 | 是 |
@@ -311,11 +326,12 @@ S1 扫描列表（paths/localHash/remoteHash/upgradable/enabled/source）→ 用
 |---|---:|---:|---|---:|
 | skills-upgrade-undetectable | 无 source+无 lock（Q-033） | code+msg | 入口禁用「无法检测版本」 | 否 |
 | skills-upgrade-failed | 获取/替换失败（已回滚） | code+msg+method+rolledBack=true | 提示失败已回滚 | 是 |
+| skills-op-in-progress | 同一 path 升级进行中重复调用（单飞互斥） | code+msg | 提示「操作进行中，请稍后」 | 是（完成后） |
 
 #### 幂等与并发
 
 - 幂等：否（网络/远端状态变化）；重复调用前应重新扫描确认仍 upgradable
-- 并发：写前 mtime 检查；同一 path 同时仅允许一个升级（进行中重复调用 → skills-conflict）
+- 并发：写前 mtime 检查；同一 path 同时仅允许一个升级（进行中重复调用 → **skills-op-in-progress**）
 
 ### 3. setEnabled
 
@@ -475,7 +491,7 @@ S1 扫描列表（paths/localHash/remoteHash/upgradable/enabled/source）→ 用
 
 ## 联调与测试场景
 
-> e2e 经 SkillFsOps 注入临时目录模拟 agent 目录（Q-037）；真实目录操作留冒烟。编号 O1~O22。
+> e2e 经 SkillFsOps 注入临时目录模拟 agent 目录（Q-037）；真实目录操作留冒烟。编号 O1~O23。
 
 | # | 场景 | 前置条件 | 请求/动作 | 预期结果 | 数据与审计结果 | 验收编号 |
 |---|---|---|---|---|---|---|
@@ -487,7 +503,7 @@ S1 扫描列表（paths/localHash/remoteHash/upgradable/enabled/source）→ 用
 | O6 | 回收站 500MB 上限 | 构造总量 >500MB 多条目 | getTrashList | 最旧条目先删至 ≤500MB | trash.json 出列最旧 | Q-035 |
 | O7 | 回收站恢复成功 | trashed 条目+原路径空闲 | restoreFromTrash | 目录回到 originalPath | trash.json 出列；日志 action=restore | Q-035 |
 | O8 | 恢复冲突不覆盖 | trashed 条目+原路径被占 | restoreFromTrash | **restore-conflict**；占用项不被覆盖 | trash 条目保留 | Q-035 |
-| O9 | 升级成功（npx） | upgradable+npx 可用 | skills:upgrade | method=npx-skills-update；newHash 更新 | 原目录内容更新；日志 action=upgrade success | S2②/FR-6 |
+| O9 | 升级成功（npx） | upgradable + mock npx 成功退出（e2e 注入 fake npx 可执行；或实测 CLI 支持单路径定向更新，见开放问题 O-2） | skills:upgrade | method=npx-skills-update；newHash 更新 | 原目录内容更新；日志 action=upgrade success | S2②/FR-6 |
 | O10 | 升级成功（git staging） | git clone 来源 | skills:upgrade | method=git-staging；staging→原子替换；原位无 .git pull 痕迹 | 替换原子（无中间缺失态）；日志含 method | Q-033 |
 | O11 | 升级失败自动回滚 | 注入 clone/替换失败 | skills:upgrade | **skills-upgrade-failed**+rolledBack=true；原版本完好 | 日志 result=failed rolledBack | FR-6/Q-033 |
 | O12 | 无来源升级拒绝 | 无 source+无 lock | skills:upgrade | **skills-upgrade-undetectable**；UI 入口禁用「无法检测版本」 | 不产生盘上变更 | Q-033 |
@@ -501,12 +517,14 @@ S1 扫描列表（paths/localHash/remoteHash/upgradable/enabled/source）→ 用
 | O20 | 非 white-list 路径拒绝 | — | remove{paths:["/etc"]} | **validation-error**（不在注册表白名单） | 零盘上变更 | Q-038 |
 | O21 | 操作日志留痕查询 | 执行过 remove/upgrade/disable | getOperationLog | 时间倒序全量动作可查（action/paths/result/detail） | operations.jsonl 完整 | S2④ |
 | O22 | DSH_HOME 零接触 | — | 全部操作 | 不读写 DSH_HOME | 变更仅在注册表目录+userData | CON-R002 |
+| O23 | npx 不可用/失败降级 | upgradable + npx 命令不存在或执行失败/超时 | skills:upgrade | 按 T-3 分级降级：method=source-fetch 或 git-staging 完成升级；npx 失败不整体失败 | 日志含实际 method；原目录内容更新 | Q-033/T-3 |
 
 ## 开放问题
 
 | 编号 | 问题 | 阻塞接口/字段 | 临时处理 | 状态 |
 |---|---|---|---|---|
 | O-1 | 升级细粒度进度是否需要 event 通道（如 onSkillsOpProgress） | skills:upgrade | v1 不确定态 spinner + 终态回显（满足 FR-6 最小验收） | open（实现期评估） |
+| O-2 | `npx skills update` 单路径语义待实测：CLI 可能是项目级/全局粒度，不支持单 skill 定向更新 → method=npx-skills-update 分支不可达 | skills:upgrade（method=npx-skills-update） | 实现期实测 CLI；支持则 O9 按真实前置执行，不支持则该分支移除、统一走 source-fetch/git-staging（O23 降级路径已覆盖） | open（实现期关闭） |
 
 ## 协调事项
 
@@ -517,6 +535,7 @@ S1 扫描列表（paths/localHash/remoteHash/upgradable/enabled/source）→ 用
 | 响应包裹形态统一 | `{ ok:true, data } \| { ok:false, code, message }` 对齐 KanbanIpcResult；错误码 kebab-case | phper666 | S2 实现 | 已定（本契约） |
 | 远端哈希口径 | 与 skills-lock.json / cc-switch content_hash 口径实测对齐（PRD §9 风险项） | phper666 | S2 实现期 | 待定 |
 | 破坏性操作守卫归属 | 路径校验+mtime 检查+undetectable 拒绝均在主进程 SkillsOps 内置（不信任 renderer），UI 禁用仅为体验层 | phper666 | 已闭环（本契约） | 已闭环 |
+| 共识 §12 回收站补行 | 共识 §12 页面交互规范补「回收站」入口行（主视图工具条按钮→弹层面板），操作性规范以本契约「页面交互规范」节为准 | phper666 | 下次共识修订 | 待定 |
 
 ## 完成记录
 
@@ -541,11 +560,12 @@ S1 扫描列表（paths/localHash/remoteHash/upgradable/enabled/source）→ 用
 | 时间 | 类型 | 摘要 |
 |---|---|---|
 | 2026-08-23 | 初次生成 | 基于 S2（飞书 701e3597）+ 共识 v1.2 §14.1/§13/CON-R-skills-003/004/008 + Q-031~035 生成契约草案；7 条 NEW IPC 通道 + 行为契约 + 22 测试场景 |
+| 2026-08-23 | 复核修订 | FE/QA 契约复核退回项修复：① 新增「页面交互规范」节声明回收站 UI 载体（工具条入口+弹层+恢复冲突态），共识 §12 补行入协调事项；② 拆分 skills-op-in-progress 错误码（同路径写操作单飞互斥），skills-conflict 收敛为仅 mtime 外部修改语义，异常集/升级失败表/幂等并发三处同步；③ O9 前置改可构造（mock npx/实测 CLI）+ 开放问题新增 O-2（npx 单路径语义待实测）+ 新增 O23 npx 不可用降级场景；MINOR：恢复跨卷降级 copy+delete 说明、operations.jsonl 明确不轮转+启动截断策略。O1~O23、错误码 8 个 |
 
 ## 自检记录
 
 - 追踪完整性：PASS（S2 验收①~④→CON-R-skills-003/004/008 + Q-031/032/033/034/035 + Q-038/CON-R-skills-007，追踪矩阵全覆盖）
 - OpenAPI 一致性：不适用（本地 fs 管理契约，无 OpenAPI yaml；userData JSON 文件 schema 即字段唯一事实源）
-- 示例与错误场景：PASS（22 个联调场景 O1~O22 含成功/失败/边界/安全 + 公共异常集 7 错误码）
+- 示例与错误场景：PASS（23 个联调场景 O1~O23 含成功/失败/边界/安全/降级 + 公共异常集 8 错误码）
 - 安全与敏感字段：PASS（路径穿越校验、注册表白名单、来源解析 main 侧闭环、DSH_HOME 零接触声明）
 - 链接与格式：PASS
