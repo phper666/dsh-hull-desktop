@@ -31,6 +31,11 @@ test.describe('E2E-07 设置页', () => {
       // 设置 section 可见（view=placeholder:settings）
       await expect(shell.locator('#settings')).toBeVisible();
       await expect(shell.locator('#settings h1')).toHaveText('Hull 设置');
+      // 诊断区「打开日志目录」按钮唯一 id 可点（修复重复 id=open-logs 未绑定 bug）
+      await expect(shell.locator('#open-logs-dir')).toBeEnabled();
+      await expect(shell.locator('#open-logs-dir')).toBeVisible();
+      // dsh 运行时「检查更新」按钮 idle 时可点（busy 判定健壮）
+      await expect(shell.locator('#check-dsh')).toBeEnabled();
       await shell.fill('#registry', customRegistry);
       await shell.locator('#registry').blur();
       await waitForSettingsRegistry(tmp.dir, customRegistry);

@@ -311,7 +311,7 @@
           <div class="srow">
             <div class="info"><div class="label">排查日志与数据目录</div></div>
             <div>
-              <button id="open-logs" class="sbtn">打开日志目录</button>
+              <button id="open-logs-dir" class="sbtn">打开日志目录</button>
               <button id="open-data-dir" class="sbtn">打开数据目录</button>
             </div>
           </div>
@@ -434,7 +434,7 @@
     dshStatusWrap: 'dsh-status-wrap', dshVersionWrap: 'dsh-version-wrap', channel: 'channel', pinnedVersion: 'pinnedVersion',
     versionList: 'version-list', channelError: 'channel-error', checkDsh: 'check-dsh', rollbackDsh: 'rollback-dsh',
     dshHint: 'dsh-hint', dshAlert: 'dsh-alert', hullVersionWrap: 'hull-version-wrap', checkHull: 'check-hull',
-    autoCheckHull: 'autoCheckHull', hullAlert: 'hull-alert', openLogs: 'open-logs', openDataDir: 'open-data-dir',
+    autoCheckHull: 'autoCheckHull', hullAlert: 'hull-alert', openLogs: 'open-logs-dir', openDataDir: 'open-data-dir',
   };
   for (const k of Object.keys(SETT_IDS)) {
     sett.els[k] = document.getElementById(SETT_IDS[k]);
@@ -527,17 +527,17 @@
     sett.els.dshStatusWrap.innerHTML = statusHtml;
     sett.els.dshVersionWrap.innerHTML = ds.currentVersion ? badge('v' + ds.currentVersion, 'muted') : badge('—', 'muted');
 
-    const busy = upgrade.phase !== 'idle' || (sett.state.hull && sett.state.hull.phase !== 'idle');
+    const busy = (upgrade?.phase ?? 'idle') !== 'idle' || (sett.state.hull && (sett.state.hull.phase ?? 'idle') !== 'idle');
     sett.els.checkDsh.disabled = busy;
     sett.els.rollbackDsh.disabled = busy || !ds.canRollback;
     if (ds.canRollback) sett.els.rollbackDsh.title = '回滚到上一版本';
     else sett.els.rollbackDsh.title = '无可用上一版本';
 
     let hint = '';
-    if (upgrade.phase !== 'idle') hint = upgrade.message || '';
+    if ((upgrade?.phase ?? 'idle') !== 'idle') hint = upgrade.message || '';
     sett.els.dshHint.textContent = hint;
 
-    if (upgrade.error && upgrade.phase === 'idle') {
+    if (upgrade.error && (upgrade.phase ?? 'idle') === 'idle') {
       sett.els.dshAlert.textContent = upgrade.message || upgrade.error;
       sett.els.dshAlert.classList.add('show');
     } else {
@@ -548,7 +548,7 @@
   function renderHull(hs) {
     if (!hs) return;
     sett.els.hullVersionWrap.innerHTML = hs.currentVersion ? badge('v' + hs.currentVersion, 'muted') : badge('—', 'muted');
-    const busy = hs.phase !== 'idle' || (sett.state.dsh && sett.state.dsh.upgrade && sett.state.dsh.upgrade.phase !== 'idle');
+    const busy = (hs?.phase ?? 'idle') !== 'idle' || (sett.state.dsh && sett.state.dsh.upgrade && (sett.state.dsh.upgrade.phase ?? 'idle') !== 'idle');
     sett.els.checkHull.disabled = busy;
 
     if (hs.error && hs.phase === 'idle') {
