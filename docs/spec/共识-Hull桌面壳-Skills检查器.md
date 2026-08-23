@@ -1,14 +1,15 @@
 # Hull 桌面壳（Skills 检查器）共识文档
 
-> 版本：v1.2 · 更新：2026-08-22 · 维护者：phper666（PM） · 状态：已发布
+> 版本：v1.4 · 更新：2026-08-24 · 维护者：phper666（PM） · 状态：已发布
 > 数据来源：Skills Checker PRD v0.1（docs/prd/2026-08-22-skills-checker-prd.md）、交互原型（docs/prototype/2026-08-22-skills-checker-prototype.html）
 > 关联：独立新需求（非 M2 看板增量）；需求标识 `skills`；B2 范围
 
 ## 1. 文档元信息
 
-- **本版本变更**：v1.2 已发布——BE/FE/QA 扫描待确认项 Q-031~Q-038 全部定案回写（均为确认/细化，向后兼容，不升主版本）：① **Q-031（BLOCKER）禁用按路径粒度**——每个物理路径独立禁用/启用；共享目录 skill 整体移出=全平台禁，平台专属副本单独禁；② **Q-032 禁用物理操作对象**——symlink 来源移除 symlink（源保留在原始仓库/SSOT），实目录来源 rename 到 disabled 目录，userData 记录被禁用路径+原路径映射；③ **Q-033 升级非 git/lock 来源**——无 source+无 lock → 升级入口禁用「无法检测版本」；有 metadata.source 非 git → 用 source URL 重新获取（staging→原子替换）；git clone 来源不原位 git pull（非原子），改 clone 到 staging→原子替换→失败回滚；④ **Q-034 远端哈希四级优先级**——skills-lock.json → 各平台 lock → cc-switch content_hash → git remote 临时 clone 计算，按 name 匹配、skills-lock 优先覆盖，均无 → unknown；⑤ **Q-035 回收站策略**——TTL 30 天自动清理 + 容量上限 500MB（最旧先删），恢复冲突提示，条目记录原路径+删除时间；⑥ **Q-036 搜索 UI 定型**——本地/远程两 tab 默认本地，远程结果展示名称/描述/来源/安装数、仅浏览标注「未安装」；⑦ **Q-037 破坏性操作可测性**——SkillFsOps 接口抽象 + 临时目录注入 e2e，真实目录留冒烟；⑧ **Q-038 路径穿越校验**——basename(realpath) 校验拒绝 ../空名/非法字符，openExternal 仅 ^https:// 白名单。
+- **本版本变更**：v1.4 已发布——T-5 跨 agent 重叠展示定案关闭（实现已覆盖 §5.1 褶皱处理，确认定案，向后兼容不升主版本）：跨目录同名 skill 按 name 聚合、realpath 同源去重、平台徽标合并显示全部生效平台、全局路径优先展示（§5.3）；落地位置 SkillsScanner 七步管线（注册表遍历→realpath 解析去重→…→按 name 聚合）与前端平台筛选/多平台徽标。无新规则变化，T-5 由 open→已关闭。
+- **历史变更摘要**：v1.3 已发布——Q-034 变更（CON-R-skills-004/005）：skills-lock.json 移除，升级检测只依赖标准位置（详见变更摘要-Skills检查器.md 2026-08-24 条目，实现已落地）。v1.2 已发布——BE/FE/QA 扫描待确认项 Q-031~Q-038 全部定案回写（均为确认/细化，向后兼容，不升主版本）：① **Q-031（BLOCKER）禁用按路径粒度**——每个物理路径独立禁用/启用；共享目录 skill 整体移出=全平台禁，平台专属副本单独禁；② **Q-032 禁用物理操作对象**——symlink 来源移除 symlink（源保留在原始仓库/SSOT），实目录来源 rename 到 disabled 目录，userData 记录被禁用路径+原路径映射；③ **Q-033 升级非 git/lock 来源**——无 source+无 lock → 升级入口禁用「无法检测版本」；有 metadata.source 非 git → 用 source URL 重新获取（staging→原子替换）；git clone 来源不原位 git pull（非原子），改 clone 到 staging→原子替换→失败回滚；④ **Q-034 远端哈希四级优先级**——skills-lock.json → 各平台 lock → cc-switch content_hash → git remote 临时 clone 计算，按 name 匹配、skills-lock 优先覆盖，均无 → unknown；⑤ **Q-035 回收站策略**——TTL 30 天自动清理 + 容量上限 500MB（最旧先删），恢复冲突提示，条目记录原路径+删除时间；⑥ **Q-036 搜索 UI 定型**——本地/远程两 tab 默认本地，远程结果展示名称/描述/来源/安装数、仅浏览标注「未安装」；⑦ **Q-037 破坏性操作可测性**——SkillFsOps 接口抽象 + 临时目录注入 e2e，真实目录留冒烟；⑧ **Q-038 路径穿越校验**——basename(realpath) 校验拒绝 ../空名/非法字符，openExternal 仅 ^https:// 白名单。
 - **历史变更摘要**：v1.1 已发布——用户评审定案 T-1~T-4、T-6（T-5 保持 open）：① T-4 禁用=移目录真禁用（agent 平台真生效，否决壳内白名单）；② T-2 远程搜索接入、本地/远程分开展示（仅浏览不安装）；③ T-3 升级执行 npx skills update 优先/git pull 次选/不重 clone；④ T-1 远端哈希 skills-lock.json 优先/git remote 次选；⑤ T-6 移除前备份 userData 回收站；CON-R-skills-008 由「变更中」→「生效」（定案移目录），新增 CON-R-skills-010（本地/远程搜索分开）。v1.0 首次建立——从 Skills Checker PRD v0.1（待评审）+ 原型提取整理为业务事实源；登记 CON-R-skills-001~009（独立编号域）、未决项 T-1~T-6（PRD §10.2，评审前不关闭）。
-- **状态说明**：v1.2 已发布（扫描结论确认回写）；PRD 已升级至 v0.2 反映全部决策；T-5 跨 agent 重叠展示保持 open，评审确认 §5.1 褶皱处理；扫描待确认项 Q-031~Q-038 全部已关闭（§11.2）。
+- **状态说明**：v1.4 已发布（T-5 定案关闭）；PRD 已升级至 v0.2 反映全部决策；T-1~T-6 全部关闭；扫描待确认项 Q-031~Q-038 全部已关闭（§11.2）。
 
 ## 2. 文档结构总览
 
@@ -167,7 +168,7 @@
 | T-2 | 是否支持 marketplace 搜索（`npx skills find`）还是仅本地？ | PM | P1 | 已关闭 | **接入远程搜索（本地/远程分开两个入口）；远程仅浏览不安装**（v1.2 经 Q-036 细化 UI：两 tab 默认本地、远程结果字段与「未安装」标注） | §2/§10/§12/CON-R-skills-010 |
 | T-3 | 升级执行方式：`npx skills update` / git pull / 重 clone？ | PM | P0 | 已关闭 | **优先 `npx skills update`；symlink 来源次选 git pull；不重 clone；原子替换+失败回滚兜底（FR-6）**（v1.2 经 Q-033 细化：git clone 来源不原位 pull，改 clone 到 staging 原子替换） | §3/§5.1/§13/CON-R-skills-004 |
 | T-4 | 禁用语义：移目录 vs 壳内白名单？ | PM | P1 | 已关闭 | **移目录真禁用：禁用移出 agent 读取目录到 `<userData>/skills/disabled/<skill-name>/`，启用移回；agent 平台真生效（否决壳内白名单）**（v1.2 经 Q-031/Q-032 细化：按路径粒度 + symlink/实目录操作对象区分） | §3/§6/§7.3/CON-R-skills-008 |
-| T-5 | 跨 agent 依赖：opencode 读取多个目录的生效集合如何展示？ | PM | P1 | open | §5.1 褶皱处理已给初版（聚合+realpath 去重），评审确认 | §3/CON-R-skills-002 |
+| T-5 | 跨 agent 依赖：opencode 读取多个目录的生效集合如何展示？ | PM | P1 | 已关闭 | **按 name 聚合 + realpath 同源去重 + 平台徽标合并显示全部生效平台 + 全局路径优先展示（§5.3）；实现已覆盖（SkillsScanner 七步管线 + 前端平台筛选/徽标）** | §3/CON-R-skills-002 |
 | T-6 | 移除前是否备份到 userData 回收站？ | PM | P2 | 已关闭 | **备份：移除前移入 `<userData>/skills/trash/`，可恢复**（v1.2 经 Q-035 细化清理策略：TTL 30 天 + 500MB 上限） | §7.3/CON-R-skills-003 |
 
 ### 11.2 扫描待确认项（BE/FE/QA 扫描，v1.2 定案回写）
@@ -234,6 +235,8 @@
 
 | 版本 | 日期 | 变更摘要条目 | 说明 |
 |:-----|:-----|:-------------|:-----|
+| v1.4 | 2026-08-24 | 已登记（已发布） | T-5 跨 agent 重叠展示定案关闭（实现已覆盖 §5.1 褶皱处理）：按 name 聚合 + realpath 同源去重 + 平台徽标合并 + 全局优先展示；无新规则变化，向后兼容 |
+| v1.3 | 2026-08-24 | 已登记（已发布） | Q-034 变更（CON-R-skills-004/005）：skills-lock.json 移除，升级检测只依赖标准位置；T-1 结论同步（各平台 lock → metadata.source 推断，均无则 unknown） |
 | v1.2 | 2026-08-22 | 已登记（已发布） | BE/FE/QA 扫描待确认项 Q-031~Q-038 全部定案回写（确认/细化，向后兼容）：禁用按路径粒度（Q-031）、symlink/实目录操作对象区分+映射记录（Q-032）、非 git 来源升级路径+git 不原位 pull（Q-033）、远端哈希四级优先级（Q-034）、回收站 TTL 30 天+500MB（Q-035）、搜索两 tab 默认本地+远程「未安装」（Q-036）、SkillFsOps 抽象+临时目录 e2e（Q-037）、路径穿越校验+openExternal ^https://（Q-038）；CON-R-skills-003/004/007/008/010 描述细化；T-1/T-2/T-3/T-4/T-6 结论标注 v1.2 细化来源 |
 | v1.1 | 2026-08-22 | 待登记（已发布） | 用户评审定案 T-1~T-4、T-6（T-5 保持 open）：禁用=移目录真禁用（T-4）、远程搜索接入本地/远程分开（T-2）、升级 npx skills update 优先/git pull 次选（T-3）、远端哈希 skills-lock 优先/git remote 次选（T-1）、移除前备份回收站（T-6）；CON-R-skills-008 定案生效、新增 CON-R-skills-010；对应 PRD 升级至 v0.2 |
 | v1.0 | 2026-08-22 | 待登记（草稿，未发布） | 首次建立：从 Skills Checker PRD v0.1（待评审）+ 原型提取；登记 CON-R-skills-001~009、T-1~T-6 |
@@ -249,4 +252,4 @@
 | CC（Claude Code）配置修改 | 本轮不做 | 不改 `~/.claude/settings.json` 等配置 |
 | 多设备同步/远程管理 | 本轮不做 | — |
 | 跨平台打包 | 延续 M1 | 仅 macOS Apple Silicon，代码跨平台友好 |
-| 跨 agent 重叠展示（T-5） | 待评审 | §5.1 褶皱处理初版，评审确认 |
+| 跨 agent 重叠展示（T-5） | 已关闭（v1.4） | §5.1 褶皱处理定案：聚合 + realpath 去重 + 平台徽标合并，实现已覆盖 |
