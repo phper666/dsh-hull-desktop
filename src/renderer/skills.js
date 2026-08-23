@@ -127,7 +127,7 @@
       <button class="sk-switch ${isDisabled ? 'off' : ''}" data-toggle-path="${esc(path)}" data-next="${isDisabled ? 'true' : 'false'}"
         title="${isDisabled ? '点击启用（恢复到 agent 目录）' : '点击禁用（移出 agent 目录，真生效）'}"
         aria-label="${esc(path)} ${isDisabled ? '已禁用' : '已启用'}"><i></i></button>
-      <span class="sk-path ${isDisabled ? 'disabled' : ''}">${esc(path)}</span>
+      <span class="sk-path ${isDisabled ? 'disabled' : ''}" title="${esc(path)}">${esc(path)}</span>
       <span class="sk-badge ${isDisabled ? 'notinstalled' : 'latest'}">${isDisabled ? '已禁用' : '启用中'}</span>
     </div>`;
   }
