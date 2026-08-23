@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { createNodeFsOps } from '../SkillFsOps';
 import {
   SkillValidationError,
+  SkillsIoError,
   SkillsUpgradeFailedError,
   SkillsUpgradeUndetectableError,
 } from '../errors';
@@ -175,4 +176,59 @@ test('完整性校验：新版本 name 不一致 → 失败回滚不落地', asy
     (err: Error) => err instanceof SkillsUpgradeFailedError
   );
   equal(readFileSync(join(fx.skillDir, 'SKILL.md'), 'utf8'), before);
+});
+
+// ─────────────── 评审修复回归（🔴2 staging 穿越 / 🟡5 回滚失败语义） ───────────────
+
+test('来源 URL subPath 含 .. → validation-error，clone 不发起（🔴2 Q-038）', async () => {
+  const home = makeTemp();
+  const skillDir = join(home, '.claude/skills/up1');
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(
+    join(skillDir, 'SKILL.md'),
+    '---\nname: up1\ndescription: old\nmetadata:\n  source: https://github.com/o/r/tree/main/../../evil\n---\n'
+  );
+  const scanner = new SkillsScanner({ homeDir: home, userDataPath: join(home, 'ud'), lockProvider: () => ({ up1: { hash: 'a'.repeat(64) } }) });
+  await scanner.scan();
+  const base = join(home, 's2base');
+  let cloneCalled = false;
+  const exec = new UpgradeExecutor(
+    { ops: createNodeFsOps(), base, scanner, log: new OperationLog(join(base, 'log', 'operations.jsonl')) },
+    { gitClone: async () => { cloneCalled = true; } }
+  );
+  await rejects(
+    () => exec.upgrade(skillDir),
+    (err: Error) => err instanceof SkillValidationError && err.code === 'validation-error'
+  );
+  equal(cloneCalled, false, 'clone 未发起');
+});
+
+test('回滚自身失败 → skills-io-error（不虚报 rolledBack）+ manifest 保留可自愈（🟡5）', async () => {
+  const fx = await makeFixture('remote');
+  const ops = createNodeFsOps();
+  const origRename = ops.renameSync.bind(ops);
+  ops.renameSync = (from: string, to: string) => {
+    if (/\.backup$/.test(from)) throw new Error('rollback blocked'); // 回滚 rename 拦截
+    if (to === fx.skillDir) throw new Error('replace blocked'); // ② 新版就位失败（触发回滚路径）
+    return origRename(from, to); // ① 原版让位放行
+  };
+  const exec = new UpgradeExecutor(
+    { ops, base: fx.base, scanner: fx.scanner, log: new OperationLog(join(fx.base, 'log', 'operations.jsonl')) },
+    { gitClone: gitClonerWriting('v2') }
+  );
+  await rejects(
+    () => exec.upgrade(fx.skillDir),
+    (err: Error) => err instanceof SkillsIoError && err.code === 'skills-io-error'
+  );
+  ok(!existsSync(fx.skillDir), '原路径仍空缺（回滚未成功，不虚报已回滚）');
+  const manifest = JSON.parse(readFileSync(join(fx.base, 'staging', 'backups.json'), 'utf8'));
+  equal(manifest.entries.length, 1, 'manifest 条目保留供自愈');
+  // 自愈用干净 ops（被 mock 的 renameSync 会拦截 backup 还原）
+  new UpgradeExecutor({
+    ops: createNodeFsOps(),
+    base: fx.base,
+    scanner: fx.scanner,
+    log: new OperationLog(join(fx.base, 'log', 'operations.jsonl')),
+  }).selfHeal();
+  ok(existsSync(join(fx.skillDir, 'SKILL.md')), 'selfHeal 还原原版本');
 });

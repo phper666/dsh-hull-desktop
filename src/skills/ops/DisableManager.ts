@@ -69,9 +69,9 @@ export class DisableManager {
       this.ops.unlinkSync(physPath);
       entry = { id, skillName, originalPath: physPath, kind: 'symlink', symlinkTarget: target, affectedPlatforms: [...affectedPlatforms], disabledAt: new Date().toISOString() };
     } else {
-      // 实目录来源：整体 rename 入 disabled（内容零触碰）
+      // 实目录来源：整体搬移入 disabled（内容零触碰）；moveSync 带 EXDEV 跨卷降级（🟡6）
       this.ops.mkdirSync(this.disabledDir);
-      this.ops.renameSync(physPath, this.ops.join(this.disabledDir, id));
+      await this.ops.moveSync(physPath, this.ops.join(this.disabledDir, id));
       entry = { id, skillName, originalPath: physPath, kind: 'dir', affectedPlatforms: [...affectedPlatforms], disabledAt: new Date().toISOString() };
     }
     idx.entries.push(entry);

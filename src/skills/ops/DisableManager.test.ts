@@ -8,10 +8,27 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { createNodeFsOps } from '../SkillFsOps';
+import { createNodeFsOps, type SkillFsOps } from '../SkillFsOps';
 import { RestoreConflictError, SkillValidationError } from '../errors';
 import { OperationLog } from './OperationLog';
 import { DisableManager } from './DisableManager';
+
+/** 注入 renameSync 抛 EXDEV 一次的 ops（原地变异——moveSync 经 api 自引用走到降级路径） */
+function exdevOnceOps(): SkillFsOps {
+  const ops = createNodeFsOps();
+  const orig = ops.renameSync.bind(ops);
+  let thrown = false;
+  ops.renameSync = (from: string, to: string) => {
+    if (!thrown) {
+      thrown = true;
+      const err = new Error('cross-device link not permitted') as NodeJS.ErrnoException;
+      err.code = 'EXDEV';
+      throw err;
+    }
+    orig(from, to);
+  };
+  return ops;
+}
 
 const tempDirs: string[] = [];
 function makeTemp(): string {
@@ -106,4 +123,16 @@ test('启用冲突：原路径被占用 → restore-conflict 不覆盖、映射�
     (err: Error) => err instanceof RestoreConflictError && (err as RestoreConflictError).targetPath === skill
   );
   equal(dm.list().length, 1, '映射保留可重试');
+});
+
+test('跨卷 EXDEV：rename 失败降级 copy+delete，禁用成功（🟡6 moveSync）', async () => {
+  const base = makeTemp();
+  const dm = new DisableManager(exdevOnceOps(), base, new OperationLog(join(base, 'log.jsonl')));
+  const skill = join(base, 'agent', 'xdev');
+  makeSkill(skill);
+
+  const entry = await dm.disable('xdev', skill, ['claude-code']);
+  equal(entry.kind, 'dir');
+  ok(!existsSync(skill), '源已移除（copy+delete 完成）');
+  ok(existsSync(join(base, 'disabled', entry.id, 'SKILL.md')), '实体完好入驻 disabled/');
 });

@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import { equal, notEqual, ok } from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -84,4 +84,17 @@ test('HashCache 持久化：save→load 往返一致；损坏文件按空缓存�
   let calls = 0;
   equal(await bad.get('/p', 5, async () => { calls += 1; return 'x'; }), 'x');
   equal(calls, 1);
+});
+
+test('symlink 循环目录：walk 终止并跳过链接，不悬挂（🟡3）', async () => {
+  const ops = createNodeFsOps();
+  const dir = makeTemp();
+  writeFileSync(join(dir, 'f.txt'), 'data');
+  mkdirSync(join(dir, 'sub'));
+  writeFileSync(join(dir, 'sub', 'g.txt'), 'g');
+  symlinkSync(dir, join(dir, 'loop'), 'dir'); // 自引用循环
+  symlinkSync(join(dir, 'sub'), join(dir, 'loop2'), 'dir');
+
+  const h = await computeDirHash(ops, dir);
+  ok(/^[0-9a-f]{64}$/.test(h), '终止且产出合法哈希');
 });

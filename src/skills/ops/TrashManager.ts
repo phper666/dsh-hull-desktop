@@ -57,6 +57,8 @@ export class TrashManager {
     }
     for (const n of names) {
       const full = this.ops.join(path, n);
+      const ls = await this.ops.lstat(full).catch(() => null);
+      if (!ls || ls.isSymbolicLink()) continue; // symlink 跳过（循环防护，🟡3）
       const st = await this.ops.stat(full).catch(() => null);
       if (!st) continue;
       total += st.isDirectory() ? await this.computeSize(full) : st.size;
@@ -85,7 +87,7 @@ export class TrashManager {
     const sizeBytes = await this.sizeOf(physPath);
     this.ops.mkdirSync(this.trashDir);
     const dest = this.ops.join(this.trashDir, id);
-    this.ops.moveSync(physPath, dest); // copy 中途失败抛错 → 源保留（未删）
+    await this.ops.moveSync(physPath, dest); // copy 中途失败抛错 → 源保留（未删）
     const entry: TrashEntry = {
       id,
       skillName,
@@ -100,6 +102,11 @@ export class TrashManager {
     return entry;
   }
 
+  /** 索引查询（无副作用；门面 restore 前置守卫用——trash.json parser 不可信） */
+  findEntry(trashId: string): TrashEntry | undefined {
+    return this.loadIndex().entries.find((e) => e.id === trashId);
+  }
+
   /** 恢复到原路径；目标占用 → restore-conflict 不覆盖；条目不存在 → skills-not-found */
   async restore(trashId: string): Promise<string> {
     const idx = this.loadIndex();
@@ -109,7 +116,7 @@ export class TrashManager {
       throw new RestoreConflictError('原路径已被占用，请先移走冲突项或手动处理', entry.originalPath);
     }
     const src = this.ops.join(this.trashDir, entry.id);
-    this.ops.moveSync(src, entry.originalPath);
+    await this.ops.moveSync(src, entry.originalPath);
     idx.entries = idx.entries.filter((e) => e.id !== trashId);
     this.saveIndex(idx);
     return entry.originalPath;

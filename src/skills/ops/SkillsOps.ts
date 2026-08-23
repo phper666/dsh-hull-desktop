@@ -175,10 +175,18 @@ export class SkillsOps {
   /** 一键升级（单 path；守卫+undetectable 主进程强制，契约 §upgrade 前置） */
   async upgrade(path: unknown): Promise<{ path: string; method: string; newHash: string }> {
     const p = await this.validateOpPath(path);
-    const { pathInfo } = this.findEntry(p);
+    const { entry, pathInfo } = this.findEntry(p);
+    // 🟡4：symlink 来源拒绝升级——rename 会把别名换成独立副本（SSOT 留旧内容，下次扫描重复）。
+    // symlink skill 经其 SSOT 原路径升级；此处明确拒绝而非静默换语义。
+    if (pathInfo.isSymlink) {
+      throw new SkillValidationError('symlink 来源的 skill 不支持原位升级，请在其原始仓库（SSOT）路径升级', 'path');
+    }
     const release = await this.guard(p, pathInfo);
     try {
-      return await this.newExecutor().upgrade(p);
+      const res = await this.newExecutor().upgrade(p);
+      // 🟡7：回写远端哈希覆盖——否则 lock 未 bump + 进程内缓存 → 重扫永远 upgradable
+      this.scanner.applyRemoteHashOverride(entry.name, res.newHash);
+      return res;
     } finally {
       release();
       await this.rescan();
@@ -222,12 +230,26 @@ export class SkillsOps {
     return this.trash.list(); // 顺带惰性清理（Q-035）
   }
 
+  /**
+   * 恢复到原路径（🔴1 评审修复）：先映射 trashId→originalPath，白名单校验（trash.json
+   * parser 不可信）+ 单飞锁（与 upgrade/remove 的两段 rename 窗口互斥），再执行搬移。
+   */
   async restoreFromTrash(trashId: unknown): Promise<{ restoredPath: string }> {
     if (typeof trashId !== 'string' || !trashId) throw new SkillValidationError('trashId 不能为空', 'trashId');
-    const restoredPath = await this.trash.restore(trashId);
-    this.log.append({ ts: new Date().toISOString(), action: 'restore', paths: [restoredPath], result: 'success', detail: { trashId } });
-    await this.rescan();
-    return { restoredPath };
+    const entry = this.trash.findEntry(trashId);
+    if (!entry) throw new SkillsNotFoundError('回收站条目不存在（可能已被清理），请刷新');
+    if (!isWithinRoots(entry.originalPath, this.registryDirs)) {
+      throw new SkillValidationError('回收站条目原路径不在注册表白名单内', 'originalPath');
+    }
+    const release = await this.guard(entry.originalPath); // 无 mtime 可比（原路径当前为空）
+    try {
+      const restoredPath = await this.trash.restore(trashId);
+      this.log.append({ ts: new Date().toISOString(), action: 'restore', paths: [restoredPath], result: 'success', detail: { trashId } });
+      return { restoredPath };
+    } finally {
+      release();
+      await this.rescan();
+    }
   }
 
   getOperationLog(limit?: unknown): OperationLogEntry[] {

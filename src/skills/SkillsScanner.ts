@@ -55,6 +55,13 @@ export class SkillsScanner {
 
   private snap: ScanSnapshot = { status: 'idle', entries: [], lastScanAt: null, error: null };
   private scanPromise: Promise<ScanSnapshot> | null = null;
+  /** 🟡7：升级成功后的远端哈希覆盖（lock 文件未 bump + 进程内缓存 → 否则重扫永远 upgradable） */
+  private readonly hashOverrides = new Map<string, string>();
+
+  /** S2 升级成功后回写：按 name 覆盖远端哈希，使后续重扫收敛 latest */
+  applyRemoteHashOverride(name: string, hash: string): void {
+    this.hashOverrides.set(name, hash);
+  }
 
   constructor(options: SkillsScannerOptions) {
     this.ops = createNodeFsOps();
@@ -211,7 +218,9 @@ export class SkillsScanner {
         // ⑥ 远端哈希（Q-034 一级：skills-lock.json hash/content_hash）
         //    ponytail: ②平台 lock/③cc-switch(sqlite)/④git remote clone 待「远端哈希口径实测」协调项关闭后接入——
         //    未验证口径的对比比 unknown 更危险，缺省 unknown 语义保守正确（契约协调事项「远端哈希口径」待定）
-        const remoteHash = typeof lock[name]?.hash === 'string' ? lock[name].hash! : typeof lock[name]?.content_hash === 'string' ? lock[name].content_hash! : null;
+        let remoteHash = typeof lock[name]?.hash === 'string' ? lock[name].hash! : typeof lock[name]?.content_hash === 'string' ? lock[name].content_hash! : null;
+        const override = this.hashOverrides.get(name); // 🟡7：升级成功回写优先于 lock（收敛 latest）
+        if (override) remoteHash = override;
         entries.push({
           name,
           scope: group.some((d) => isWithinRoots(d.realPath, [agentsDir])) ? 'global' : 'scoped',

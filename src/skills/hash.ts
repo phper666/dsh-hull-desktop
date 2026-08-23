@@ -9,7 +9,8 @@ import { join as pjoin } from 'node:path';
 
 import type { SkillFsOps } from './SkillFsOps';
 
-/** 目录内容哈希：递归收集文件（相对路径排序）→ SHA-256(path\0content\0...) */
+/** 目录内容哈希：递归收集文件（相对路径排序）→ SHA-256(path\0content\0...)。
+ *  symlink 一律跳过（lstat 判定，不跟随）——循环防护（契约「symlink 循环检测到即跳过」） */
 export async function computeDirHash(ops: SkillFsOps, dir: string): Promise<string> {
   const files: Array<{ rel: string; abs: string }> = [];
   const walk = async (d: string, prefix: string): Promise<void> => {
@@ -22,13 +23,16 @@ export async function computeDirHash(ops: SkillFsOps, dir: string): Promise<stri
     for (const name of names) {
       const abs = ops.join(d, name);
       const rel = prefix ? `${prefix}/${name}` : name;
-      let info;
+      let ls;
       try {
-        info = await ops.stat(abs); // symlink 跟随（hash 目标内容）
+        ls = await ops.lstat(abs);
       } catch {
         continue; // 悬空/异常条目跳过
       }
-      if (info.isDirectory()) await walk(abs, rel);
+      if (ls.isSymbolicLink()) continue; // 不跟随链接（循环/逃逸防护）
+      const st = await ops.stat(abs).catch(() => null);
+      if (!st) continue;
+      if (st.isDirectory()) await walk(abs, rel);
       else files.push({ rel, abs });
     }
   };

@@ -8,9 +8,10 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, w
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { createNodeFsOps } from '../SkillFsOps';
+import { createNodeFsOps, type SkillFsOps } from '../SkillFsOps';
 import {
   RestoreConflictError,
+  SkillValidationError,
   SkillsOpInProgressError,
 } from '../errors';
 import { SkillsOps, type RemoveResult } from './SkillsOps';
@@ -34,7 +35,7 @@ interface Fixture {
   setRunners: (r: UpgradeRunners | undefined) => void;
 }
 
-async function makeFixture(lockHash?: string): Promise<Fixture> {
+async function makeFixture(lockHash?: string, opsOverride?: SkillFsOps): Promise<Fixture> {
   const home = makeTemp();
   const skillDir = join(home, '.claude/skills/app1');
   mkdirSync(skillDir, { recursive: true });
@@ -51,7 +52,7 @@ async function makeFixture(lockHash?: string): Promise<Fixture> {
   await scanner.scan();
   let runners: UpgradeRunners | undefined;
   const opsFacade = new SkillsOps({
-    ops: createNodeFsOps(),
+    ops: opsOverride ?? createNodeFsOps(),
     homeDir: home,
     userDataPath: join(home, 'ud'),
     scanner,
@@ -230,4 +231,104 @@ test('selfHeal：staging backup 残留 + 原路径空缺 → 启动自动还原'
   fx.ops.selfHeal();
   ok(existsSync(join(p, 'SKILL.md')), '原版本自动还原');
   ok(fx.ops.getOperationLog().some((e) => e.action === 'restore' && e.detail?.selfHeal === true));
+});
+
+// ─────────────── 评审修复回归（🔴1 单飞+白名单 / 🟡4 symlink 升级拒绝 / 🟡7 收敛） ───────────────
+
+test('restoreFromTrash 单飞：restore 进行中同 originalPath 再 restore → skills-op-in-progress（🔴1）', async () => {
+  const home = makeTemp();
+  const skillDir = join(home, '.claude/skills/app1');
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(join(skillDir, 'SKILL.md'), '---\nname: app1\ndescription: d\n---\n');
+  const scanner = new SkillsScanner({ homeDir: home, userDataPath: join(home, 'ud') });
+  await scanner.scan();
+
+  // 门控 moveSync：从 trash 搬出的恢复搬移挂起，模拟 restore 的 rename 窗口
+  // （按 from 判定——remove 的搬移是 into-trash（to），restore 才是 out-of-trash（from））
+  const ops = createNodeFsOps();
+  const origMove = ops.moveSync.bind(ops);
+  let gatedUsed = false;
+  let releaseMove!: () => void;
+  const gate = new Promise<void>((r) => (releaseMove = r));
+  ops.moveSync = (from: string, to: string): void | Promise<void> => {
+    if (!gatedUsed && /[/\\]trash[/\\]/.test(from)) {
+      gatedUsed = true;
+      return gate.then(() => origMove(from, to));
+    }
+    return origMove(from, to);
+  };
+  const facade = new SkillsOps({ ops, homeDir: home, userDataPath: join(home, 'ud'), scanner });
+
+  const [r] = await facade.remove([skillDir]);
+  ok(r!.trashId);
+
+  const first = facade.restoreFromTrash(r!.trashId!); // 持锁进入 move 窗口
+  await new Promise((res) => setTimeout(res, 30));
+  await rejects(
+    () => facade.restoreFromTrash(r!.trashId!),
+    (err: Error) => err instanceof SkillsOpInProgressError && err.code === 'skills-op-in-progress'
+  );
+  releaseMove();
+  const done = await first;
+  equal(done.restoredPath, skillDir);
+});
+
+test('restoreFromTrash：originalPath 不在注册表白名单 → validation-error（🔴1 parser 不可信）', async () => {
+  const fx = await makeFixture();
+  const base = join(fx.home, 'ud', 'skills');
+  const trashId = 'tr_evil';
+  mkdirSync(join(base, 'trash', trashId), { recursive: true });
+  writeFileSync(join(base, 'trash', trashId, 'SKILL.md'), '---\nname: evil\n---\n');
+  writeFileSync(
+    join(base, 'trash.json'),
+    JSON.stringify({
+      version: 1,
+      entries: [
+        { id: trashId, skillName: 'evil', originalPath: '/etc/evil', deletedAt: new Date().toISOString(), sizeBytes: 1, affectedPlatforms: ['codex'] },
+      ],
+    })
+  );
+
+  await rejects(
+    () => fx.ops.restoreFromTrash(trashId),
+    (err: Error) => err instanceof SkillValidationError && err.code === 'validation-error'
+  );
+});
+
+test('symlink 路径升级 → validation-error 拒绝（🟡4：SSOT 语义，经原路径升级）', async () => {
+  const home = makeTemp();
+  const ssot = join(home, 'ssot-src', 'lnk');
+  mkdirSync(ssot, { recursive: true });
+  writeFileSync(join(ssot, 'SKILL.md'), '---\nname: lnk\ndescription: d\nmetadata:\n  source: https://github.com/o/r\n---\n');
+  const link = join(home, '.claude/skills/lnk');
+  mkdirSync(join(home, '.claude/skills'), { recursive: true });
+  symlinkSync(ssot, link, 'dir');
+  const lock = { lnk: { hash: 'a'.repeat(64) } };
+  const scanner = new SkillsScanner({ homeDir: home, userDataPath: join(home, 'ud'), lockProvider: () => lock });
+  await scanner.scan();
+
+  const facade = new SkillsOps({ homeDir: home, userDataPath: join(home, 'ud'), scanner });
+  await rejects(
+    () => facade.upgrade(link),
+    (err: Error) => err instanceof SkillValidationError && err.code === 'validation-error'
+  );
+  // SSOT 未被破坏、链接仍在
+  ok(existsSync(link), 'symlink 未被移走');
+  ok(existsSync(join(ssot, 'SKILL.md')));
+});
+
+test('升级成功后重扫收敛 latest（🟡7：不再无限可升级提示）', async () => {
+  const fx = await makeFixture('a'.repeat(64)); // upgradable
+  equal(fx.scanner.snapshot().entries.find((e) => e.name === 'app1')!.upgradable, 'upgradable');
+
+  fx.setRunners({
+    gitClone: async (_url, dest) => {
+      mkdirSync(dest, { recursive: true });
+      writeFileSync(join(dest, 'SKILL.md'), '---\nname: app1\ndescription: v2\nmetadata:\n  source: https://github.com/o/r\n---\n');
+    },
+  });
+  await fx.ops.upgrade(join(fx.home, '.claude/skills/app1'));
+
+  const entry = fx.scanner.snapshot().entries.find((e) => e.name === 'app1')!;
+  equal(entry.upgradable, 'latest', '重扫后 localHash=override remoteHash → latest');
 });

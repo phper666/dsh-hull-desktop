@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import { deepEqual, equal, ok, rejects } from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -155,4 +155,14 @@ test('500MB 容量上限：超出最旧先删至 ≤500MB', async () => {
   equal(entries[0].id !== e1.id, true);
   ok(totalSizeBytes <= 500 * 1024 * 1024);
   ok(!existsSync(join(base, 'trash', e1.id)));
+});
+
+test('computeSize：symlink 循环目录终止不悬挂（🟡3）', async () => {
+  const base = makeTemp();
+  const skill = join(base, 'agent', 'cyc');
+  makeSkill(skill);
+  symlinkSync(skill, join(skill, 'loop'), 'dir'); // 自引用
+  const tm = new TrashManager(createNodeFsOps(), base, new OperationLog(join(base, 'log.jsonl')));
+  const entry = await tm.moveToTrash('cyc', skill, ['cursor']);
+  ok(entry.sizeBytes >= 0, '体积计算终止');
 });

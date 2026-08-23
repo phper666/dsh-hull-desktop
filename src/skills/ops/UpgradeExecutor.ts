@@ -12,6 +12,7 @@ import { NOOP_LOGGER, type RuntimeLogger } from '../../shared/types';
 import type { SkillFsOps } from '../SkillFsOps';
 import {
   SkillValidationError,
+  SkillsIoError,
   SkillsNotFoundError,
   SkillsUpgradeFailedError,
   SkillsUpgradeUndetectableError,
@@ -171,6 +172,10 @@ export class UpgradeExecutor {
     try {
       if (!entry.source) throw new Error('无可获取的来源 URL');
       const { repoUrl, branch, subPath } = parseGithubSource(entry.source);
+      // 🔴2：subPath 段白名单——恶意 SKILL.md metadata.source 可携 ../ 逃逸 staging（Q-038）
+      if (subPath && subPath.split('/').some((seg) => seg === '' || seg === '.' || seg === '..')) {
+        throw new SkillValidationError('来源 URL 含非法路径段（..）', 'source');
+      }
       const repoDest = this.ops.join(workdir, 'repo');
       const clone = this.runners.gitClone ?? defaultGitClone;
       this.ops.mkdirSync(workdir);
@@ -178,6 +183,12 @@ export class UpgradeExecutor {
 
       // 完整性校验：SKILL.md 存在 + frontmatter name 一致（契约 ③）
       const payload = subPath ? this.ops.join(repoDest, subPath) : repoDest;
+      // 🔴2 纵深防御：realpath(payload) 必须落于 realpath(repoDest) 域内
+      const realPayload = await this.ops.realpath(payload).catch(() => null);
+      const realRepo = await this.ops.realpath(repoDest).catch(() => null);
+      if (!realPayload || !realRepo || !(realPayload === realRepo || realPayload.startsWith(realRepo + '/'))) {
+        throw new Error('payload 越出 staging 克隆域（路径校验失败）');
+      }
       const skillMdPath = this.ops.join(payload, 'SKILL.md');
       if (!this.ops.existsSync(skillMdPath)) throw new Error('新版本缺少 SKILL.md');
       const fmName = parseFrontmatter(await this.ops.readFile(skillMdPath)).name;
@@ -192,7 +203,21 @@ export class UpgradeExecutor {
       try {
         this.ops.renameSync(payload, physPath); // ② 新版就位
       } catch (err) {
-        this.ops.renameSync(backupDir, physPath); // 回滚原版本
+        // 🟡5：回滚自身失败 → skills-io-error（不虚报 rolledBack），manifest 条目保留供自愈
+        try {
+          this.ops.renameSync(backupDir, physPath); // 回滚原版本
+        } catch (rbErr) {
+          this.deps.log.append({
+            ts: new Date().toISOString(),
+            action: 'upgrade',
+            paths: [physPath],
+            result: 'failed',
+            detail: { method: 'git-staging', rolledBack: false, rollbackFailed: true, error: (err as Error).message, rollbackError: (rbErr as Error).message },
+          });
+          throw new SkillsIoError(
+            `升级失败且自动回滚失败，请手动处理（原版备份于 ${backupDir}）: ${(rbErr as Error).message}`
+          );
+        }
         manifest.entries = manifest.entries.filter((e) => e.backupDir !== backupDir);
         this.saveManifest(manifest);
         this.ops.rmRecursiveSync(workdir);
@@ -220,8 +245,8 @@ export class UpgradeExecutor {
       });
       return { path: physPath, method: 'git-staging', newHash };
     } catch (err) {
-      if (err instanceof SkillsUpgradeFailedError || err instanceof SkillsUpgradeUndetectableError || err instanceof SkillValidationError || err instanceof SkillsNotFoundError) {
-        throw err;
+      if (err instanceof SkillsUpgradeFailedError || err instanceof SkillsUpgradeUndetectableError || err instanceof SkillValidationError || err instanceof SkillsNotFoundError || err instanceof SkillsIoError) {
+        throw err; // SkillsIoError：回滚自身失败语义（🟡5），不得包装成 rolledBack=true
       }
       this.ops.rmRecursiveSync(workdir); // 清理半成品
       this.deps.log.append({

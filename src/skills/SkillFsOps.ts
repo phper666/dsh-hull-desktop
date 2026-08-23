@@ -47,8 +47,8 @@ export interface SkillFsOps {
   writeFileSyncAtomic(path: string, data: string): void;
   /** 严格 rename（同卷原子；升级两段替换必须用它，禁 copy 降级） */
   renameSync(from: string, to: string): void;
-  /** move 带 EXDEV 跨卷降级：rename 失败 → cp+verify+rm（回收站/禁用搬移用） */
-  moveSync(from: string, to: string): void;
+  /** move 带 EXDEV 跨卷降级：rename 失败 → cp+verify+rm（回收站/禁用搬移用）；可返回 Promise（测试门控） */
+  moveSync(from: string, to: string): void | Promise<void>;
   mkdirSync(path: string): void;
   cpSync(from: string, to: string): void;
   readlinkSync(path: string): string;
