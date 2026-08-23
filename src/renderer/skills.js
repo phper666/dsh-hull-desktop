@@ -136,7 +136,7 @@
     const activePaths = e.paths.map((p) => p.path);
     const disabledPaths = disabledList.filter((d) => d.skillName === e.name && !activePaths.includes(d.originalPath));
     const canUpgrade = e.upgradable === 'upgradable';
-    return `<div class="sk-row">
+    return `<div class="sk-row" data-name="${esc(e.name)}">
       <div class="sk-main">
         <div class="sk-name">${esc(e.name)}
           ${e.scope === 'global' ? '<span class="sk-badge global">全局</span>' : ''}
@@ -164,7 +164,7 @@
     const activePaths = e.paths.map((p) => p.path);
     const disabledPaths = disabledList.filter((d) => d.skillName === e.name && !activePaths.includes(d.originalPath));
     const canUpgrade = e.upgradable === 'upgradable';
-    return `<div class="sk-card">
+    return `<div class="sk-card" data-name="${esc(e.name)}">
       <div class="sk-name">${esc(e.name)}
         ${e.scope === 'global' ? '<span class="sk-badge global">全局</span>' : ''}
         <span class="sk-badge ${e.upgradable}">${upgNames[e.upgradable] || e.upgradable}</span>
@@ -242,6 +242,35 @@
     wrap.addEventListener('click', (ev) => { if (ev.target === wrap) close(); });
     wrap.querySelector('[data-close]').addEventListener('click', close);
     return { wrap, close };
+  }
+
+  /**
+   * skill 详情弹窗：点击卡片/行主体打开——单行省略的完整路径、描述、来源、平台在此看全。
+   * 路径行带复制按钮（navigator.clipboard，Electron 支持）；来源链接复用 .sk-source 事件。
+   */
+  function showSkillDetail(entry) {
+    const upgText = { latest: '最新', upgradable: '▲ 可升级', unknown: '无法检测版本' }[entry.upgradable] || entry.upgradable;
+    const platforms = [...new Set(entry.paths.flatMap((p) => p.affectedPlatforms))];
+    const pathRows = entry.paths
+      .map((p) => `<div class="sk-detail-path"><code>${esc(p.path)}</code><button class="sk-btn" data-copy-path="${esc(p.path)}" title="复制路径">复制</button></div>`)
+      .join('');
+    const m = modal(`${esc(entry.name)}`, `
+      <div class="sk-detail-head">
+        ${entry.scope === 'global' ? '<span class="sk-badge global">全局</span>' : ''}
+        <span class="sk-badge ${entry.upgradable}">${esc(upgText)}</span>
+      </div>
+      ${entry.description ? `<div class="sk-detail-desc">${esc(entry.description)}</div>` : ''}
+      <div class="sk-detail-meta">${platforms.map((p) => `<span class="sk-badge">${esc(p)}</span>`).join('')}</div>
+      ${entry.source ? `<div class="sk-detail-source">来源：${sourceHtml(entry.source)}</div>` : ''}
+      <div class="sk-detail-paths"><h4>安装路径</h4>${pathRows || '<p class="sk-muted">无路径</p>'}</div>
+    `);
+    m.wrap.querySelectorAll('[data-copy-path]').forEach((b) => {
+      b.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(b.dataset.copyPath); toastMsg('已复制路径'); }
+        catch { toastMsg('复制失败'); }
+      });
+    });
+    return m;
   }
 
   function confirmRemove(entry) {
@@ -494,6 +523,16 @@
     t.classList.add('show');
     setTimeout(() => t.classList.remove('show'), 1800);
   }
+
+  // ── 事件委托：点击卡片/行主体 → skill 详情弹窗（re-render 重建列表也生效；
+  //    排除操作按钮/开关/来源链接；路径开关行内点击不触发）──
+  root.addEventListener('click', (e) => {
+    const card = e.target.closest('.sk-card[data-name], .sk-row[data-name]');
+    if (!card || !root.contains(card)) return;
+    if (e.target.closest('button, a, .sk-switch, .sk-card-ops, .sk-side')) return;
+    const entry = snapshot.entries.find((x) => x.name === card.dataset.name);
+    if (entry) showSkillDetail(entry);
+  });
 
   // ── 初始化：进入视图即触发后台扫描（契约核心流程：renderer 调 skills:scan 幂等触发）──
   render();
