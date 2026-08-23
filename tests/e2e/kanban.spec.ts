@@ -90,14 +90,14 @@ test.describe('B2 看板 UI', () => {
     const shell = await app.firstWindow();
     await shell.locator('#nav-board').click();
     await expect(shell.locator('#board-root .kb-view')).toHaveCount(5); // T1：五视图（看板/列表/归档/时间线/日历）
-    // 列表视图
-    await shell.locator('[data-view="list"]').click();
+    // 列表视图（限定 #board-root——skills 页 sk-viewbtn 也用 data-view，防选择器撞车）
+    await shell.locator('#board-root [data-view="list"]').click();
     await expect(shell.locator('#board-root .kb-list tbody tr[data-id]')).toHaveCount(2);
     // 归档视图（空）
-    await shell.locator('[data-view="archive"]').click();
+    await shell.locator('#board-root [data-view="archive"]').click();
     await expect(shell.locator('#board-root', { hasText: '归档区为空' })).toBeVisible();
     // 回看板视图
-    await shell.locator('[data-view="board"]').click();
+    await shell.locator('#board-root [data-view="board"]').click();
     await expect(shell.locator('#board-root .kb-card')).toHaveCount(2);
     await app.close();
     tmp.cleanup();

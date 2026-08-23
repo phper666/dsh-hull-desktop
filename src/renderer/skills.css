@@ -35,7 +35,7 @@
 }
 .sk-viewbtn + .sk-viewbtn { border-left: 1px solid #2a3342; }
 .sk-viewbtn:hover { color: #e8ecf3; }
-.sk-viewbtn.active { background: #2a3342; color: #fff; }
+.sk-viewbtn.active { background: #2e8bf5; color: #fff; }
 .sk-btn {
   padding: 6px 12px; border-radius: 8px; border: none; cursor: pointer;
   font-size: 12px; background: #2a3342; color: #c6d0dd;
@@ -52,7 +52,7 @@
 .sk-scanstate.error { color: #f85149; }
 
 /* 列表 */
-.sk-list { flex: 1; overflow-y: auto; padding: 8px 14px; }
+.sk-list { flex: 1; width: 100%; overflow-y: auto; padding: 8px 14px; }
 .sk-row {
   display: flex; align-items: flex-start; gap: 10px;
   padding: 10px 12px; margin-bottom: 6px; border-radius: 10px; background: #232b3b;
@@ -78,8 +78,9 @@
 .sk-source.none { color: #6b7688; cursor: default; }
 .sk-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: 11px; color: #9aa5b5; white-space: nowrap; }
 
-/* 卡片视图（同一数据，网格布局） */
-.sk-list.card { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; align-content: start; }
+/* 卡片视图（同一数据，网格布局）——「card」类名与 shell.html .card（max-width:440px 居中卡）冲突，
+   必须显式解除 max-width 否则网格被压成 440px 单列（bug: 卡片只显示在左侧） */
+.sk-list.card { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; align-content: start; max-width: none; }
 .sk-card {
   display: flex; flex-direction: column; gap: 2px;
   padding: 12px; border-radius: 12px; background: #232b3b; border: 1px solid #2a3342;

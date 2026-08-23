@@ -371,6 +371,8 @@
         if (btn.dataset.view === viewMode) return;
         viewMode = btn.dataset.view;
         localStorage.setItem('skills:viewMode', viewMode);
+        // 同步分段按钮 active 态（renderLocal 只重渲染列表区，不碰工具条）
+        for (const b of root.querySelectorAll('[data-view]')) b.classList.toggle('active', b.dataset.view === viewMode);
         renderLocal();
       });
     }
