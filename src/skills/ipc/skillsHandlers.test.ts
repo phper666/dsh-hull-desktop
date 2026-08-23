@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { createSkillsHandlers } from './skillsHandlers';
 import { SkillsScanner } from '../SkillsScanner';
 import { SkillsOps } from '../ops/SkillsOps';
+import { RestoreConflictError, SkillsUpgradeFailedError } from '../errors';
 
 const tempDirs: string[] = [];
 test.after(() => {
@@ -99,4 +100,28 @@ test('S2 操作通道经门面：remove/setEnabled/getTrashList/getOperationLog 
 
   const logRes = (await h['skills:getOperationLog'](10)) as { ok: true; data: { entries: Array<{ action: string }> } };
   ok(logRes.data.entries.length >= 3); // remove/restore/disable 均留痕
+});
+
+test('S2 错误扩展字段达 IPC 响应（P1-2：契约异常表 method+rolledBack / targetPath）', async () => {
+  const { scanner } = await makeFixture();
+  const failOps = {
+    upgrade: async () => {
+      throw new SkillsUpgradeFailedError('升级替换失败已回滚: mock', 'git-staging', true);
+    },
+    restoreFromTrash: async () => {
+      throw new RestoreConflictError('原路径已被占用，请先移走冲突项或手动处理', '/fake/original/path');
+    },
+  } as unknown as SkillsOps;
+  const h = createSkillsHandlers(scanner, failOps);
+
+  const up = (await h['skills:upgrade']('/p')) as { ok: false; code: string; message: string; method?: string; rolledBack?: boolean };
+  equal(up.ok, false);
+  equal(up.code, 'skills-upgrade-failed');
+  equal(up.method, 'git-staging');
+  equal(up.rolledBack, true);
+
+  const rc = (await h['skills:restoreFromTrash']('tr_x')) as { ok: false; code: string; targetPath?: string };
+  equal(rc.ok, false);
+  equal(rc.code, 'restore-conflict');
+  equal(rc.targetPath, '/fake/original/path');
 });

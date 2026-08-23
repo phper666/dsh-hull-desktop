@@ -561,6 +561,8 @@ S1 扫描列表（paths/localHash/remoteHash/upgradable/enabled/source）→ 用
 |---|---|---|
 | 2026-08-23 | 初次生成 | 基于 S2（飞书 701e3597）+ 共识 v1.2 §14.1/§13/CON-R-skills-003/004/008 + Q-031~035 生成契约草案；7 条 NEW IPC 通道 + 行为契约 + 22 测试场景 |
 | 2026-08-23 | 复核修订 | FE/QA 契约复核退回项修复：① 新增「页面交互规范」节声明回收站 UI 载体（工具条入口+弹层+恢复冲突态），共识 §12 补行入协调事项；② 拆分 skills-op-in-progress 错误码（同路径写操作单飞互斥），skills-conflict 收敛为仅 mtime 外部修改语义，异常集/升级失败表/幂等并发三处同步；③ O9 前置改可构造（mock npx/实测 CLI）+ 开放问题新增 O-2（npx 单路径语义待实测）+ 新增 O23 npx 不可用降级场景；MINOR：恢复跨卷降级 copy+delete 说明、operations.jsonl 明确不轮转+启动截断策略。O1~O23、错误码 8 个 |
+| 2026-08-23 | 复核登记 | Q-034 远端哈希分级交付复核结论：v1 仅落地一级 skills-lock.json hash/content_hash，平台 lock/cc-switch/git clone 暂缓（对比口径未验证，错误对比比 unknown 更危险）；缺省 unknown「无法检测」保守正确；接入点 SkillsScanner ⑥ 注释标明；处理：登记在案，待「远端哈希口径」决议后逐级接入 |
+| 2026-08-23 | 契约变更 | upgrade.method 枚举口径收敛：source-fetch 并入 git-staging——分级 b/c 同为 clone 到 staging 原子替换实现，method 统一记 git-staging（纯非 git http 来源 v1 不支持）；实现枚举为 npx-skills-update/git-staging 两值；§接口详情/行为契约③/O23 中 source-fetch 枚举值以本条为准 |
 
 ## 自检记录
 

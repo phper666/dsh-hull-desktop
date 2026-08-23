@@ -4,13 +4,22 @@
  * 响应统一包裹 { ok:true, data } | { ok:false, code, message }（对齐 KanbanIpcResult 形态）。
  */
 import { HullError } from '../../shared/errors';
+import { RestoreConflictError, SkillsUpgradeFailedError } from '../errors';
 
 import type { RemoteRunner } from '../searchRemote';
 import type { SkillsScanner } from '../SkillsScanner';
 import type { SkillsOps } from '../ops/SkillsOps';
 import type { DisabledEntry, OperationLogEntry, RemoteSkillEntry, ScanSnapshot, StatusCounts, TrashEntry } from '../types';
 
-export type SkillsIpcResult<T> = { ok: true; data: T } | { ok: false; code: string; message: string };
+/** 失败分支扩展字段（契约异常表：skills-upgrade-failed→method+rolledBack；restore-conflict→targetPath；io-error 带 path 则透传） */
+export interface SkillsIpcErrorFields {
+  method?: string;
+  rolledBack?: boolean;
+  targetPath?: string;
+  path?: string;
+}
+
+export type SkillsIpcResult<T> = { ok: true; data: T } | ({ ok: false; code: string; message: string } & SkillsIpcErrorFields);
 
 export interface SkillsHandlers {
   'skills:scan': () => Promise<SkillsIpcResult<ScanSnapshot>>;
@@ -32,7 +41,13 @@ async function toResult<T>(fn: () => Promise<T>): Promise<SkillsIpcResult<T>> {
   try {
     return { ok: true, data: await fn() };
   } catch (err) {
-    return { ok: false, code: err instanceof HullError ? err.code : 'unknown', message: (err as Error).message };
+    const base = { ok: false as const, code: err instanceof HullError ? err.code : 'unknown', message: (err as Error).message };
+    if (!(err instanceof HullError)) return base;
+    // 具名错误扩展字段随响应透传（P1-2：契约异常表要求达 IPC 响应，原先仅 {code,message}）
+    if (err instanceof SkillsUpgradeFailedError) return { ...base, method: err.method, rolledBack: err.rolledBack };
+    if (err instanceof RestoreConflictError) return { ...base, targetPath: err.targetPath };
+    const p = (err as { path?: unknown }).path; // SkillsIoError 等若带 path 属性则透传
+    return typeof p === 'string' ? { ...base, path: p } : base;
   }
 }
 

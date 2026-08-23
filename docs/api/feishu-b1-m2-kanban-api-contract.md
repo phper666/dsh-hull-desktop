@@ -4,9 +4,9 @@
 
 - 工作项：B1 看板数据模型与持久化（飞书 dsh-hull-desktop 清单，t100101）
 - 契约状态：已冻结（2026-08-20，用户裁决放行，两轮复核闭环）
-- 版本：v0.1
-- 适用版本：M2（共识 v1.3）
-- 最后更新：2026-08-20
+- 版本：v0.2
+- 适用版本：M2（共识 v1.3 + 时间线共识 CON-R-timeline）
+- 最后更新：2026-08-23
 - 说明：桌面壳本地数据契约（无 HTTP API 面）；核心 = boards.json JSON Schema + 持久化行为约束（原子写/损坏恢复/schema 迁移/加载性能）+ IPC 数据读写原语（B2/B3 消费）
 
 ## 需求与共识追踪
@@ -25,6 +25,7 @@
 | 删除守卫 | B1 | Q-019 + CON-R033 | running/queued 禁删；看板含 ticket（含归档）拒删 | deleteTask/deleteBoard | 已定义 |
 | 归档 | B1 | CON-R033（决策 1/2） | Done 可归档 + 恢复/彻底删除；archivedAt/archivedFromColumnId | archiveTask/restoreTask/purgeTask | 已定义 |
 | 列删除 | B1 | CON-R020 + PRD FR-2 | 自定义列可删（列内卡入 Todo）；模板列拒删 | kanban:deleteColumn | 已定义 |
+| startDate 字段 + schema v2 迁移 | T2 | CON-R-timeline-003/004 + Q-051/Q-052 | v1 数据注入→迁移成功（幂等、落盘 v2）；createTask/updateTask 可选参数向后兼容；契约/preload/IPC 三处同步 | Task Schema/createTask/updateTask/migrate | 已定义（增量详见 feishu-t2-kanban-timeline-api-contract.md） |
 
 ## 范围与非目标
 
@@ -96,8 +97,10 @@
 
 | 字段 | 类型 | 必填 | 可空 | 约束 | 敏感性 | 说明 |
 |---|---|---|---|---|---|---|
-| version | integer | 是 | 否 | 默认 1；不兼容演进递增 + 迁移函数 | 无 | schema 版本 |
+| version | integer | 是 | 否 | 默认 2（T2 起；v1 数据经 migrate() 自动升 v2）；不兼容演进递增 + 迁移函数 | 无 | schema 版本 |
 | boards | array[Board] | 是 | 否 | 多项目看板（决策 1）；空数组合法 | 无 | 顶层看板列表 |
+
+> **schema v2（T2 增量传播，CON-R-timeline-004/Q-051）**：`KANBAN_SCHEMA_VERSION` 1→2；migrate() v1→v2 = boards[]→columns[]→tasks[] 三层遍历为每任务补 `startDate: null`（已有 startDate 原样跳过——幂等、只加不动，timeline/execution 记录零触碰）；失败时 load 路径走 backupAndRebuild 静默兜底（原文件备份 `boards.json.corrupt-<ts>` + 重建默认看板，renderer 无错误码），`store-migrate-failed` 仅 migrate() 直调 / B5 导入校验路径可见；version>2 仍拒绝。B5 importVersionOlder 复用同一 migrate（v1 导入包自动升 v2）。详见 feishu-t2-kanban-timeline-api-contract.md §迁移契约。
 
 ### Board
 
@@ -140,6 +143,7 @@
 | priority | string | 否 | 是 | P0/P1/P2/无（默认 P2） | 无 | 优先级 |
 | assignee | string | 否 | 是 | 可空；纯展示/筛选，无权限语义（Q-020） | 无 | 负责人 |
 | dueDate | string | 否 | 是 | 日期，可空 | 无 | 截止日期 |
+| startDate | string | 是（v2 起） | 是 | ISO YYYY-MM-DD date-only，与 dueDate 同型；默认 null；非法日期串主进程归一化 null 不拒绝（CON-R-timeline-007）；>dueDate 存储层不校验（展示层以 dueDate 为准） | 无 | 计划开始日期（T2 增量，CON-R-timeline-003/Q-052；日历区间跨格依据 FR-3） |
 | order | integer | 是 | 否 | 数字 | 无 | 列内排序 |
 | blockedFromColumnId | string | 否 | 是 | Blocked 来源列，解除时恢复（来源列已删则回 Todo） | 无 | Blocked 来源 |
 | archivedAt | string | 否 | 是 | 空=未归档；非空=在归档区（CON-R033，决策 1） | 无 | 归档时间 |
@@ -207,7 +211,7 @@
 
 ```jsonc
 {
-  "version": 1,
+  "version": 2,
   "boards": [
     {
       "id": "b_2f5a1c00-0000-4000-8000-000000000001",
@@ -441,6 +445,7 @@
 | body | acceptanceCriteria | object | auto 必填 | what/expected/verify 强校验必填 + context 可选 | AC（auto 模式必填） |
 | body | dependencies | array[string] | 否 | 子任务 ID 数组（仅子任务可声明，同父下） | 依赖声明（P2-3：建子任务时一次声明） |
 | body | priority/assignee/dueDate/labels/description | — | 否 | 见 Schema | 可选字段 |
+| body | startDate | string \| null | 否 | ISO YYYY-MM-DD date-only（与 dueDate 同型）；缺省 null；非法日期串归一化 null 不拒绝，类型非法拒 validation-error（field=startDate 经 message 标识） | 计划开始日期（T2 增量 Q-052，向后兼容） |
 
 #### 成功响应
 
@@ -461,6 +466,7 @@
   "priority": "P1",
   "assignee": null,
   "dueDate": null,
+  "startDate": null,
   "order": 0,
   "blockedFromColumnId": null,
   "createdAt": "2026-08-20T10:00:00.000Z",
@@ -503,7 +509,7 @@
 |---|---|---|---|---|---|
 | body | boardId | string | 是 | `b_<uuid>` | 看板 id |
 | body | id | string | 是 | `t_<uuid>` | 任务 id |
-| body | 可编辑字段 | — | 否 | 标题/描述/标签/优先级/assignee/dueDate/AC/executionMode/dependencies | 部分更新 |
+| body | 可编辑字段 | — | 否 | 标题/描述/标签/优先级/assignee/dueDate/startDate/AC/executionMode/dependencies | 部分更新（不传=不变；显式 null=清空；startDate 同语义，T2 增量 Q-052） |
 
 > 约束：`executionStatus`/`currentExecutionId`/`timeline` 由系统管理，不通过 updateTask 直接改（B3 调度层写）。
 
@@ -934,6 +940,7 @@
 | 2026-08-20 | 初次生成 | 基于 t100101（B1）和共识 v1.3 §7.1/§9/§13 生成契约草案 |
 | 2026-08-20 | 复核修复 | 修复 ora-1 复核退回问题：P0-1 补 store-not-found 闭环；P1-1 timeline system 写入权定稿；P1-2 补 addComment/deleteComment/updateColumn；P1-3 统一 not-found 错误码；P1-4 补失败用例 + 验收编号 K1~K20 + 原子写注入法 + Blocked/deleteBoard 用例；P2 错误码 kebab 化、subagentPolicy 默认、createTask dependencies/示例、Blocked 自动记/还原、最小 boards.json 示例 |
 | 2026-08-20 | 二轮复核修复 | P1-A updateTask 失败契约补全（not-found/同级校验/auto 缺 AC）；P1-B 补 store-task-executing 执行态守卫（deleteTask/deleteBoard）；P1-C 补 deleteColumn；P1-D/E deleteBoard 对齐 CON-R033（store-board-not-empty + 最后看板规则）；归档对齐 CON-R033（Task 增 archivedAt/archivedFromColumnId + archiveTask/restoreTask/purgeTask 原语）；测试 K18 对齐 + K21~K31 补归档/守卫用例 |
+| 2026-08-23 | T2 增量传播（Q-052） | 传播 feishu-t2-kanban-timeline-api-contract.md 增量入本契约：Task Schema 新增 startDate（string\|null，ISO date-only 与 dueDate 同型，默认 null，CON-R-timeline-003）；createTask/updateTask 请求增可选 startDate（向后兼容：缺省 null / 不传=不变、显式 null=清空）；KANBAN_SCHEMA_VERSION 1→2 + migrate() v1→v2（三层遍历补 startDate:null 幂等；失败 backupAndRebuild 静默兜底无错误码——对齐 T2 契约 HIGH 复核修正语义）；最小示例 version 升 2；preload/IPC 经核验零改动（桥透传 unknown + store 权威校验） |
 
 ## 自检记录
 

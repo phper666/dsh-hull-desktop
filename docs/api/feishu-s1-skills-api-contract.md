@@ -406,6 +406,7 @@
 | 时间 | 类型 | 摘要 |
 |---|---|---|
 | 2026-08-23 | 初次生成 | 基于 S1（飞书 a639af53）+ 共识 v1.2 §14.1/§13/CON-R-skills-001/002/005/006/007/009/010 + Q-036/037/038 生成契约草案；5 条 NEW IPC 通道（含 hull:showSkills）+ 本地搜索 frontend-only 定案 + SkillEntry/PathInfo Schema + 20 测试场景 |
+| 2026-08-23 | 复核登记 | CON-R-skills-007 openExternal 口径复核结论：实现未一刀切 ^https://——http 仅回环放行（localhost/127.0.0.1，dsh web 地址依赖此通道打开浏览器），file:/javascript:/data:/任意 host http 全拒；skill 来源跳转渲染侧额外强制 ^https://（双层防御）；处理：登记在案，建议共识规则修订时回写「http 仅回环」口径 |
 
 ## 自检记录
 

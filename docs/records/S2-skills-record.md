@@ -44,3 +44,7 @@
 - src/skills/ops/DisableManager.ts — disable 实目录 moveSync（🟡6）
 - src/skills/ops/TrashManager.ts — computeSize lstat skip（🟡3）、findEntry 导出、move await
 - 测试：SkillsOps/UpgradeExecutor/DisableManager/TrashManager/hash 五个 .test.ts 共 +9 用例
+
+## 核验记录
+
+- Semgrep p/default 210 rules × 32 files（src/skills + main + preload）：0 findings（2026-08-23 交付核验补扫）
