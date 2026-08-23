@@ -142,12 +142,12 @@ textarea.kb-input { min-height: 56px; resize: vertical; font-family: inherit; }
 .kb-tl-time { color: #6b7688; font-size: 11px; margin-left: 6px; }
 .kb-tl-content { color: #c6d0dd; margin-top: 4px; }
 .kb-empty-tl { color: #6b7688; font-size: 12px; padding: 4px 0; }
-.kb-comment { margin-top: 16px; padding: 10px; background: #1a202c; border: 1px solid #232b3a; border-radius: 10px; }
+/* 评论输入区（E1 升级 EasyMDE 后：全宽编辑器 + 评论按钮并入底部操作行，非独立卡片） */
+.kb-comment { margin-top: 12px; }
 .kb-comment .EasyMDEContainer { margin-bottom: 8px; }
 .kb-comment .EasyMDEContainer .CodeMirror { min-height: 42px; height: auto; max-height: 160px; border-radius: 6px; }
 .kb-comment .editor-toolbar { border-radius: 6px 6px 0 0; }
 .kb-comment .CodeMirror { border-radius: 0 0 6px 6px; border-width: 0 1px 1px 1px; }
-.kb-comment .kb-btn { float: right; }
 .kb-approval-msg { font-size: 13px; margin-bottom: 8px; }
 .kb-approval-body { background: #232b3a; border-radius: 8px; padding: 10px; font-size: 13px; white-space: pre-wrap; }
 

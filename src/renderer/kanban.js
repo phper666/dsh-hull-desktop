@@ -436,8 +436,8 @@
         const contentHtml = i.type === 'comment' ? mdRender(i.content) : esc(i.content);
         return `<div class="kb-tl-item"><span class="kb-tl-who">${esc(who)}</span><span class="kb-tl-time">${new Date(i.createdAt).toLocaleString()}</span>${execTag}<div class="kb-tl-content kb-md">${contentHtml}</div></div>`;
       }).join('')}</div>
-      <div class="kb-comment"><textarea id="kb-comment-text" class="kb-input" placeholder="添加评论…"></textarea><button class="kb-btn kb-primary" data-comment>评论</button></div>
-      <div class="kb-modal-ops"><button class="kb-btn" data-edit>编辑</button>${t.archivedAt ? '' : `<button class="kb-btn" data-archive>归档</button>`}<button class="kb-btn kb-danger" data-del>删除</button></div>`, (w, close) => {
+      <div class="kb-comment"><textarea id="kb-comment-text" class="kb-input" placeholder="添加评论…"></textarea></div>
+      <div class="kb-modal-ops"><button class="kb-btn kb-primary" data-comment>评论</button><button class="kb-btn" data-edit>编辑</button>${t.archivedAt ? '' : `<button class="kb-btn" data-archive>归档</button>`}<button class="kb-btn kb-danger" data-del>删除</button></div>`, (w, close) => {
       // E1：评论框 → EasyMDE（CON-R-editor-006 U-1；Q-041 生命周期同 create/edit）
       const cmtEditor = createEditor($('#kb-comment-text', w));
       w.kbOnClose.push(() => destroyEditor(cmtEditor));
