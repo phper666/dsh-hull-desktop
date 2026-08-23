@@ -26,6 +26,16 @@
 .sk-input { width: 200px; }
 .sk-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #c6d0dd; cursor: pointer; user-select: none; }
 .sk-spacer { flex: 1; }
+
+/* 显示样式切换（列表/卡片） */
+.sk-viewseg { display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid #2a3342; }
+.sk-viewbtn {
+  padding: 6px 12px; border: none; cursor: pointer; font-size: 12px;
+  background: #171c26; color: #9aa5b5;
+}
+.sk-viewbtn + .sk-viewbtn { border-left: 1px solid #2a3342; }
+.sk-viewbtn:hover { color: #e8ecf3; }
+.sk-viewbtn.active { background: #2a3342; color: #fff; }
 .sk-btn {
   padding: 6px 12px; border-radius: 8px; border: none; cursor: pointer;
   font-size: 12px; background: #2a3342; color: #c6d0dd;
@@ -67,6 +77,15 @@
 .sk-source:hover { text-decoration: underline; }
 .sk-source.none { color: #6b7688; cursor: default; }
 .sk-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: 11px; color: #9aa5b5; white-space: nowrap; }
+
+/* 卡片视图（同一数据，网格布局） */
+.sk-list.card { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; align-content: start; }
+.sk-card {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 12px; border-radius: 12px; background: #232b3b; border: 1px solid #2a3342;
+}
+.sk-card .sk-desc { -webkit-line-clamp: 3; }
+.sk-card-ops { margin-top: auto; padding-top: 8px; display: flex; justify-content: flex-end; gap: 6px; }
 
 /* 骨架屏（FR-10：扫描中先骨架不阻塞） */
 .sk-skeleton { height: 58px; border-radius: 10px; margin-bottom: 6px; background: linear-gradient(90deg, #232b3b 25%, #2a3342 50%, #232b3b 75%); background-size: 200% 100%; animation: sk-shimmer 1.2s infinite; }

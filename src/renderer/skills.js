@@ -19,6 +19,7 @@
   let platform = 'all';
   let onlyUpgradable = false;
   let onlyDisabled = false;
+  let viewMode = localStorage.getItem('skills:viewMode') === 'card' ? 'card' : 'list'; // 列表 | 卡片
   let remoteEntries = null;
   let remoteError = '';
   let remoteLoading = false;
@@ -60,6 +61,10 @@
         </select>
         <label class="sk-toggle"><input type="checkbox" id="sk-upg" ${onlyUpgradable ? 'checked' : ''} />仅看可升级</label>
         <label class="sk-toggle"><input type="checkbox" id="sk-dis" ${onlyDisabled ? 'checked' : ''} />仅看已禁用</label>
+        <div class="sk-viewseg" role="group" aria-label="显示样式">
+          <button class="sk-viewbtn ${viewMode === 'list' ? 'active' : ''}" data-view="list">列表</button>
+          <button class="sk-viewbtn ${viewMode === 'card' ? 'active' : ''}" data-view="card">卡片</button>
+        </div>
         ` : ''}
         <div class="sk-spacer"></div>
         <button class="sk-btn" id="sk-trash">回收站${trashEntries && trashEntries.length ? ` <span class="sk-badge notinstalled">${trashEntries.length}</span>` : ''}</button>
@@ -97,9 +102,10 @@
   function matchesLocal(e) {
     if (onlyUpgradable && e.upgradable !== 'upgradable') return false;
     if (onlyDisabled && e.enabled) return false;
+    // 平台筛选只看该平台专属（scoped）skill；全局 skill 是独立类别（选「全局」才出现）
     if (platform !== 'all') {
       if (platform === 'global') { if (e.scope !== 'global') return false; }
-      else if (!e.platforms.includes(platform)) return false;
+      else if (e.scope !== 'scoped' || !e.platforms.includes(platform)) return false;
     }
     if (query) {
       const q = query.toLowerCase();
@@ -153,8 +159,35 @@
     </div>`;
   }
 
+  /** 卡片视图：与列表同一份数据（matchesLocal），仅 DOM 结构不同；操作按钮复用同一 data-* 绑定 */
+  function entryCard(e) {
+    const activePaths = e.paths.map((p) => p.path);
+    const disabledPaths = disabledList.filter((d) => d.skillName === e.name && !activePaths.includes(d.originalPath));
+    const canUpgrade = e.upgradable === 'upgradable';
+    return `<div class="sk-card">
+      <div class="sk-name">${esc(e.name)}
+        ${e.scope === 'global' ? '<span class="sk-badge global">全局</span>' : ''}
+        <span class="sk-badge ${e.upgradable}">${upgNames[e.upgradable] || e.upgradable}</span>
+      </div>
+      <div class="sk-desc">${e.description ? esc(e.description) : '<i>无描述</i>'}</div>
+      <div class="sk-meta">
+        ${e.platforms.map((p) => `<span class="sk-badge">${esc(p)}</span>`).join('')}
+        ${sourceHtml(e.source)}
+      </div>
+      <div class="sk-paths">
+        ${e.paths.map((p) => pathRow(p.path, false)).join('')}
+        ${disabledPaths.map((d) => pathRow(d.originalPath, true)).join('')}
+      </div>
+      <div class="sk-card-ops">
+        <button class="sk-btn sk-danger-btn" data-remove="${esc(e.name)}">移除</button>
+        ${canUpgrade ? `<button class="sk-btn sk-primary-btn" data-upgrade="${esc(e.name)}">升级</button>` : ''}
+      </div>
+    </div>`;
+  }
+
   function renderLocal() {
     const list = $('#sk-list');
+    list.classList.toggle('card', viewMode === 'card');
     if (snapshot.status === 'scanning' && snapshot.entries.length === 0) {
       list.innerHTML = Array.from({ length: 6 }, () => '<div class="sk-skeleton"></div>').join('');
       return;
@@ -164,7 +197,7 @@
       list.innerHTML = '<div class="sk-empty"><h2>未找到匹配的 skill</h2><p>试试调整搜索词或筛选条件</p></div>';
       return;
     }
-    list.innerHTML = visible.map(entryRow).join('');
+    list.innerHTML = visible.map(viewMode === 'card' ? entryCard : entryRow).join('');
   }
 
   function renderRemote() {
@@ -332,6 +365,15 @@
     if (upg) upg.addEventListener('change', () => { onlyUpgradable = upg.checked; renderLocal(); });
     const dis = $('#sk-dis');
     if (dis) dis.addEventListener('change', () => { onlyDisabled = dis.checked; renderLocal(); });
+    // 显示样式切换（列表/卡片，localStorage 持久化）
+    for (const btn of root.querySelectorAll('[data-view]')) {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.view === viewMode) return;
+        viewMode = btn.dataset.view;
+        localStorage.setItem('skills:viewMode', viewMode);
+        renderLocal();
+      });
+    }
 
     // 路径级启用开关（Q-031）
     for (const sw of root.querySelectorAll('[data-toggle-path]')) {
