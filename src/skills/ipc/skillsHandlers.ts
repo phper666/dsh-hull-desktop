@@ -34,6 +34,8 @@ export interface SkillsHandlers {
   'skills:remove': (paths: string[]) => Promise<SkillsIpcResult<Array<{ path: string; status: string; trashId?: string; code?: string }>>>;
   'skills:upgrade': (path: string) => Promise<SkillsIpcResult<{ path: string; method: string; newHash: string }>>;
   'skills:setEnabled': (path: string, enabled: boolean) => Promise<SkillsIpcResult<{ path: string; enabled: boolean; entryId?: string }>>;
+  /** 本地来源可填（O-3：写 SKILL.md frontmatter metadata.source） */
+  'skills:setSource': (path: string, source: string) => Promise<SkillsIpcResult<{ path: string; source: string }>>;
   'skills:getDisabledList': () => Promise<SkillsIpcResult<{ entries: DisabledEntry[] }>>;
   'skills:getTrashList': () => Promise<SkillsIpcResult<{ entries: TrashEntry[]; totalSizeBytes: number }>>;
   'skills:restoreFromTrash': (trashId: string) => Promise<SkillsIpcResult<{ restoredPath: string }>>;
@@ -67,6 +69,7 @@ export function createSkillsHandlers(scanner: SkillsScanner, ops?: SkillsOps): S
     'skills:remove': (paths: string[]) => toResult(() => ops.remove(paths)),
     'skills:upgrade': (path: string) => toResult(() => ops.upgrade(path)),
     'skills:setEnabled': (path: string, enabled: boolean) => toResult(() => ops.setEnabled(path, enabled)),
+    'skills:setSource': (path: string, source: string) => toResult(() => ops.setSource(path, source)),
     'skills:getDisabledList': () => toResult(async () => ({ entries: ops.getDisabledList() })),
     'skills:getTrashList': () => toResult(() => ops.getTrashList()),
     'skills:restoreFromTrash': (trashId: string) => toResult(() => ops.restoreFromTrash(trashId)),

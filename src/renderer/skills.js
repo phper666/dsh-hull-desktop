@@ -273,9 +273,10 @@
       </div>
       ${entry.description ? `<div class="sk-detail-desc">${esc(entry.description)}</div>` : ''}
       <div class="sk-detail-meta">${platforms.map((p) => `<span class="sk-badge">${esc(p)}</span>`).join('')}</div>
-      ${entry.source ? `<div class="sk-detail-source">来源：${sourceHtml(entry.source)}</div>` : ''}
+      ${entry.source ? `<div class="sk-detail-source">来源：${sourceHtml(entry.source)}</div>` : `<div class="sk-detail-source">来源：<span class="sk-source none">未知</span><button class="sk-btn" id="sk-set-source" title="填写来源">填写</button></div>`}
       <div class="sk-detail-paths"><h4>安装路径</h4>${pathRows || '<p class="sk-muted">无路径</p>'}</div>
     `);
+    m.wrap.querySelector('#sk-set-source')?.addEventListener('click', () => { m.close(); promptSetSource(entry); });
     m.wrap.querySelectorAll('[data-copy-path]').forEach((b) => {
       b.addEventListener('click', async () => {
         try { await navigator.clipboard.writeText(b.dataset.copyPath); toastMsg('已复制路径'); }
@@ -283,6 +284,30 @@
       });
     });
     return m;
+  }
+
+  /** 填写本地 skill 来源（O-3）：输入 http(s) 链接 → 写 SKILL.md frontmatter metadata.source */
+  function promptSetSource(entry) {
+    const targetPath = entry.paths[0]?.path || '';
+    const m = modal('填写来源', `
+      <p>为 <b>${esc(entry.name)}</b> 填写来源链接（写入 SKILL.md 的 <code>metadata.source</code>）：</p>
+      <div class="sk-f"><label>来源 URL</label><input id="sk-source-input" class="sk-input" placeholder="https://github.com/owner/repo" style="width:100%" /></div>
+      <p class="sk-muted">用于本地 skill 关联到市场/源码位置；填写后本地详情与来源跳转生效。</p>
+      <div class="sk-modal-ops"><button class="sk-btn sk-primary-btn" data-confirm>保存</button><button class="sk-btn" data-close>取消</button></div>
+    `);
+    const inp = m.wrap.querySelector('#sk-source-input');
+    inp.focus();
+    const save = async () => {
+      const src = inp.value.trim();
+      if (!/^https?:\/\/.+/.test(src)) { toastMsg('请输入 http(s) 链接'); return; }
+      m.close();
+      const res = await skills.setSource(targetPath, src);
+      if (res.ok === false) { toastMsg(errMsg(res.code, res.message)); return; }
+      toastMsg('已保存来源');
+      await refreshMeta();
+    };
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') void save(); });
+    m.wrap.querySelector('[data-confirm]').addEventListener('click', () => void save());
   }
 
   /** 远程结果详情弹窗（点击远程行主体打开；含安装入口 + 源跳转） */

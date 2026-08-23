@@ -77,3 +77,48 @@ function assign(fm: Frontmatter, key: string, val: string): void {
     default: break; // 未知顶层键忽略
   }
 }
+
+/**
+ * 写回 metadata.source（O-3 本地来源可填）：
+ * 在 SKILL.md frontmatter 内确保存在 `metadata:` 块并含 `  source: <value>`。
+ * 纯文本行级操作，不重排其它字段；无 frontmatter 或无 metadata 块 → 相应插入。
+ * 返回新内容（调用方负责原子写盘）。
+ */
+export function setMetadataSource(content: string, source: string): string {
+  const text = content.replace(/\r\n/g, '\n');
+  const lines = text.split('\n');
+  // 找 frontmatter 边界（起始 --- 与闭合 ---）
+  if (lines[0]?.trim() !== '---') return text; // 无 frontmatter：不写（非标准 SKILL.md）
+  let end = -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].trim() === '---') { end = i; break; }
+  }
+  if (end === -1) return text;
+  const fmLines = lines.slice(1, end);
+  // 找 metadata: 块起始
+  let metaIdx = -1;
+  for (let i = 0; i < fmLines.length; i++) {
+    if (/^metadata\s*:\s*$/.test(fmLines[i].trim())) { metaIdx = i; break; }
+  }
+  const srcLine = `  source: ${source}`;
+  if (metaIdx === -1) {
+    // frontmatter 末尾插入 metadata 块（闭合 --- 之前）
+    const insertAt = end - 1; // 闭合行前
+    lines.splice(insertAt, 0, 'metadata:', srcLine);
+  } else {
+    // metadata 块内：找 source 行替换，或块尾追加
+    let found = -1;
+    for (let i = metaIdx + 1; i < fmLines.length; i++) {
+      const raw = fmLines[i];
+      if (raw.trim() === '') continue;
+      if (!/^[ \t]/.test(raw)) break; // 非缩进行 = metadata 块结束
+      if (/^source\s*:/.test(raw.trim())) { found = i; break; }
+    }
+    if (found !== -1) {
+      lines[1 + found] = srcLine; // fmLines[i] 对应 lines[1+i]
+    } else {
+      lines.splice(1 + metaIdx + 1, 0, srcLine); // metadata: 行后插入
+    }
+  }
+  return lines.join('\n');
+}

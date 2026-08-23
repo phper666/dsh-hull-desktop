@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import { deepEqual, equal } from 'node:assert/strict';
 
-import { parseFrontmatter } from './frontmatter';
+import { parseFrontmatter, setMetadataSource } from './frontmatter';
 
 test('标准 frontmatter 全字段解析（T6）', () => {
   const md = [
@@ -64,4 +64,37 @@ test('空内容 / 空白输入 → 全 null', () => {
     equal(fm.name, null, `input=${JSON.stringify(input)}`);
     equal(fm.description, null);
   }
+});
+
+// ── setMetadataSource（O-3 本地来源可填）──
+
+test('无 metadata 块 → 在闭合前插入 metadata: + source 行，不破坏其它字段', () => {
+  const input = '---\nname: foo\ndescription: "desc"\n---\nbody';
+  const out = setMetadataSource(input, 'https://github.com/o/r');
+  const fm = parseFrontmatter(out);
+  equal(fm.name, 'foo');
+  equal(fm.metadata.source, 'https://github.com/o/r');
+  // 其它字段保留 + 正文保留
+  equal(out.includes('description: "desc"'), true);
+  equal(out.endsWith('body'), true);
+});
+
+test('已有 metadata 无 source → source 行追加进 metadata 块', () => {
+  const input = '---\nname: foo\nmetadata:\n  requires:\n    bins: ["x"]\n---\n';
+  const out = setMetadataSource(input, 'https://github.com/o/r');
+  equal(parseFrontmatter(out).metadata.source, 'https://github.com/o/r');
+  // requires 保留
+  equal(out.includes('requires:'), true);
+});
+
+test('已有 metadata.source → 原位替换', () => {
+  const input = '---\nname: foo\nmetadata:\n  source: https://old.example\n---\n';
+  const out = setMetadataSource(input, 'https://github.com/o/r');
+  equal(parseFrontmatter(out).metadata.source, 'https://github.com/o/r');
+  equal(out.includes('https://old.example'), false);
+});
+
+test('无 frontmatter（非 --- 开头）→ 原样返回不写', () => {
+  const input = '# Not a skill frontmatter\nplain text';
+  equal(setMetadataSource(input, 'https://github.com/o/r'), input);
 });

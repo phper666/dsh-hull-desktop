@@ -10,6 +10,7 @@ import { NOOP_LOGGER, type RuntimeLogger } from '../../shared/types';
 import { REGISTRY } from '../registry';
 import { createNodeFsOps, type SkillFsOps } from '../SkillFsOps';
 import { isValidSkillName, isWithinRoots } from '../pathGuard';
+import { parseFrontmatter, setMetadataSource } from '../frontmatter';
 import {
   SkillValidationError,
   SkillsConflictError,
@@ -225,6 +226,29 @@ export class SkillsOps {
     this.log.append({ ts: new Date().toISOString(), action: 'disable', paths: [p], result: 'success', detail: { entryId: disabledEntry.id } });
     await this.rescan();
     return { path: p, enabled: false, entryId: disabledEntry.id };
+  }
+
+  /** 设置本地 skill 来源（O-3 来源可填）：写 SKILL.md frontmatter metadata.source；原子写 + 重扫 */
+  async setSource(path: unknown, source: unknown): Promise<{ path: string; source: string }> {
+    const src = typeof source === 'string' ? source.trim() : '';
+    if (!src) throw new SkillValidationError('source 不能为空', 'source');
+    if (!/^https?:\/\/.+/.test(src)) throw new SkillValidationError('source 须为 http(s) 链接', 'source');
+    const p = await this.validateOpPath(path);
+    const { pathInfo } = this.findEntry(p);
+    const release = await this.guard(p, pathInfo);
+    try {
+      const mdPath = this.ops.join(p, 'SKILL.md');
+      if (!this.ops.existsSync(mdPath)) throw new SkillsNotFoundError('未找到 SKILL.md，无法写入来源');
+      const content = this.ops.readFileSync(mdPath);
+      const updated = setMetadataSource(content, src);
+      if (updated === content) throw new SkillValidationError('SKILL.md 无 frontmatter，不写入', 'path');
+      this.ops.writeFileSyncAtomic(mdPath, updated);
+    } finally {
+      release();
+    }
+    this.log.append({ ts: new Date().toISOString(), action: 'setSource', paths: [p], result: 'success', detail: { source: src } });
+    await this.rescan();
+    return { path: p, source: src };
   }
 
   getDisabledList(): DisabledEntry[] {

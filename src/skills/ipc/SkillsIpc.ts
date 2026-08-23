@@ -38,6 +38,10 @@ export function registerSkillsIpc(scanner: SkillsScanner, ops: SkillsOps): void 
   ipcMain.handle('skills:setEnabled', (_e, path: unknown, enabled: unknown) =>
     handlers['skills:setEnabled'](typeof path === 'string' ? path : '', enabled === true)
   );
+  // 本地来源可填（O-3）：path + source 均字符串强校验
+  ipcMain.handle('skills:setSource', (_e, path: unknown, source: unknown) =>
+    handlers['skills:setSource'](typeof path === 'string' ? path : '', typeof source === 'string' ? source : '')
+  );
   ipcMain.handle('skills:getDisabledList', () => handlers['skills:getDisabledList']());
   ipcMain.handle('skills:getTrashList', () => handlers['skills:getTrashList']());
   ipcMain.handle('skills:restoreFromTrash', (_e, trashId: unknown) =>

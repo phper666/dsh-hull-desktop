@@ -107,6 +107,8 @@ contextBridge.exposeInMainWorld('skills', {
   upgrade: (path: string) => invoke('skills:upgrade', path),
   /** 禁用/启用（按物理路径粒度移目录真禁用） */
   setEnabled: (path: string, enabled: boolean) => invoke('skills:setEnabled', path, enabled),
+  /** 本地来源可填（O-3：写 SKILL.md frontmatter metadata.source） */
+  setSource: (path: string, source: string) => invoke('skills:setSource', path, source),
   /** 已禁用映射列表 */
   getDisabledList: () => invoke('skills:getDisabledList'),
   /** 回收站列表（顺带惰性清理 TTL/500MB） */

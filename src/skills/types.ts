@@ -89,7 +89,7 @@ export interface TrashEntry {
   affectedPlatforms: string[];
 }
 
-export type OpAction = 'remove' | 'upgrade' | 'disable' | 'enable' | 'restore' | 'purge';
+export type OpAction = 'remove' | 'upgrade' | 'disable' | 'enable' | 'restore' | 'purge' | 'setSource';
 
 /** 操作日志单行（operations.jsonl，append-only JSON Lines） */
 export interface OperationLogEntry {

@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import { deepEqual, equal, ok, rejects } from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -80,6 +80,47 @@ test('remove 成功链：备份回收站 → 原目录消失 → 日志留痕 �
 
   // 快照已刷新（await 重扫）：条目消失
   equal(fx.scanner.snapshot().entries.some((e) => e.name === 'app1'), false);
+});
+
+test('setSource：替换已有 metadata.source + 重扫后来源生效', async () => {
+  const fx = await makeFixture();
+  const p = join(fx.home, '.claude/skills/app1');
+  const res = await fx.ops.setSource(p, 'https://github.com/new/place');
+  equal(res.path, p);
+  equal(res.source, 'https://github.com/new/place');
+  // 盘上 SKILL.md metadata.source 已更新
+  const md = readFileSync(join(p, 'SKILL.md'), 'utf8');
+  equal(md.includes('source: https://github.com/new/place'), true);
+  equal(md.includes('https://github.com/o/r'), false);
+  // 重扫后 entry.source 生效
+  const entry = fx.scanner.snapshot().entries.find((e) => e.name === 'app1');
+  equal(entry?.source, 'https://github.com/new/place');
+  // 日志留痕
+  ok(fx.ops.getOperationLog().some((l) => l.action === 'setSource' && l.result === 'success'));
+});
+
+test('setSource：无 metadata 块的 SKILL.md 新增 metadata.source（写入 metadata 块）', async () => {
+  const fx = await makeFixture();
+  const p = join(fx.home, '.claude/skills/app1');
+  // 先去掉 source（模拟无 metadata.source 的 skill）
+  const mdPath = join(p, 'SKILL.md');
+  writeFileSync(mdPath, '---\nname: app1\ndescription: d\nmetadata:\n  requires:\n    bins: ["x"]\n---\n');
+  await fx.scanner.scan();
+  await fx.ops.setSource(p, 'https://github.com/new/place');
+  const md = readFileSync(mdPath, 'utf8');
+  equal(md.includes('source: https://github.com/new/place'), true);
+  equal(md.includes('requires:'), true); // 其它字段保留
+});
+
+test('setSource：非法 source（非 http）→ validation-error；空/白名单外路径 → validation-error', async () => {
+  const fx = await makeFixture();
+  const p = join(fx.home, '.claude/skills/app1');
+  await rejects(() => fx.ops.setSource(p, 'not-a-url'), (e: Error) => e instanceof SkillValidationError);
+  await rejects(() => fx.ops.setSource(p, ''), (e: Error) => e instanceof SkillValidationError);
+  await rejects(
+    () => fx.ops.setSource(join(fx.home, '.claude/skills/../../etc/passwd'), 'https://x/y'),
+    (e: Error) => e instanceof SkillValidationError
+  );
 });
 
 test('remove 批量部分失败：有效 removed + 失效 failed(skills-not-found)，不回滚已成功项', async () => {
