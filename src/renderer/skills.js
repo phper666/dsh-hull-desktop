@@ -31,6 +31,13 @@
   const $ = (sel) => root.querySelector(sel);
   const PLATFORMS = ['claude-code', 'opencode', 'codex', 'gemini-cli', 'cursor'];
   const upgNames = { latest: '最新', upgradable: '▲ 可升级', unknown: '无法检测版本' };
+  /** 升级按钮 tooltip：区分升级通道（无 source → 走 npx 官方通道，不依赖来源链接；有 source → git 轨可兜底） */
+  const upgradeTitle = (e) =>
+    e.upgradable === 'upgradable'
+      ? e.source
+        ? '经 npx skills update 升级（有来源，git 轨兜底）'
+        : '经 npx skills update 官方通道升级（无需来源链接）'
+      : upgNames[e.upgradable] || e.upgradable;
   /** S2 错误码 → 中文文案（契约 §公共异常集 SKILLS_OP_ERROR） */
   const ERR_MSG = {
     'validation-error': '参数或路径不合法',
@@ -165,7 +172,7 @@
       </div>
       <div class="sk-side">
         <button class="sk-btn sk-danger-btn" data-remove="${esc(e.name)}">移除</button>
-        ${canUpgrade ? `<button class="sk-btn sk-primary-btn" data-upgrade="${esc(e.name)}">升级</button>` : ''}
+        ${canUpgrade ? `<button class="sk-btn sk-primary-btn" data-upgrade="${esc(e.name)}" title="${esc(upgradeTitle(e))}">升级</button>` : ''}
       </div>
     </div>`;
   }
@@ -191,7 +198,7 @@
       </div>
       <div class="sk-card-ops">
         <button class="sk-btn sk-danger-btn" data-remove="${esc(e.name)}">移除</button>
-        ${canUpgrade ? `<button class="sk-btn sk-primary-btn" data-upgrade="${esc(e.name)}">升级</button>` : ''}
+        ${canUpgrade ? `<button class="sk-btn sk-primary-btn" data-upgrade="${esc(e.name)}" title="${esc(upgradeTitle(e))}">升级</button>` : ''}
       </div>
     </div>`;
   }
@@ -274,6 +281,7 @@
       ${entry.description ? `<div class="sk-detail-desc">${esc(entry.description)}</div>` : ''}
       <div class="sk-detail-meta">${platforms.map((p) => `<span class="sk-badge">${esc(p)}</span>`).join('')}</div>
       ${entry.source ? `<div class="sk-detail-source">来源：${sourceHtml(entry.source)}</div>` : `<div class="sk-detail-source">来源：<span class="sk-source none">未知</span><button class="sk-btn" id="sk-set-source" title="填写来源">填写</button></div>`}
+      ${entry.upgradable === 'upgradable' && !entry.source ? '<div class="sk-detail-source sk-muted">升级通道：npx 官方通道（skills update，无需来源链接）</div>' : ''}
       <div class="sk-detail-paths"><h4>安装路径</h4>${pathRows || '<p class="sk-muted">无路径</p>'}</div>
     `);
     m.wrap.querySelector('#sk-set-source')?.addEventListener('click', () => { m.close(); promptSetSource(entry); });
