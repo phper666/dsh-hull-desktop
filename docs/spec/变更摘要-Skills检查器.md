@@ -3,6 +3,13 @@
 > Skills 检查器模块（壳内独立视图：统一扫描/全局 vs 平台判定/来源跳转/升级检测/搜索/禁用/移除）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-Skills检查器.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-08-23 待拍板项推进——Q-034 二级哈希 + O-2 npx 接线（实现）
+
+- 类型：待拍板项落地（实现，不升共识版本——结论语义未变，只补实现覆盖）
+- 内容：① **Q-034 远端哈希二级来源接入**——一级 skills-lock.json 已有，新增二级 `.arkcli-managed-skills.json`（opencode 平台 lock，name→hash 映射，防御解析+进程内缓存，level-1 优先）；③ cc-switch（本机 skills 表空无价值）/④ git remote clone（网络成本）保持待办注记；② **O-2 npx 升级接线**——`npx skills update` 单路径语义实测通过（`skills update <name> [-g]`），生产 `defaultNpxUpdate` runner 接入（数组参数防注入 + 120s 超时，失败/无效果自动降级 git-staging，分支逻辑既有）
+- 影响：SkillsScanner 远端哈希解析补二级来源；SkillsOps 生产装配 PRODUCTION_RUNNERS.npxUpdate；S2 record 低危#3（无生产 npx runner）标记已解决；新增 5 测试（spawnChecked 4 + arkcli 1），全量 579/579 绿 + tsc 0
+- 状态：已实现（2026-08-23，commit cb908f7）
+
 ## 2026-08-22 扫描待确认项定案回写 v1.2（Q-031~Q-038 全关闭）
 
 - 类型：扫描结论回写（确认/细化，向后兼容，v1.1→v1.2）
