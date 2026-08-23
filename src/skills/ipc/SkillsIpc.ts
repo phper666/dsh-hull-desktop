@@ -20,6 +20,13 @@ export function registerSkillsIpc(scanner: SkillsScanner, ops: SkillsOps): void 
   ipcMain.handle('skills:searchRemote', (_e, query: unknown) =>
     handlers['skills:searchRemote'](typeof query === 'string' ? query : '')
   );
+  // 远程安装（O-3）：skillRef + agent 均字符串强校验，非法 → validation-error
+  ipcMain.handle('skills:installRemote', (_e, skillRef: unknown, agent: unknown) =>
+    handlers['skills:installRemote'](
+      typeof skillRef === 'string' ? skillRef : '',
+      typeof agent === 'string' ? agent : ''
+    )
+  );
   // ── S2 操作层（破坏性通道：类型强校验，非法入参 → validation-error）──
   ipcMain.handle('skills:remove', (_e, paths: unknown) => {
     const list = Array.isArray(paths) && paths.every((p) => typeof p === 'string') ? (paths as string[]) : [];

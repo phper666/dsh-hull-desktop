@@ -14,6 +14,7 @@ import { REGISTRY, SHARED_DIR } from './registry';
 import { createNodeFsOps, type SkillFsOps } from './SkillFsOps';
 import { parseSkillsLock, resolveSource, type LockEntry } from './sourceResolver';
 import { searchRemote as searchRemoteImpl, type SearchRemoteOptions } from './searchRemote';
+import { installRemote as installRemoteImpl, type InstallRemoteOptions } from './installRemote';
 import { loadDisabledEntries } from './ops/DisableManager';
 import type { PathInfo, ScanSnapshot, SkillEntry, StatusCounts } from './types';
 
@@ -103,6 +104,11 @@ export class SkillsScanner {
   /** 远程搜索委托（renderer 经 IPC 消费；runner 仅测试/主进程内部可注入） */
   searchRemote(query: string, opts?: SearchRemoteOptions) {
     return searchRemoteImpl(query, opts);
+  }
+
+  /** 远程安装委托（O-3：npx skills add；runner 仅测试/主进程内部可注入） */
+  installRemote(skillRef: string, agent: string, opts?: InstallRemoteOptions) {
+    return installRemoteImpl(skillRef, agent, opts);
   }
 
   // ─────────────────────────── 管线 ───────────────────────────

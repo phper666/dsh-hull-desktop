@@ -96,8 +96,10 @@ contextBridge.exposeInMainWorld('skills', {
   getSnapshot: () => invoke('skills:getSnapshot'),
   /** 状态栏计数 */
   getStatus: () => invoke('skills:getStatus'),
-  /** 远程 marketplace 检索（仅浏览不安装） */
+  /** 远程 marketplace 检索 */
   searchRemote: (query: string) => invoke('skills:searchRemote', query),
+  /** 远程安装（O-3：npx skills add <repo> -s <skill> -a <agent>；agent 白名单守卫） */
+  installRemote: (skillRef: string, agent: string) => invoke('skills:installRemote', skillRef, agent),
   // S2 操作（二次确认 UI 之后调用）
   /** 移除（批量逐条；先备份回收站） */
   remove: (paths: string[]) => invoke('skills:remove', paths),

@@ -7,6 +7,7 @@ import { HullError } from '../../shared/errors';
 import { RestoreConflictError, SkillsUpgradeFailedError } from '../errors';
 
 import type { RemoteRunner } from '../searchRemote';
+import type { InstallRunner } from '../installRemote';
 import type { SkillsScanner } from '../SkillsScanner';
 import type { SkillsOps } from '../ops/SkillsOps';
 import type { DisabledEntry, OperationLogEntry, RemoteSkillEntry, ScanSnapshot, StatusCounts, TrashEntry } from '../types';
@@ -27,6 +28,8 @@ export interface SkillsHandlers {
   'skills:getStatus': () => Promise<SkillsIpcResult<StatusCounts>>;
   /** opts 仅测试/主进程内部可传（注入 runner）；IPC 注册层不透传（renderer 不可注入执行体） */
   'skills:searchRemote': (query: string, opts?: { runner?: RemoteRunner }) => Promise<SkillsIpcResult<{ entries: RemoteSkillEntry[] }>>;
+  /** 远程安装（O-3：npx skills add <repo> -s <skill> -a <agent>） */
+  'skills:installRemote': (skillRef: string, agent: string, opts?: { runner?: InstallRunner }) => Promise<SkillsIpcResult<{ installedRef: string; agent: string }>>;
   // ── S2 操作层（7 通道，feishu-s2-skills-api-contract §接口清单）──
   'skills:remove': (paths: string[]) => Promise<SkillsIpcResult<Array<{ path: string; status: string; trashId?: string; code?: string }>>>;
   'skills:upgrade': (path: string) => Promise<SkillsIpcResult<{ path: string; method: string; newHash: string }>>;
@@ -59,6 +62,8 @@ export function createSkillsHandlers(scanner: SkillsScanner, ops?: SkillsOps): S
     'skills:getStatus': () => toResult(async () => scanner.statusCounts()),
     'skills:searchRemote': (query: string, opts?: { runner?: RemoteRunner }) =>
       toResult(async () => ({ entries: await scanner.searchRemote(query, opts) })),
+    'skills:installRemote': (skillRef: string, agent: string, opts?: { runner?: InstallRunner }) =>
+      toResult(() => scanner.installRemote(skillRef, agent, opts)),
     'skills:remove': (paths: string[]) => toResult(() => ops.remove(paths)),
     'skills:upgrade': (path: string) => toResult(() => ops.upgrade(path)),
     'skills:setEnabled': (path: string, enabled: boolean) => toResult(() => ops.setEnabled(path, enabled)),

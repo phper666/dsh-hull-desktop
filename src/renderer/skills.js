@@ -52,7 +52,8 @@
           <button class="sk-tab ${tab === 'local' ? 'active' : ''}" data-tab="local">本地</button>
           <button class="sk-tab ${tab === 'remote' ? 'active' : ''}" data-tab="remote">远程</button>
         </div>
-        <input id="sk-q" class="sk-input" placeholder="${tab === 'local' ? '搜索名称 / 描述 / 来源…' : '搜索 marketplace…'}" value="${esc(query)}" />
+        <input id="sk-q" class="sk-input" placeholder="${tab === 'local' ? '搜索名称 / 描述 / 来源…' : '搜索 skills.sh 市场…'}" value="${esc(query)}" />
+        ${tab === 'remote' ? '<button class="sk-btn" id="sk-search-btn" title="搜索市场">搜索</button>' : ''}
         ${tab === 'local' ? `
         <select id="sk-platform" class="sk-select" aria-label="平台筛选">
           <option value="all">全部平台</option>
@@ -89,7 +90,11 @@
         : snapshot.status === 'error'
           ? `<span class="sk-scanstate error">扫描出错：${esc(snapshot.error || '')}</span>`
           : '';
-    el.innerHTML = `
+    el.innerHTML = tab === 'remote'
+      ? `<span>来源 <b>skills.sh 市场</b>（全球社区技能，可搜索并安装）</span>
+         ${remoteError ? '<span class="sk-scanstate error">搜索出错：' + esc(remoteError) + '</span>' : ''}
+         ${remoteEntries ? `<span class="sk-spacer"></span><span>${remoteEntries.length} 条结果</span>` : ''}`
+      : `
       <span>共 <b>${counts.total}</b> 个 skill</span>
       <span>可升级 <b>${counts.upgradable}</b></span>
       <span>已禁用 <b>${counts.disabled}</b></span>
@@ -119,6 +124,12 @@
     return source
       ? `<a class="sk-source" data-source="${esc(source)}" title="${esc(source)}">${esc(source)}</a>`
       : '<span class="sk-source none">来源未知</span>';
+  }
+
+  /** 从 owner/repo@skill 推断 GitHub 直链（含 / 的仓库形态）；无 /（如 smithery.ai@x）→ null */
+  function githubUrlOf(ref) {
+    const m = String(ref ?? '').match(/^([\w.-]+\/[\w.-]+)@/);
+    return m ? `https://github.com/${m[1]}` : null;
   }
 
   /** 路径行：启用开关（Q-031 按物理路径粒度真禁用） */
@@ -211,7 +222,7 @@
       return;
     }
     if (remoteEntries === null) {
-      list.innerHTML = '<div class="sk-empty"><h2>搜索远端 skills marketplace</h2><p>输入关键词后回车；结果仅浏览，不安装</p></div>';
+      list.innerHTML = '<div class="sk-empty"><h2>搜索 skills.sh 市场</h2><p>输入关键词后回车或点「搜索」；结果可安装</p></div>';
       return;
     }
     if (remoteEntries.length === 0) {
@@ -220,12 +231,13 @@
     }
     list.innerHTML = remoteEntries
       .map(
-        (r) => `<div class="sk-row">
+        (r) => `<div class="sk-row" data-ref="${esc(r.name)}">
           <div class="sk-main">
             <div class="sk-name">${esc(r.name)}<span class="sk-badge notinstalled">未安装</span></div>
             <div class="sk-desc">${r.description ? esc(r.description) : '<i>无描述</i>'}</div>
-            <div class="sk-meta">${sourceHtml(r.source)}${r.installs != null ? `<span class="sk-badge">安装数 ${r.installs}</span>` : ''}</div>
+            <div class="sk-meta">${sourceHtml(r.source)}${githubUrlOf(r.name) ? `<a class="sk-source" data-source="${esc(githubUrlOf(r.name))}" title="${esc(githubUrlOf(r.name))}">GitHub</a>` : ''}${r.installs != null ? `<span class="sk-badge">安装数 ${r.installs}</span>` : ''}</div>
           </div>
+          <div class="sk-side"><button class="sk-btn sk-primary-btn" data-install="${esc(r.name)}">安装</button></div>
         </div>`
       )
       .join('');
@@ -271,6 +283,38 @@
       });
     });
     return m;
+  }
+
+  /** 远程结果详情弹窗（点击远程行主体打开；含安装入口 + 源跳转） */
+  function showRemoteDetail(r) {
+    const m = modal(`${esc(r.name)}`, `
+      <div class="sk-detail-head"><span class="sk-badge notinstalled">未安装</span>${r.installs != null ? `<span class="sk-badge">安装数 ${r.installs}</span>` : ''}</div>
+      ${r.description ? `<div class="sk-detail-desc">${esc(r.description)}</div>` : ''}
+      ${r.source ? `<div class="sk-detail-source">来源：${sourceHtml(r.source)}</div>` : ''}
+      <div class="sk-modal-ops"><button class="sk-btn sk-primary-btn" data-install="${esc(r.name)}">安装</button></div>
+    `);
+    m.wrap.querySelector('[data-install]')?.addEventListener('click', () => { m.close(); promptInstall(r.name); });
+    return m;
+  }
+
+  /** 选 agent 安装弹窗：确认目标 agent 后调 skills:installRemote（O-3） */
+  function promptInstall(ref) {
+    const agents = ['claude-code', 'opencode', 'codex', 'gemini-cli', 'cursor'];
+    const m = modal('安装 skill', `
+      <p>安装 <b>${esc(ref)}</b> 到哪个 agent？</p>
+      <div class="sk-f"><label>目标 agent</label><select id="sk-install-agent" class="sk-select">${agents.map((a) => `<option>${a}</option>`).join('')}</select></div>
+      <p class="sk-muted">经 npx skills add 安装到对应 agent 的 skills 目录；安装后可刷新本地列表查看。</p>
+      <div class="sk-modal-ops"><button class="sk-btn sk-primary-btn" data-confirm>确认安装</button><button class="sk-btn" data-close>取消</button></div>
+    `);
+    m.wrap.querySelector('[data-confirm]').addEventListener('click', async () => {
+      const agent = m.wrap.querySelector('#sk-install-agent')?.value || 'opencode';
+      m.close();
+      const res = await skills.installRemote(ref, agent);
+      if (res.ok === false) { toastMsg(errMsg(res.code, res.message)); return; }
+      toastMsg(`已安装 ${res.data.installedRef} → ${res.data.agent}`);
+      await refreshMeta();
+      startPolling();
+    });
   }
 
   function confirmRemove(entry) {
@@ -385,6 +429,8 @@
       if (ev.key !== 'Enter' || tab !== 'remote') return;
       await runRemoteSearch();
     });
+    // 远程 tab 搜索按钮（O-3 优化：回车 + 按钮双触发）
+    $('#sk-search-btn')?.addEventListener('click', () => void runRemoteSearch());
     $('#sk-rescan').addEventListener('click', () => void triggerScan());
     $('#sk-trash').addEventListener('click', () => void toggleTrashPanel());
     const platSel = $('#sk-platform');
@@ -524,14 +570,29 @@
     setTimeout(() => t.classList.remove('show'), 1800);
   }
 
-  // ── 事件委托：点击卡片/行主体 → skill 详情弹窗（re-render 重建列表也生效；
+  // ── 事件委托：点击卡片/行主体 → 详情弹窗（re-render 重建列表也生效；
   //    排除操作按钮/开关/来源链接；路径开关行内点击不触发）──
   root.addEventListener('click', (e) => {
+    // 安装按钮（远程结果 + 详情弹窗内）→ 选 agent
+    const installBtn = e.target.closest('[data-install]');
+    if (installBtn && root.contains(installBtn)) {
+      e.stopPropagation();
+      promptInstall(installBtn.dataset.install);
+      return;
+    }
+    // 本地卡片/行 → 本地详情
     const card = e.target.closest('.sk-card[data-name], .sk-row[data-name]');
-    if (!card || !root.contains(card)) return;
-    if (e.target.closest('button, a, .sk-switch, .sk-card-ops, .sk-side')) return;
-    const entry = snapshot.entries.find((x) => x.name === card.dataset.name);
-    if (entry) showSkillDetail(entry);
+    if (card && root.contains(card) && !e.target.closest('button, a, .sk-switch, .sk-card-ops, .sk-side')) {
+      const entry = snapshot.entries.find((x) => x.name === card.dataset.name);
+      if (entry) showSkillDetail(entry);
+      return;
+    }
+    // 远程结果行 → 远程详情
+    const rrow = e.target.closest('.sk-row[data-ref]');
+    if (rrow && root.contains(rrow) && !e.target.closest('button, a')) {
+      const r = remoteEntries?.find((x) => x.name === rrow.dataset.ref);
+      if (r) showRemoteDetail(r);
+    }
   });
 
   // ── 初始化：进入视图即触发后台扫描（契约核心流程：renderer 调 skills:scan 幂等触发）──

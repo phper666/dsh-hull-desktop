@@ -6,6 +6,7 @@ import { HullError } from '../shared/errors';
 export const SKILLS_ERRORS = {
   scanError: 'scan-error',
   remoteSearchFailed: 'remote-search-failed',
+  remoteInstallFailed: 'remote-install-failed',
   validation: 'validation-error',
 } as const;
 
@@ -32,6 +33,13 @@ export class SkillValidationError extends HullError {
 export class RemoteSearchFailedError extends HullError {
   constructor(message: string) {
     super(SKILLS_ERRORS.remoteSearchFailed, message);
+  }
+}
+
+/** npx skills add 安装失败/超时（仅远程安装路径） */
+export class RemoteInstallFailedError extends HullError {
+  constructor(message: string) {
+    super(SKILLS_ERRORS.remoteInstallFailed, message);
   }
 }
 

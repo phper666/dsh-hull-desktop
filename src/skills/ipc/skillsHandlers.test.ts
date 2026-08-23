@@ -30,7 +30,7 @@ async function makeFixture(): Promise<{ scanner: SkillsScanner; ops: SkillsOps }
   return { scanner, ops };
 }
 
-test('handlers 覆盖契约 11 通道（S1 4 + S2 7）', async () => {
+test('handlers 覆盖契约 12 通道（S1 4 + S2 7 + O-3 installRemote）', async () => {
   const { scanner, ops } = await makeFixture();
   const handlers = createSkillsHandlers(scanner, ops);
   deepEqual(Object.keys(handlers).sort(), [
@@ -39,6 +39,7 @@ test('handlers 覆盖契约 11 通道（S1 4 + S2 7）', async () => {
     'skills:getSnapshot',
     'skills:getStatus',
     'skills:getTrashList',
+    'skills:installRemote',
     'skills:remove',
     'skills:restoreFromTrash',
     'skills:scan',
