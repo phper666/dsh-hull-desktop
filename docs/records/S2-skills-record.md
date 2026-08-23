@@ -31,7 +31,7 @@
 
 1. **UpgradeExecutor.selfHeal 清空 manifest 连带 skipped 条目**：「原路径占用」的 backup 残留条目被一并 wipe，下次启动不再尝试自愈（backup 目录仍在盘上）。改进：仅移除已还原条目，skipped 保留重试。影响小（有 warn 日志留痕），登记待后续。
 2. **TrashManager.moveToTrash 索引写在 move 之后**：move 成功与 saveIndex 之间崩溃 → 盘上有孤儿 trash 目录但索引无条目（不可恢复入口）。TTL 惰性清理只删索引已知条目，孤儿目录永久残留占空间。概率极低（本地单进程窗口毫秒级），note only。
-3. **src/main/index.ts 无生产 npxUpdate runner 注入**：生产环境 upgrade 只走 git-staging 分级（npxUpdate 仅测试注入）。O-2（`npx skills update` 单路径语义）待实测后决定接线，intentional deferral。
+3. ~~**src/main/index.ts 无生产 npxUpdate runner 注入**~~ **已解决（O-2 拍板接线）**：`npx skills update <name>` 单路径语义已实测（skills CLI v1.5.23，`npx --no-install` 可解析）。生产 runner `defaultNpxUpdate`（UpgradeExecutor.ts，数组参数无 shell + 120s 超时）经 SkillsOps `PRODUCTION_RUNNERS` 缺省注入；失败/无效果仍降级 git-staging。
 4. **OperationLog lastIndexOf('/') mkdir 不兼容 Windows**：日志目录创建用字符串 lastIndexOf('/') 截断，Windows 反斜杠路径会 mkdir 失败。项目 darwin-only（CON-R001 壳随 dsh macOS），fine as-is。
 
 ## 文件变更

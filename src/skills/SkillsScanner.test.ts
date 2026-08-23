@@ -187,6 +187,47 @@ test('lock 文件二级来源 + 远端哈希一级（skills-lock.json）→ upgr
   equal(byName(s3.snapshot().entries, 'nolockinfo').upgradable, 'unknown');
 });
 
+test('远端哈希二级来源：lock 缺条目回退 .arkcli-managed-skills.json；坏文件不崩（Q-034 二级）', async () => {
+  const home = makeHome();
+  makeSkill(home, '.claude/skills', 'lockwin'); // ①② 都有 → 一级优先
+  makeSkill(home, '.claude/skills', 'arkonly'); // 仅二级有
+  makeSkill(home, '.claude/skills', 'nohash'); // 均无
+  const arkcliPath = join(home, '.config/opencode/skills/.arkcli-managed-skills.json');
+  mkdirSync(join(home, '.config/opencode/skills'), { recursive: true });
+  const arkHash = 'b'.repeat(64);
+  writeFileSync(
+    arkcliPath,
+    JSON.stringify({ schema: 1, owner: 'arkcli', product: 'arkcli-volc', skills: { lockwin: 'c'.repeat(64), arkonly: arkHash } })
+  );
+
+  const mk = (lock: Record<string, unknown>) =>
+    new SkillsScanner({ homeDir: home, userDataPath: join(home, 'ud'), lockProvider: () => lock as never });
+
+  // 一级优先：skills-lock 有条目时不看 arkcli
+  const s1 = await mk({ lockwin: { hash: 'a'.repeat(64) } }).scan();
+  equal(byName(s1.entries, 'lockwin').remoteHash, 'a'.repeat(64));
+
+  // 二级回退：lock 无条目 → arkcli hash → upgradable
+  const s2 = await mk({}).scan();
+  const ark = byName(s2.entries, 'arkonly');
+  equal(ark.remoteHash, arkHash);
+  equal(ark.upgradable, 'upgradable');
+
+  // 均无 → null + unknown
+  const nohash = byName(s2.entries, 'nohash');
+  equal(nohash.remoteHash, null);
+  equal(nohash.upgradable, 'unknown');
+
+  // 坏 JSON / 缺 skills 字段 → 防御性 {}，不崩不误判
+  writeFileSync(arkcliPath, '{not json');
+  const s3 = await mk({}).scan();
+  equal(byName(s3.entries, 'arkonly').remoteHash, null);
+  equal(s3.status, 'ready');
+  writeFileSync(arkcliPath, JSON.stringify({ schema: 1 }));
+  const s4 = await mk({}).scan();
+  equal(byName(s4.entries, 'arkonly').remoteHash, null);
+});
+
 test('状态机：idle→scanning→ready；scanning 中重复 scan 幂等；旧快照持续可读（FR-10）', async () => {
   const home = makeHome();
   makeSkill(home, '.claude/skills', 'one');

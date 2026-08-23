@@ -18,8 +18,7 @@ import {
 } from '../errors';
 import type { DisabledEntry, OperationLogEntry, PathInfo, SkillEntry, TrashEntry } from '../types';
 import type { SkillsScanner } from '../SkillsScanner';
-import type { UpgradeRunners } from './UpgradeExecutor';
-import { UpgradeExecutor } from './UpgradeExecutor';
+import { defaultNpxUpdate, UpgradeExecutor, type UpgradeRunners } from './UpgradeExecutor';
 import { TrashManager } from './TrashManager';
 import { DisableManager } from './DisableManager';
 import { OperationLog } from './OperationLog';
@@ -37,7 +36,7 @@ export interface SkillsOpsOptions {
   userDataPath: string;
   scanner: SkillsScanner;
   logger?: RuntimeLogger;
-  /** 升级 runner 注入（测试 fake / 生产缺省 spawn）；每次调用取最新 */
+  /** 升级 runner 注入（测试 fake 全量接管；未注入 → 生产缺省 npx-first，见 PRODUCTION_RUNNERS）；每次调用取最新 */
   runnersRef?: () => UpgradeRunners | undefined;
 }
 
@@ -52,6 +51,12 @@ class PathLocks {
     this.held.delete(path);
   }
 }
+
+/**
+ * 生产缺省 runners（O-2 接线）：npx-first，失败/无效果由 UpgradeExecutor 降级 git-staging。
+ * 仅在未注入 runnersRef 时生效——测试经 runnersRef 全量接管，不触真实子进程。
+ */
+const PRODUCTION_RUNNERS: UpgradeRunners = { npxUpdate: defaultNpxUpdate };
 
 export class SkillsOps {
   private readonly ops: SkillFsOps;
@@ -135,7 +140,7 @@ export class SkillsOps {
   private newExecutor(): UpgradeExecutor {
     return new UpgradeExecutor(
       { ops: this.ops, base: this.skillsBase, scanner: this.scanner, log: this.log, logger: this.logger },
-      this.runnersRef?.()
+      this.runnersRef ? this.runnersRef() : PRODUCTION_RUNNERS
     );
   }
 

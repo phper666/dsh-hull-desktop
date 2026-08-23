@@ -52,6 +52,8 @@ export class SkillsScanner {
   private readonly userDataPath: string;
   private readonly lockProvider?: () => Record<string, LockEntry>;
   private lockCache: Record<string, LockEntry> | null = null;
+  /** Q-034 二级来源缓存（进程内一次） */
+  private arkcliCache: Record<string, string> | null = null;
 
   private snap: ScanSnapshot = { status: 'idle', entries: [], lastScanAt: null, error: null };
   private scanPromise: Promise<ScanSnapshot> | null = null;
@@ -215,11 +217,17 @@ export class SkillsScanner {
         for (const d of group) {
           if (d.realPath !== preferred.realPath) await hashFor(d.realPath); // 其余路径哈希预热进缓存
         }
-        // ⑥ 远端哈希（Q-034 一级：skills-lock.json hash/content_hash）
-        //    ponytail: ②平台 lock/③cc-switch(sqlite)/④git remote clone 待「远端哈希口径实测」协调项关闭后接入——
-        //    未验证口径的对比比 unknown 更危险，缺省 unknown 语义保守正确（契约协调事项「远端哈希口径」待定）
-        let remoteHash = typeof lock[name]?.hash === 'string' ? lock[name].hash! : typeof lock[name]?.content_hash === 'string' ? lock[name].content_hash! : null;
-        const override = this.hashOverrides.get(name); // 🟡7：升级成功回写优先于 lock（收敛 latest）
+        // ⑥ 远端哈希（Q-034 四级优先级：①skills-lock.json hash/content_hash → ②平台 lock .arkcli-managed-skills.json）
+        //    ponytail: ①②已接入；③cc-switch(sqlite，本机 db skills 表空无口径)/④git remote clone(网络成本)
+        //    待「远端哈希口径实测」协调项关闭后接入——未验证口径的对比比 unknown 更危险，缺省 unknown 语义保守正确
+        const l = lock[name];
+        let remoteHash =
+          typeof l?.hash === 'string'
+            ? l.hash!
+            : typeof l?.content_hash === 'string'
+              ? l.content_hash!
+              : (this.loadArkcliLock()[name] ?? null);
+        const override = this.hashOverrides.get(name); // 🟡7：升级成功回写优先于所有来源（收敛 latest）
         if (override) remoteHash = override;
         entries.push({
           name,
@@ -268,5 +276,26 @@ export class SkillsScanner {
       }
     }
     return this.lockCache;
+  }
+
+  /** Q-034 二级：平台 lock（<homeDir>/.config/opencode/skills/.arkcli-managed-skills.json，name→sha256）；缺失/坏格式 → {} */
+  private loadArkcliLock(): Record<string, string> {
+    if (this.arkcliCache === null) {
+      this.arkcliCache = {};
+      try {
+        const p = this.ops.join(this.homeDir, '.config', 'opencode', 'skills', '.arkcli-managed-skills.json');
+        if (this.ops.existsSync(p)) {
+          const raw = JSON.parse(this.ops.readFileSync(p)) as { skills?: unknown };
+          if (raw && typeof raw.skills === 'object' && raw.skills !== null) {
+            for (const [k, v] of Object.entries(raw.skills as Record<string, unknown>)) {
+              if (typeof v === 'string' && v) this.arkcliCache[k] = v;
+            }
+          }
+        }
+      } catch {
+        this.arkcliCache = {}; // malformed → 防御性回退
+      }
+    }
+    return this.arkcliCache;
   }
 }

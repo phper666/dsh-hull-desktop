@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test';
 import { equal, ok, rejects } from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -17,7 +17,7 @@ import {
   SkillsUpgradeUndetectableError,
 } from '../errors';
 import { OperationLog } from './OperationLog';
-import { UpgradeExecutor, type UpgradeRunners } from './UpgradeExecutor';
+import { defaultNpxUpdate, spawnChecked, UpgradeExecutor, type UpgradeRunners } from './UpgradeExecutor';
 import { SkillsScanner } from '../SkillsScanner';
 
 const tempDirs: string[] = [];
@@ -231,4 +231,41 @@ test('回滚自身失败 → skills-io-error（不虚报 rolledBack）+ manifest
     log: new OperationLog(join(fx.base, 'log', 'operations.jsonl')),
   }).selfHeal();
   ok(existsSync(join(fx.skillDir, 'SKILL.md')), 'selfHeal 还原原版本');
+});
+
+// ─────────────── 生产 npx runner（O-2 接线：spawnChecked / defaultNpxUpdate） ───────────────
+
+test('spawnChecked：零退出 resolve / 非零退出 reject（含 stderr 尾部）', async () => {
+  await spawnChecked('true', []);
+  await rejects(() => spawnChecked('false', []), (err: Error) => /退出码/.test(err.message));
+});
+
+test('spawnChecked：命令不存在（npx 缺失同型）→ reject（ENOENT）', async () => {
+  await rejects(() => spawnChecked('hull-no-such-cmd-xyz', []), (err: Error) => /hull-no-such-cmd-xyz/.test(err.message));
+});
+
+test('spawnChecked：超时 → reject（120s 预算内 abort，契约上限）', async () => {
+  const t0 = Date.now();
+  await rejects(() => spawnChecked('sleep', ['5'], { timeoutMs: 100 }), (err: Error) => err instanceof Error);
+  ok(Date.now() - t0 < 5000, '超时快速返回而非等满子进程');
+});
+
+test('defaultNpxUpdate：数组参数 --no-install skills update <name> + cwd=skill 目录（fake npx 验证，不触网络）', async () => {
+  const bin = makeTemp();
+  mkdirSync(bin, { recursive: true });
+  const fake = join(bin, 'npx');
+  writeFileSync(
+    fake,
+    '#!/bin/sh\n[ "$1" = "--no-install" ] && [ "$2" = "skills" ] && [ "$3" = "update" ] && [ "$4" = "up1" ] || exit 9\npwd\n'
+  );
+  chmodSync(fake, 0o755);
+  const cwdDir = makeTemp();
+  const savedPath = process.env.PATH ?? '';
+  process.env.PATH = `${bin}:/usr/bin:/bin`;
+  try {
+    await defaultNpxUpdate(cwdDir, 'up1'); // 参数形状错 → fake exit 9 → reject
+    await rejects(() => defaultNpxUpdate(cwdDir, 'wrong-name'), /退出码 9/);
+  } finally {
+    process.env.PATH = savedPath;
+  }
 });

@@ -1,7 +1,7 @@
 /**
  * 升级执行器（CON-R-skills-004 + Q-033/Q-034，设计 D3）
  * 前置主进程强制：remoteHash=unknown → skills-upgrade-undetectable；非 upgradable → validation-error。
- * 执行分级：npx skills update（O-2 待实测，失败/无效果自动降级）→ git clone staging →
+ * 执行分级：npx skills update（O-2 已拍板：单路径语义已实测，失败/无效果自动降级）→ git clone staging →
  * 两段 rename 原子替换（backup manifest 支持启动自愈）→ 失败回滚保留原版本。
  */
 import { randomUUID } from 'node:crypto';
@@ -67,6 +67,38 @@ function defaultGitClone(repoUrl: string, dest: string, branch?: string): Promis
     child.on('error', reject);
     child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`git clone 退出码 ${code}: ${stderr.slice(-200)}`))));
   });
+}
+
+/**
+ * 受检子进程：数组参数（无 shell，防注入）+ 超时 abort；非零退出/超时/spawn 错误一律 reject
+ * （调用方 upgrade() 据此降级 git-staging）。
+ */
+export function spawnChecked(cmd: string, args: string[], options: { cwd?: string; timeoutMs?: number } = {}): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, {
+      cwd: options.cwd,
+      signal: options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
+    });
+    let stderr = '';
+    let settled = false;
+    const done = (err?: Error): void => {
+      if (settled) return;
+      settled = true;
+      if (err) reject(err);
+      else resolve();
+    };
+    child.stderr?.on('data', (d: Buffer) => (stderr += d.toString()));
+    child.on('error', (err) => done(err));
+    child.on('close', (code) => (code === 0 ? done() : done(new Error(`${cmd} 退出码 ${code}: ${stderr.slice(-200)}`))));
+  });
+}
+
+/**
+ * 生产 npx runner（O-2 已拍板：`skills update <name>` 单路径语义已实测）。
+ * `--no-install` 禁止 npx 临时下载；npx 不存在/网络失败/非零退出 → reject → 降级 git-staging。
+ */
+export function defaultNpxUpdate(cwd: string, skillName: string): Promise<void> {
+  return spawnChecked('npx', ['--no-install', 'skills', 'update', skillName], { cwd, timeoutMs: GIT_CLONE_TIMEOUT_MS });
 }
 
 export class UpgradeExecutor {
