@@ -3,6 +3,13 @@
 > Skills 检查器模块（壳内独立视图：统一扫描/全局 vs 平台判定/来源跳转/升级检测/搜索/禁用/移除）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-Skills检查器.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-08-24 Q-034 v1.3 变更——skills-lock.json 移除，升级检测只依赖标准位置（实现）
+
+- 类型：规则变更（CON-R-skills-004/005 + Q-034），升共识 v1.3
+- 内容：**skills-lock.json 读取逻辑移除**（`~/AI/skills-lock.json` 历史静态快照 8-18，无持续生成者，个人目录硬编码不可移植）——远端哈希来源降为：① 各平台 lock（`.arkcli-managed-skills.json` 等，标准位置）→ ② frontmatter metadata.source 推断 → ③④ 待办；来源解析从三级降级改为一级（只认 metadata.source）；磁盘文件不删，仅代码不再读
+- 影响：SkillsScanner loadLock 生产分支删除（lockProvider 注入保留供测试）；sourceResolver resolveSource 去 lock 参数、parseSkillsLock 删除；SkillsScanner.test/sourceResolver.test 同步更新；第三方无 .arkcli 记录的 skill → remoteHash=null → unknown「无法检测版本」不误报可升级；升级 npx 轨不依赖 source 仍可用
+- 状态：已实现（2026-08-24，单测 589 绿 + e2e 12/12 绿）
+
 ## 2026-08-23 待拍板项推进——Q-034 二级哈希 + O-2 npx 接线（实现）
 
 - 类型：待拍板项落地（实现，不升共识版本——结论语义未变，只补实现覆盖）

@@ -12,7 +12,7 @@
 
 ## 2. 文档结构总览
 
-- **覆盖**：Hull 壳内 Skills 检查器（独立视图）全部业务面——agent→目录注册表与统一扫描聚合（claude-code/opencode/codex/gemini-cli/cursor/shared）、全局 vs 平台 scoped 判定、SKILL.md frontmatter 描述解析、来源地址三级解析与点击跳转、升级检测（内容哈希）+ 一键升级、搜索/平台筛选/快捷开关、禁用/启用、移除。
+- **覆盖**：Hull 壳内 Skills 检查器（独立视图）全部业务面——agent→目录注册表与统一扫描聚合（claude-code/opencode/codex/gemini-cli/cursor/shared）、全局 vs 平台 scoped 判定、SKILL.md frontmatter 描述解析、来源解析（metadata.source）与点击跳转、升级检测（内容哈希）+ 一键升级、搜索/平台筛选/快捷开关、禁用/启用、移除。
 - **适用范围**：仅 Hull 壳内 Skills 检查器（只读扫描 + 确认后写的文件系统管理）；**不覆盖** 各 agent 平台自身行为、官方 UI、dsh 内部——纯壳层增量能力。
 - **不做事项（本轮明确排除）**：远程安装/卸载新 skill（远程仅浏览搜索，不落地安装，见 T-2）；skill 创建/编辑（只读查看，不改 SKILL.md 内容）；CC（Claude Code）配置修改（不改 `~/.claude/settings.json` 等）；多设备同步/远程管理；跨平台打包（延续 M1，仅 macOS Apple Silicon，代码跨平台友好）。
 - **红线**：本功能只读写用户 agent 配置目录（`~/.claude`、`~/.config/opencode`、`~/.agents`、`~/.codex`、`~/.gemini`、`~/.cursor`、`~/.cc-switch`），不触 DSH_HOME（CON-R002 相容）；不 fork/patch 任何 agent 平台本体（CON-R001/CON-R004 相容，纯文件系统扫描与管理，不注入 dsh 内部）。
@@ -26,22 +26,22 @@
 | 平台 scoped skill | 仅特定平台生效的 skill；`~/.claude/skills/`=claude-code+opencode，`~/.config/opencode/skills/`=opencode 专属 | PRD §5.1/FR-2 |
 | SKILL.md frontmatter | skill 目录内 SKILL.md 开头的 YAML 元数据：name（必填）/description（必填）/license/compatibility/metadata | PRD §5.2 |
 | 内容哈希 | SHA-256 覆盖 skill 文件夹全部文件（path+content 排序后计算），升级检测判据，非版本号 | PRD §3.4/§5.3 |
-| 来源解析 | 三级降级解析 skill 来源 URL：metadata.source → lock source+skillPath → 构建 GitHub URL；均无则「来源未知」 | PRD §3.5/§5.4 |
+| 来源解析 | 一级解析 skill 来源 URL（Q-034 v1.3 变更：lock 二级降级移除）：frontmatter `metadata.source` 匹配 `^https://` → 采用；无则「来源未知」 | PRD §3.5/§5.4 |
 | 禁用/启用 | 切换 skill 生效状态的语义（T-4 定案 = 移目录真禁用；Q-031/Q-032 细化 = **按物理路径粒度**）：禁用 = 将该物理路径移出 agent 读取目录（symlink 来源 → 移除 symlink，源保留在原始仓库/SSOT；实目录来源 → rename 到 `<userData>/skills/disabled/<skill-name>/`），启用 = 恢复 symlink / rename 回原路径；agent 平台真生效，非壳内白名单 | PRD FR-9/T-4/Q-031/Q-032 |
 | 注册表 | agent→目录映射（§5.1 硬编码），官方目录约定的单点维护 | PRD §5.1/§7 |
 | 重叠褶皱 | 同一 skill 被多 agent 读取（如 `~/.agents/skills/` 下 skill 多平台生效）；按 skill 名聚合、平台徽标显示全部生效平台；symlink realpath 同源去重 | PRD §5.1 |
 | 原子替换 | 升级执行方式兜底：staging → 替换 → 失败回滚，不破坏现有 skill | PRD FR-6/§7 |
 | 升级执行方式 | 升级 skill 的执行路径（T-3 定案；Q-033 细化）：优先 `npx skills update`；git clone 来源**不原位 git pull**（非原子），改 clone 到 staging → 原子替换 → 失败回滚；有 metadata.source 非 git 来源用 source URL 重新获取（staging→原子替换） | PRD FR-6/T-3/Q-033 |
-| 远端哈希 | 远端 skill 内容哈希来源（T-1 定案；Q-034 细化四级优先级）：① skills-lock.json（权威，`~/AI/skills-lock.json`）→ ② 各平台 lock（`.arkcli-managed-skills.json` 等）→ ③ cc-switch content_hash → ④ git remote 临时 clone 计算；按 name 匹配、skills-lock 优先覆盖；均无则 unknown「无法检测」 | PRD §5.3/T-1/Q-034 |
+| 远端哈希 | 远端 skill 内容哈希来源（T-1 定案；Q-034 v1.3 变更，skills-lock.json 移除）：① 各平台 lock（`.arkcli-managed-skills.json` 等，name→sha256，标准位置）→ ② frontmatter metadata.source 推断 → ③ cc-switch content_hash（表空待办）→ ④ git remote 临时 clone（网络成本待办）；均无则 unknown「无法检测」 | PRD §5.3/T-1/Q-034 |
 | 远程搜索 | 对远端 skills marketplace 的检索（`npx skills find <q>` / skills.sh API）；与本地扫描结果分开展示，仅浏览不安装 | PRD FR-7/T-2 |
 | 回收站 | userData 回收站（`<userData>/skills/trash/`）——移除 skill 前备份目标，可恢复防误删；条目记录原路径+删除时间；TTL 30 天自动清理 + 容量上限 500MB（Q-035 定案） | PRD FR-5/T-6/Q-035 |
 
 ## 4. 模块概述
 
 - **定位**：Hull 壳内 Skills 检查器——统一扫描各 agent 平台 skill 目录，解决「看不清/找不到源头/升级靠手记/清理靠命令行」四痛点，形成「查看 → 搜索/筛选 → 来源跳转 → 升级 → 禁用/移除」闭环。
-- **业务目标**：① 统一扫描聚合展示全局/平台归属；② SKILL.md 描述解析 + 来源地址三级解析可跳转；③ 内容哈希升级检测 + 一键升级（原子替换/回滚）；④ 搜索 + 平台筛选 + 禁用/移除管理，破坏性操作全部二次确认。
+- **业务目标**：① 统一扫描聚合展示全局/平台归属；② SKILL.md 描述解析 + 来源解析（metadata.source）可跳转；③ 内容哈希升级检测 + 一键升级（原子替换/回滚）；④ 搜索 + 平台筛选 + 禁用/移除管理，破坏性操作全部二次确认。
 - **参与角色**：当前 solo（pm/be/fe/qa = phper666）；用户是唯一操作者；无 agent 执行方。
-- **子模块清单**：agent 目录扫描器（注册表遍历/聚合/symlink 解析）、SKILL.md frontmatter 解析器、来源解析器（三级降级）、哈希计算与缓存、升级执行器（原子替换）、壳 userData 状态层（disabled 目录/回收站/哈希缓存/操作日志，`<userData>/skills/`）、Skills 检查器视图 UI（含本地/远程双搜索）。
+- **子模块清单**：agent 目录扫描器（注册表遍历/聚合/symlink 解析）、SKILL.md frontmatter 解析器、来源解析器（metadata.source）、哈希计算与缓存、升级执行器（原子替换）、壳 userData 状态层（disabled 目录/回收站/哈希缓存/操作日志，`<userData>/skills/`）、Skills 检查器视图 UI（含本地/远程双搜索）。
 
 ## 5. 业务流程与状态机
 
@@ -49,7 +49,7 @@
 
 1. 进入「Skills」视图 → 触发异步扫描（FR-10：后台任务，UI 先骨架/部分结果，不阻塞）；
 2. 遍历 §5.1 注册表目录 → 聚合 skill 列表（按 name 去重，跨目录合并平台徽标；realpath 同源去重）；
-3. 解析 SKILL.md frontmatter（描述/元数据）+ 来源解析（三级降级）；
+3. 解析 SKILL.md frontmatter（描述/元数据）+ 来源解析（metadata.source）；
 4. 哈希计算（缓存命中则跳过）→ 与远端哈希对比 → 标记可升级徽标；
 5. 用户操作：搜索/筛选（即时过滤）→ 查看详情/来源跳转 → 升级/禁用/移除（均二次确认）→ 刷新列表与计数。
 
@@ -95,7 +95,7 @@
 | scope | 全局/平台 scoped | 是 | 目录位置+realpath | global / scoped |
 | platforms | 全部生效平台 | 是 | 目录位置解析 | claude-code/opencode/codex/gemini-cli/cursor/shared |
 | description | frontmatter description（列表截断 2 行，详情可展开） | 是（展示层可占位） | SKILL.md frontmatter | 缺失→「无描述」占位 |
-| source | 解析后来源 URL | 否 | 三级降级解析 | 无→「来源未知」 |
+| source | 解析后来源 URL | 否 | 一级解析（metadata.source） | 无→「来源未知」 |
 | paths | 物理路径数组（跨目录逐条） | 是 | 扫描 | — |
 | localHash / remoteHash | 本地/远端内容哈希 | 升级时展示 | 哈希计算/远端 | — |
 | upgradable | 可升级标记 | 否 | 本地 vs 远端哈希 | latest/upgradable/unknown |
@@ -127,8 +127,8 @@
 | CON-R-skills-001 | Agent→目录注册表硬编码：claude-code=`~/.claude/skills/`、opencode=`~/.config/opencode/skills/`（**同时读取** `~/.claude/skills/` 与 `~/.agents/skills/`）、codex=`~/.codex/skills/`、gemini-cli=`~/.gemini/skills/`、cursor=`~/.cursor/skills/`、shared=`~/.agents/skills/`；单点集中维护（§5.1），目录约定变化只改此处 | PRD §5.1/§7 | 生效 | 稳定 |
 | CON-R-skills-002 | 全局 vs 平台 scoped 判定 = 目录位置 + symlink realpath 解析：`~/.agents/skills/`=universal（所有平台）；`~/.claude/skills/`=claude-code+opencode（opencode 会读）；`~/.config/opencode/skills/`=opencode 专属；列表按 skill 名聚合、平台徽标显示全部生效平台；realpath 同源避免重复计入 | PRD §5.1/FR-2 | 生效 | 稳定 |
 | CON-R-skills-003 | 破坏性操作（移除/升级/禁用）必须二次确认，展示物理路径 + 受影响平台清单；全局 skill 移除额外警示（影响所有平台）；移除前备份到 userData 回收站（`<userData>/skills/trash/`，可恢复）；回收站策略（Q-035 定案）：条目记录原路径+删除时间，TTL 30 天自动清理 + 容量上限 500MB（超出最旧先删），恢复时目标路径被占用 → 提示冲突；操作日志留痕 | PRD §3.1/FR-5/§8/T-6/Q-035 | 生效 | 稳定 |
-| CON-R-skills-004 | 升级检测 = 内容哈希（SHA-256 覆盖 skill 文件夹全部文件，path+content 排序，顺序无关）对比远端哈希，非版本号对比（生态无统一 version 字段）；远端哈希来源四级优先级（T-1/Q-034 定案）：① skills-lock.json（权威，`~/AI/skills-lock.json`）→ ② 各平台 lock（`.arkcli-managed-skills.json` 等）→ ③ cc-switch content_hash → ④ git remote 临时 clone 计算；按 name 匹配、skills-lock 优先覆盖；均无 → unknown「无法检测」；升级执行（T-3/Q-033 定案）：优先 `npx skills update`；无 source+无 lock 来源 → 升级入口禁用显示「无法检测版本」；有 metadata.source 非 git → 用 source URL 重新获取（staging→原子替换）；git clone 来源不原位 git pull（非原子），改 clone 到 staging → 原子替换 → 失败回滚 | PRD §3.4/§5.3/§6/D-3/T-1/T-3/Q-033/Q-034 | 生效 | 稳定 |
-| CON-R-skills-005 | 来源解析三级降级：① SKILL.md frontmatter `metadata.source`（优先级最高）→ ② lock 文件 source+skillPath → 构建 `https://github.com/<owner>/<repo>/tree/<branch>/<skillPath>` → ③ 均无显示「来源未知」，跳转/升级入口禁用 | PRD §3.5/§5.4/D-4 | 生效 | 稳定 |
+| CON-R-skills-004 | 升级检测 = 内容哈希（SHA-256 覆盖 skill 文件夹全部文件，path+content 排序，顺序无关）对比远端哈希，非版本号对比（生态无统一 version 字段）；远端哈希来源（Q-034 v1.3 变更：skills-lock.json 移除——历史静态快照无持续生成者，升级检测只依赖标准位置）：① 各平台 lock（`.arkcli-managed-skills.json` 等，name→sha256）→ ② frontmatter metadata.source 推断 → ③ cc-switch content_hash（表空待办）→ ④ git remote 临时 clone（网络成本待办）；均无 → unknown「无法检测」；升级执行（T-3/Q-033 定案）：优先 `npx skills update`（不依赖 source URL，npx 官方通道）；无 source+无远端哈希 → 升级入口禁用显示「无法检测版本」；有 metadata.source 非 git → 用 source URL 重新获取（staging→原子替换）；git clone 来源不原位 git pull（非原子），改 clone 到 staging → 原子替换 → 失败回滚 | PRD §3.4/§5.3/§6/D-3/T-1/T-3/Q-033/Q-034 | 生效 | 稳定 |
+| CON-R-skills-005 | 来源解析一级（Q-034 v1.3 变更：lock 二级降级移除——来源只认 frontmatter `metadata.source`）：① SKILL.md frontmatter `metadata.source` 匹配 `^https://` → 采用；无 → 显示「来源未知」，跳转/升级 git 轨禁用（npx 轨升级仍可用，不依赖 source） | PRD §3.5/§5.4/D-4 | 生效 | 稳定 |
 | CON-R-skills-006 | 数据归属壳 userData（`<userData>/skills/`：disabled 目录/回收站/哈希缓存/操作日志），不写 agent 目录之外系统区域，不触 DSH_HOME（CON-R002 相容） | PRD §3.3/§7/D-2 | 生效 | 稳定 |
 | CON-R-skills-007 | 安全校验（Q-038 定案）：openExternal 仅接受 `^https://` 白名单 URL（拒 file:/javascript:/data: 等）；所有 skill 目录名经 `basename(realpath(path))` 校验，拒绝 `../`、空名、非法字符（防路径穿越）；renderer 仅经 preload 桥访问壳能力 | PRD §7 安全/Q-038 | 生效 | 稳定 |
 | CON-R-skills-008 | 禁用/启用 = 移目录真禁用（T-4 定案；Q-031/Q-032 细化）：**按物理路径粒度**——每个物理路径独立禁用/启用，共享目录（`~/.agents/skills/`）skill 整体移出=全平台禁，平台专属副本单独禁；物理操作对象：symlink 来源 → 移除 symlink（改指针，源保留在原始仓库/SSOT），实目录来源 → rename 到 `<userData>/skills/disabled/<skill-name>/`；userData 记录被禁用路径+原路径映射，启用 = 恢复 symlink / rename 回原路径；agent 平台真生效（非壳内白名单）；不破坏 SKILL.md 内容 | PRD FR-9/T-4/Q-031/Q-032 | 生效 | 稳定 |
@@ -150,7 +150,7 @@
 | 外部系统 | 用途 | 关键点 |
 |:---------|:-----|:-------|
 | agent 平台 skill 目录（claude-code/opencode/codex/gemini-cli/cursor） | 统一扫描数据源 | 目录约定硬编码注册表（§5.1）；opencode 多目录读取（`~/.claude` + `~/.agents` + 自身）单独处理；目录不存在→跳过标「未安装」 |
-| 远端哈希来源（T-1/Q-034 定案） | 升级检测对比 | 四级优先级：① skills-lock.json（权威，`~/AI/skills-lock.json`）→ ② 各平台 lock（`.arkcli-managed-skills.json` 等）→ ③ cc-switch content_hash → ④ git remote 临时 clone 计算；按 name 匹配、skills-lock 优先覆盖；均无 → unknown「无法检测」、升级禁用 |
+| 远端哈希来源（T-1/Q-034 定案，v1.3 变更） | 升级检测对比 | 来源优先级：① 各平台 lock（`.arkcli-managed-skills.json` 等，name→sha256，标准位置）→ ② frontmatter metadata.source 推断 → ③ cc-switch content_hash（表空待办）→ ④ git remote 临时 clone（网络成本待办）；skills-lock.json 已移除（历史静态快照无持续生成者，不再读取）；均无 → unknown「无法检测」、升级禁用 |
 | cc-switch（只读） | 远端哈希来源 ③（Q-034）：content_hash；另参考 per-agent 生效布尔思路 | `~/.cc-switch/cc-switch.db` skills 表含 enabled_claude/enabled_codex/enabled_gemini/enabled_opencode/enabled_hermes、content_hash、readme_url；数据自管（壳 userData），不依赖 cc-switch 运行 |
 | shell.openExternal | 来源跳转浏览器 | 仅 https URL 白名单校验（CON-R-skills-007） |
 | 远程 marketplace 搜索（`npx skills find <q>` / skills.sh API） | 远程 skills 检索（T-2 定案） | 本地/远程搜索分开两个入口（UI tab 区分），互不混合；远程仅浏览搜索结果，不落地安装 |
@@ -163,7 +163,7 @@
 
 | 编号 | 问题 | 负责人 | 阻断等级 | 状态 | 结论 | 回写位置 |
 |:-----|:-----|:-------|:---------|:-----|:-----|:---------|
-| T-1 | 远端哈希从哪拿？git remote / skills.sh API / cc-switch db？ | PM | P0 | 已关闭 | **skills-lock.json 记录优先（`~/AI/skills-lock.json`），次选 git remote tree SHA 计算；均无则「无法检测」**（v1.2 经 Q-034 细化为四级优先级） | §10/CON-R-skills-004 |
+| T-1 | 远端哈希从哪拿？git remote / skills.sh API / cc-switch db？ | PM | P0 | 已关闭 | **各平台 lock（`.arkcli-managed-skills.json` 等）优先，次选 frontmatter metadata.source 推断，均无则「无法检测」**（v1.3 变更：skills-lock.json 移除） | §10/CON-R-skills-004 |
 | T-2 | 是否支持 marketplace 搜索（`npx skills find`）还是仅本地？ | PM | P1 | 已关闭 | **接入远程搜索（本地/远程分开两个入口）；远程仅浏览不安装**（v1.2 经 Q-036 细化 UI：两 tab 默认本地、远程结果字段与「未安装」标注） | §2/§10/§12/CON-R-skills-010 |
 | T-3 | 升级执行方式：`npx skills update` / git pull / 重 clone？ | PM | P0 | 已关闭 | **优先 `npx skills update`；symlink 来源次选 git pull；不重 clone；原子替换+失败回滚兜底（FR-6）**（v1.2 经 Q-033 细化：git clone 来源不原位 pull，改 clone 到 staging 原子替换） | §3/§5.1/§13/CON-R-skills-004 |
 | T-4 | 禁用语义：移目录 vs 壳内白名单？ | PM | P1 | 已关闭 | **移目录真禁用：禁用移出 agent 读取目录到 `<userData>/skills/disabled/<skill-name>/`，启用移回；agent 平台真生效（否决壳内白名单）**（v1.2 经 Q-031/Q-032 细化：按路径粒度 + symlink/实目录操作对象区分） | §3/§6/§7.3/CON-R-skills-008 |
@@ -179,7 +179,7 @@
 | Q-031 | 移目录真禁用与共享目录冲突：共享目录 skill 移出后全平台失效，如何按平台禁用？ | PM | BLOCKER | 已关闭 | **按路径粒度：每个物理路径独立禁用/启用；共享目录（`~/.agents/skills/`）skill 整体移出=全平台禁，平台专属副本（`~/.claude/skills/` 等）单独禁只影响该平台** | §5.2/§7.1/CON-R-skills-008 |
 | Q-032 | 禁用的物理操作对象是什么（symlink vs 实目录）？ | PM | P0 | 已关闭 | **逐物理路径操作：symlink 来源 → 移除 symlink（改指针，源保留在原始仓库/SSOT）；实目录来源 → rename 到 `<userData>/skills/disabled/<skill-name>/`；壳 userData 记录被禁用路径+原路径映射；启用 = 恢复 symlink / rename 回原路径** | §3/§7.3/§13/CON-R-skills-008 |
 | Q-033 | 非 git/非 lock 来源 skill 如何升级？git clone 来源能否原位 git pull？ | PM | P0 | 已关闭 | **无 source + 无 lock 条目 → 无法确定远端 → 升级入口禁用显示「无法检测版本」；有 metadata.source 但非 git → 用 source URL 重新获取（staging → 原子替换）；git clone 来源升级不 git pull 原位（非原子），改 clone 到 staging → 原子替换 → 失败回滚** | §13/CON-R-skills-004 |
-| Q-034 | 远端哈希来源优先级如何排？多来源冲突以谁为准？ | PM | P1 | 已关闭 | **① skills-lock.json（权威，`~/AI/skills-lock.json`）→ ② 各平台 lock（`.arkcli-managed-skills.json` 等）→ ③ cc-switch content_hash → ④ git remote 临时 clone 计算；按 name 匹配，skills-lock 优先覆盖；无任何来源 → unknown** | §10/CON-R-skills-004 |
+| Q-034 | 远端哈希来源优先级如何排？多来源冲突以谁为准？ | PM | P1 | 已关闭 | **① 各平台 lock（`.arkcli-managed-skills.json` 等）→ ② frontmatter metadata.source 推断 → ③ cc-switch content_hash → ④ git remote 临时 clone 计算；skills-lock.json 已移除（v1.3 变更）；无任何来源 → unknown** | §10/CON-R-skills-004 |
 | Q-035 | 回收站如何清理？恢复时目标路径被占用怎么办？ | PM | P2 | 已关闭 | **TTL 30 天自动清理 + 容量上限 500MB（超出最旧先删）；恢复时目标路径被占用 → 提示冲突（先移走冲突项或手动处理）；回收站条目记录原路径+删除时间** | §5.3/§7.3/§9/§13/CON-R-skills-003 |
 | Q-036 | 本地/远程搜索 UI 形态？远程结果可执行哪些操作？ | PM | P1 | 已关闭 | **两个 tab（「本地」/「远程」），默认本地；本地 tab 过滤已扫描列表；远程 tab 调 `npx skills find <q>` 展示 marketplace 结果（名称/描述/来源/安装数），远程结果仅浏览（无 enable/disable/升级，仅来源跳转），标注「未安装」** | §12/CON-R-skills-010 |
 | Q-037 | 破坏性操作（移除/禁用/升级）如何做 e2e 测试而不碰真实 agent 目录？ | PM | P1 | 已关闭 | **fs 操作抽象层（SkillFsOps 接口）+ 测试注入临时目录（DI/env）；e2e 用临时目录模拟 agent 目录验证移除/禁用/升级；真实目录操作留冒烟；复用 M2 两级 mock 桩模式** | §13 |
@@ -206,7 +206,7 @@
 - **禁用/启用（FR-9，T-4/Q-031/Q-032 定案）**：按物理路径粒度——每个物理路径独立禁用/启用，共享目录（`~/.agents/skills/`）skill 整体移出=全平台禁，平台专属副本单独禁只影响该平台；物理操作对象逐路径区分：symlink 来源 → 移除 symlink（改指针，源保留在原始仓库/SSOT），实目录来源 → rename 到 disabled 目录（`<userData>/skills/disabled/<skill-name>/`）；userData 记录被禁用路径+原路径映射，启用 = 恢复 symlink / rename 回原路径；agent 平台真生效；不破坏 SKILL.md 内容；状态即时反映列表与计数；移动失败不破坏原目录。
 - **远程搜索（FR-7，T-2 定案）**：远程 marketplace 检索（`npx skills find <q>` / skills.sh API）；本地/远程分开展示；仅浏览不安装；失败提示「远程不可用」，不影响本地列表。
 - **并发冲突（§8 异常）**：写操作前检查目录 mtime，壳与 agent 同时操作 → 冲突提示「已被外部修改，请刷新」。
-- **来源解析（CON-R-skills-005）**：metadata.source → lock source+skillPath → 构建 GitHub URL 三级降级；均无 → 「来源未知」，跳转/升级禁用。
+- **来源解析（CON-R-skills-005）**：frontmatter metadata.source 一级解析；无 → 「来源未知」，git 轨升级禁用（npx 轨不依赖 source 仍可用）。
 - **路径安全校验（Q-038）**：所有 skill 目录名经 `basename(realpath(path))` 校验，拒绝 `../`、空名、非法字符（防路径穿越）；openExternal 仅接受 `^https://` 白名单（拒 file:/javascript:/data:）。
 - **fs 抽象与可测性（Q-037）**：破坏性 fs 操作收敛到抽象层（SkillFsOps 接口），测试经 DI/env 注入临时目录；e2e 用临时目录模拟 agent 目录验证移除/禁用/升级，真实目录操作留冒烟；复用 M2 两级 mock 桩模式。
 
@@ -221,7 +221,7 @@
 
 | # | 子需求 | 验收标准（可测试） | 规则绑定 | 依赖 | 来源 PRD | 飞书 ticket |
 |:--|:-------|:-------------------|:---------|:-----|:---------|:------------|
-| S1 | Skills 扫描/列表/搜索 | 独立视图 nav 接入（FR-1）；扫描 6 目录聚合正确+全局判定+realpath 去重（FR-2）；描述解析+缺失占位（FR-3）；来源三级降级+点击跳转+置灰（FR-4）；本地/远程搜索双 tab 分离+远程仅浏览（FR-7/Q-036）；平台筛选组合（FR-8）；首屏 <2s+异步+哈希缓存（FR-10）；路径穿越校验（Q-038）；fs 抽象层 SkillFsOps+测试注入（Q-037） | CON-R-skills-001/002/005/006/007/009/010 | — | 2026-08-22-skills-checker-prd.md | a639af53-ff91-478b-8cb6-e13102427069 |
+| S1 | Skills 扫描/列表/搜索 | 独立视图 nav 接入（FR-1）；扫描 6 目录聚合正确+全局判定+realpath 去重（FR-2）；描述解析+缺失占位（FR-3）；来源解析（metadata.source）+点击跳转+置灰（FR-4）；本地/远程搜索双 tab 分离+远程仅浏览（FR-7/Q-036）；平台筛选组合（FR-8）；首屏 <2s+异步+哈希缓存（FR-10）；路径穿越校验（Q-038）；fs 抽象层 SkillFsOps+测试注入（Q-037） | CON-R-skills-001/002/005/006/007/009/010 | — | 2026-08-22-skills-checker-prd.md | a639af53-ff91-478b-8cb6-e13102427069 |
 | S2 | Skills 操作（移除/升级/禁用/启用 + 回收站） | 移除二次确认+路径/影响平台展示+回收站备份（FR-5/Q-035）；升级内容哈希对比+一键升级（npx skills update/git clone staging 原子替换回滚）+无来源禁用（FR-6/Q-033/Q-034）；禁用/启用按路径粒度移目录真禁用（FR-9/Q-031/Q-032）；操作日志留痕 | CON-R-skills-003/004/008 | S1 | 2026-08-22-skills-checker-prd.md | 701e3597-3cb9-416c-80b0-cc826eb173da |
 
 ## 15. 附录与版本记录

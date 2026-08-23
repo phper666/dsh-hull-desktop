@@ -152,12 +152,12 @@ test('来源三级降级：metadata.source 采用；无来源 source=null（T8/T
   equal(byName(s.snapshot().entries, 'nosrc').source, null);
 });
 
-test('lock 文件二级来源 + 远端哈希一级（skills-lock.json）→ upgradable 判定（T9/Q-034）', async () => {
+test('lockProvider 注入远端哈希 → upgradable 判定；source 不再从 lock 推断（Q-034 变更）', async () => {
   const home = makeHome();
   makeSkill(home, '.claude/skills', 'locked');
   const ud = join(home, 'ud');
   mkdirSync(ud, { recursive: true });
-  // lockProvider 注入（生产默认读 <home>/AI/skills-lock.json，测试直接注入避免额外目录约定）
+  // lockProvider 注入远端哈希（生产不再读 skills-lock.json；来源仅 frontmatter metadata.source）
   const hashOfReal = 'a'.repeat(64);
   const s = new SkillsScanner({
     homeDir: home,
@@ -166,13 +166,14 @@ test('lock 文件二级来源 + 远端哈希一级（skills-lock.json）→ upgr
   });
   await s.scan();
   const locked = byName(s.snapshot().entries, 'locked');
-  equal(locked.source, 'https://github.com/o/r/tree/main/skills/locked');
+  // source 不参与来源推断（lock 二级降级已移除）→ null「来源未知」
+  equal(locked.source, null);
   equal(locked.remoteHash, hashOfReal);
   // 本地哈希 ≠ 远端哈希 → upgradable
   equal(locked.upgradable, 'upgradable');
   ok(/^[0-9a-f]{64}$/.test(locked.localHash!));
 
-  // 远端哈希一致 → latest；四级均无 → unknown
+  // 远端哈希一致 → latest；无注入 → unknown
   const s2 = new SkillsScanner({
     homeDir: home,
     userDataPath: ud,

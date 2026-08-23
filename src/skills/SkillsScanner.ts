@@ -12,7 +12,7 @@ import { isValidSkillName, isWithinRoots } from './pathGuard';
 import { parseFrontmatter } from './frontmatter';
 import { REGISTRY, SHARED_DIR } from './registry';
 import { createNodeFsOps, type SkillFsOps } from './SkillFsOps';
-import { parseSkillsLock, resolveSource, type LockEntry } from './sourceResolver';
+import { resolveSource, type LockEntry } from './sourceResolver';
 import { searchRemote as searchRemoteImpl, type SearchRemoteOptions } from './searchRemote';
 import { installRemote as installRemoteImpl, type InstallRemoteOptions } from './installRemote';
 import { loadDisabledEntries } from './ops/DisableManager';
@@ -169,7 +169,7 @@ export class SkillsScanner {
                 name: fm.name ?? child,
                 realPath: real,
                 description: fm.description,
-                source: resolveSource(fm.metadata.source ?? null, lock[fm.name ?? child] ?? null),
+                source: resolveSource(fm.metadata.source ?? null),
                 locations: [
                   {
                     physPath: phys,
@@ -223,9 +223,10 @@ export class SkillsScanner {
         for (const d of group) {
           if (d.realPath !== preferred.realPath) await hashFor(d.realPath); // 其余路径哈希预热进缓存
         }
-        // ⑥ 远端哈希（Q-034 四级优先级：①skills-lock.json hash/content_hash → ②平台 lock .arkcli-managed-skills.json）
-        //    ponytail: ①②已接入；③cc-switch(sqlite，本机 db skills 表空无口径)/④git remote clone(网络成本)
-        //    待「远端哈希口径实测」协调项关闭后接入——未验证口径的对比比 unknown 更危险，缺省 unknown 语义保守正确
+        // ⑥ 远端哈希（Q-034 变更：skills-lock.json 不再读取——历史静态快照无持续生成者；
+        //    来源 = lockProvider 注入（仅测试/主进程内部）+ .arkcli 平台 lock（标准位置））
+        //    ponytail: ③cc-switch(sqlite，本机 db skills 表空无口径)/④git remote clone(网络成本) 未接入；
+        //    无来源 → remoteHash=null → unknown「无法检测版本」（保守正确，不误报可升级）
         const l = lock[name];
         let remoteHash =
           typeof l?.hash === 'string'
@@ -271,17 +272,10 @@ export class SkillsScanner {
     }
   }
 
+  /** lock 注入（仅测试/主进程内部）；生产不再读 skills-lock.json（Q-034 变更：远端哈希只依赖标准位置 .arkcli 平台 lock + frontmatter source 推断） */
   private loadLock(): Record<string, LockEntry> {
     if (this.lockProvider) return this.lockProvider();
-    if (this.lockCache === null) {
-      try {
-        const p = this.ops.join(this.homeDir, 'AI', 'skills-lock.json');
-        this.lockCache = this.ops.existsSync(p) ? parseSkillsLock(this.ops.readFileSync(p)) : {};
-      } catch {
-        this.lockCache = {};
-      }
-    }
-    return this.lockCache;
+    return {};
   }
 
   /** Q-034 二级：平台 lock（<homeDir>/.config/opencode/skills/.arkcli-managed-skills.json，name→sha256）；缺失/坏格式 → {} */
