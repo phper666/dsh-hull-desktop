@@ -65,7 +65,11 @@ test.describe('E2E-02 首装+取消', () => {
       seedSettings(tmp.dir, { registry: reg.url }); // 安装走假 registry（userData 仍无 dsh → 触发首装）
       app = await launchApp({ userData: tmp.dir, registry: reg.url });
       const win = await waitForMainWindow(app);
-      // 首装自动触发 → 安装视图出现
+      // 首装：进「未安装」引导态（需求变更 2026-08-24：不再自动触发，需手动点安装）
+      await win.waitForSelector('#not-installed', { state: 'visible', timeout: 30_000 });
+      await expect(win.locator('#not-installed h1')).toHaveText('dsh 尚未安装');
+      // 点「安装 dsh」→ 安装视图出现
+      await win.click('#install-btn');
       await win.waitForSelector('#installing', { state: 'visible', timeout: 30_000 });
       await expect(win.locator('#installing h1')).toHaveText('正在安装 dsh…');
       // 取消安装 → 引导态（not-installed 视图）

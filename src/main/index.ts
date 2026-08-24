@@ -653,7 +653,8 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
       // 其余失败：failed 迁移已由 status 订阅驱动占位页 failed 态
     }
   } else {
-    void runInstallFlow('latest'); // 首装自动触发（T2-01；进度可观察、可取消 → 取消后引导态）
+    // 首装：进「未安装」引导态，用户手动点「安装 dsh」再走安装流程（需求变更 2026-08-24：不再自动触发）
+    winMgr.showPlaceholder('not-installed', 'dsh 尚未安装，点击「安装 dsh」开始安装');
   }
 }
 
