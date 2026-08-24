@@ -14,7 +14,7 @@
 |---|---|---|---|---|---|
 | 捆绑 Node | S2 | CON-R007 | Node 24 LTS，构建锁定小版本 | 构建脚本 fetch-node | 已定义 |
 | overlay 管理 | S2 | CON-R008 | dsh/staging/previous 布局 | OverlayManager | 已定义 |
-| 首次安装 | S2 | CON-R008/016 | 全新机器首开自动装 dsh | OverlayManager.install() | 已定义 |
+| 首次安装 | S2 | CON-R008/016 | 全新机器首开进「未安装」引导态，手动点安装装 dsh（2026-08-24 需求变更：不再自动触发） | OverlayManager.install() | 已定义 |
 | 取消引导态 | S2 | CON-R016 | 取消→未安装引导态→重装 | InstallFlow.cancel() | 已定义 |
 | 数据零接触 | S2 | CON-R002/010 | DSH_HOME 不读不改 | 环境变量传递 | 已定义 |
 
@@ -41,14 +41,14 @@
 文本流程：
 启动 → OverlayManager.ensure()
   有 overlay → S1 启动
-  无 overlay → **自动触发** InstallFlow 安装（进度可观察、可取消）→ 原子替换 → 就绪 → S1 启动
+  无 overlay → **进「未安装」引导态**（2026-08-24 需求变更：不再自动触发安装），用户点「安装 dsh」→ 手动触发 InstallFlow（进度可观察、可取消）→ 原子替换 → 就绪 → S1 启动
   用户取消 → 清理 staging → 未安装引导态（壳框架右侧内容区安装 dsh 按钮 → 手动重装重新走本流程）
 
 ### 状态转换（安装流程）
 
 | 当前状态 | 动作 | 目标状态 | 前置条件 | 冲突行为 | 依据 |
 |---|---|---|---|---|---|
-| not-installed | install() | installing | 无 | 自动触发 + 手动重装均可（重复 install 忽略） | 共识 §4.1 |
+| not-installed | install() | installing | 无 | 手动触发（首装引导态点装 + 取消后重装）；重复 install 忽略 | 共识 §4.1 |
 | installing | 安装成功 | ready | staging 就绪+替换成功 | 无 | 无 |
 | installing | 取消/失败 | not-installed | 用户取消或错误 | 清理 staging | Q-011 |
 | not-installed | 引导态重装 | installing | 用户点安装按钮 | 无 | Q-011 |
@@ -131,7 +131,7 @@
 
 | # | 场景 | 步骤 | 预期 |
 |---|---|---|---|
-| T2-01 | 全新机器首装 | 清空 userData，启动 | 自动安装 dsh，进入官方 UI |
+| T2-01 | 全新机器首装 | 清空 userData，启动 | 进「未安装」引导态 → 手动点安装 → 装 dsh → 进入官方 UI（2026-08-24 需求变更：不再自动装） |
 | T2-02 | 取消安装 | 安装中取消 | 未安装引导态；重装成功 |
 | T2-03 | 数据复用 | 预置 ~/.dsh（会话/API key） | 安装后直接可用，数据零改动 |
 | T2-04 | registry 不可达 | 配错 registry | 失败提示 + 配置入口，重试成功 |

@@ -3,6 +3,13 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-08-24 首装流程需求变更（共识 v1.8）——不再自动触发安装，进引导态手动装
+
+- 类型：需求变更（用户拍板，向后兼容语义调整），升共识 v1.8
+- 内容：**首开不再自动触发 InstallFlow 安装 dsh**，改为进「未安装」引导态（`showPlaceholder('not-installed')`）→ 用户点「安装 dsh」→ 手动触发（同一 runInstallFlow 入口）；取消语义保留（Q-011：取消→引导态→重装）；CON-R016 语义扩展（首装取消保留 + 新增「首装需手动确认」）
+- 影响：main/index.ts:656 `void runInstallFlow('latest')` → `showPlaceholder('not-installed')`；S2 契约 4 处「自动触发」同步改手动；M1 共识 S2 业务目标/子需求同步；install.spec.ts e2e 首装断言改「进引导态→点装→取消→重装」
+- 状态：已实现（2026-08-24，unit 596 + e2e 27 全绿含取消重装路径）
+
 ## 2026-08-24 Hull 主题切换共识发布 v1.0（新需求 theme）
 
 - 类型：共识基线发布（新需求建立）+ 登记 CON-R-theme-001~005
