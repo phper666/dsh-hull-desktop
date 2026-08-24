@@ -355,8 +355,24 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
       runtime.start().catch((err: Error) => logger.warn(`安装后启动失败: ${err.message}`));
     } else {
       // failed/cancelled → 引导态（错误提示 + 安装按钮重试）
-      winMgr.showPlaceholder('not-installed', result.message);
+      showNotInstalled(result.message);
     }
+  };
+
+  // 未安装引导态：异步解析将装版本（channelService.resolveTarget → latest/pinned）拼进文案；
+  // registry 不可达/解析失败 → 纯文案兜底（不阻塞引导态显示）
+  const showNotInstalled = (message = 'dsh 尚未安装，点击「安装 dsh」开始安装'): void => {
+    winMgr.showPlaceholder('not-installed', message);
+    void channelService
+      .resolveTarget()
+      .then((v) => {
+        if (quitting) return;
+        if (!v) return;
+        winMgr.showPlaceholder('not-installed', `${message}（将安装 dsh@${v}）`);
+      })
+      .catch(() => {
+        /* registry 不可达 → 保持纯文案，不阻塞 */
+      });
   };
 
   // S2 IPC（契约 v0.2 #6~#8）：install / cancelInstall / installStatus（renderer 250ms 轮询，B6）
@@ -523,7 +539,8 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   });
   // B2 补丁：壳导航 dsh web 入口 → 恢复官方 view（与 showBoard 对称；无新通道）
   // 语义照 onStatus 映射：Ready → loadOfficialUrl（officialDirty 则重载，否则复用）；
-  // Failed → failed 占位；其余（idle/starting）→ starting 占位
+  // Failed → failed 占位；NotInstalled（未安装）→ not-installed 引导态；
+  // 其余（idle/starting）→ starting 占位
   ipcMain.handle('hull:showWeb', async () => {
     if (quitting) return { ok: false, message: '正在退出' };
     const s = runtime.snapshot();
@@ -531,6 +548,8 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
       winMgr.loadOfficialUrl(s.url);
     } else if (s.phase === RuntimePhase.Failed) {
       winMgr.showPlaceholder('failed', s.message);
+    } else if (overlay.installStatus().phase === InstallPhase.NotInstalled) {
+      showNotInstalled();
     } else {
       winMgr.showPlaceholder('starting', '');
     }
@@ -654,7 +673,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     }
   } else {
     // 首装：进「未安装」引导态，用户手动点「安装 dsh」再走安装流程（需求变更 2026-08-24：不再自动触发）
-    winMgr.showPlaceholder('not-installed', 'dsh 尚未安装，点击「安装 dsh」开始安装');
+    showNotInstalled();
   }
 }
 
