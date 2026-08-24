@@ -563,6 +563,9 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
       winMgr.showPlaceholder('failed', s.message);
     } else if (overlay.installStatus().phase === InstallPhase.NotInstalled) {
       showNotInstalled();
+    } else if (overlay.installStatus().phase === InstallPhase.Installing) {
+      // 安装中切走再切回 → 显示安装进度视图（renderer pollInstall 250ms 轮询恢复进度）
+      winMgr.showPlaceholder('installing', '正在安装 dsh…');
     } else {
       winMgr.showPlaceholder('starting', '');
     }

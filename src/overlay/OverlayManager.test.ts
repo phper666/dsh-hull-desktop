@@ -95,7 +95,7 @@ test('① 状态机：not-installed→installing→ready + 事件序列', async 
   await mgr.swap();
   equal(mgr.installStatus().phase, 'ready');
   deepEqual(events.map((e) => e.type), ['progress', 'progress', 'progress', 'success']);
-  deepEqual(events[0].payload, { phase: 'npm-install', pct: 50 });
+  deepEqual(events[0].payload, { phase: 'npm-install', pct: 20 });
   deepEqual(events[1].payload, { phase: 'npm-install', pct: 90 });
   deepEqual(events[2].payload, { phase: 'swap', pct: 100 });
   deepEqual(events[3].payload, { version: '1.0.0' });
@@ -219,7 +219,7 @@ test('⑪ installStatus 返回当前 phase + 进度', async () => {
   equal(mgr.installStatus().phase, 'not-installed');
   const p = mgr.install('latest');
   equal(mgr.installStatus().phase, 'installing');
-  equal(mgr.installStatus().progress?.pct, 50);
+  equal(mgr.installStatus().progress?.pct, 20);
   await p;
   equal(mgr.installStatus().progress?.pct, 90);
   await mgr.swap();

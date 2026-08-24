@@ -139,7 +139,7 @@ export class OverlayManager extends EventEmitter {
     }
     if (/^npm http fetch/.test(line)) {
       this.npmFetchCount += 1;
-      this.setProgress({ phase: 'npm-install', pct: Math.min(60, 50 + Math.floor(this.npmFetchCount / 25)) });
+      this.setProgress({ phase: 'npm-install', pct: Math.min(60, 20 + Math.floor(this.npmFetchCount / 25)) });
     }
   }
 
@@ -169,7 +169,7 @@ export class OverlayManager extends EventEmitter {
     this.swapping = false;
     this.targetVersion = targetVersion;
     this.transition(InstallPhase.Installing, '正在安装 dsh…');
-    this.setProgress({ phase: 'npm-install', pct: 50 });
+    this.setProgress({ phase: 'npm-install', pct: 20 });
     // 输出缓冲 + fetch 计数重置（防跨次安装残留；对齐 Updater.clearOutput）
     this.output = [];
     this.npmFetchCount = 0;

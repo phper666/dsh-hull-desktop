@@ -113,7 +113,7 @@ test('⑫ 进度事件序列：download/10 → npm-install/50 → 90 → swap/10
     events.map((e) => e.payload),
     [
       { phase: 'download', pct: 10 },
-      { phase: 'npm-install', pct: 50 },
+      { phase: 'npm-install', pct: 20 },
       { phase: 'npm-install', pct: 90 },
       { phase: 'swap', pct: 100 },
     ]
