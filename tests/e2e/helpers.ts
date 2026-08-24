@@ -334,3 +334,19 @@ export async function waitForSettingsRegistry(userData: string, registry: string
   }
   throw new Error(`settings.json registry 未在 ${timeoutMs}ms 内变为 ${registry}`);
 }
+
+/** 轮询 settings.json 落盘 theme 值 */
+export async function waitForSettingsTheme(userData: string, theme: string, timeoutMs = 10_000): Promise<void> {
+  const file = join(userData, 'settings.json');
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const s = JSON.parse(readFileSync(file, 'utf8')) as { theme?: unknown };
+      if (s.theme === theme) return;
+    } catch {
+      /* 文件暂不可读 */
+    }
+    await sleep(200);
+  }
+  throw new Error(`settings.json theme 未在 ${timeoutMs}ms 内变为 ${theme}`);
+}

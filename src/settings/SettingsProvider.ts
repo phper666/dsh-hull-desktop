@@ -9,6 +9,9 @@ import { isValidVersion } from '../updater/semver';
 /** 通道名（S4 契约 §Schema：latest/pinned） */
 export type ChannelName = 'latest' | 'pinned';
 
+/** 主题（T2：dark/light，默认 dark；字段级扩展不 bump schemaVersion） */
+export type ThemeName = 'dark' | 'light';
+
 /** 默认 registry（S6 契约 schema：任意 npm registry，CON-R013） */
 export const DEFAULT_REGISTRY = 'https://registry.npmjs.org';
 
@@ -28,6 +31,8 @@ export interface HullSettings {
   autoCheckHull: boolean;
   /** npm registry（S6：任意源，settings.registry 优先 + env 兜底） */
   registry: string;
+  /** 主题（T2：dark/light，默认 dark；字段级扩展不 bump schemaVersion） */
+  theme: ThemeName;
 }
 
 /** 当前 schema 版本（S4 bump 1→2，S5 两字段再 bump 2→3） */
@@ -41,6 +46,7 @@ const DEFAULT_SETTINGS: HullSettings = {
   autoCheckDsh: true,
   autoCheckHull: true,
   registry: DEFAULT_REGISTRY,
+  theme: 'dark',
 };
 
 export interface SettingsProviderOptions {
@@ -110,6 +116,8 @@ export class SettingsProvider extends EventEmitter {
     const autoCheckDsh = typeof obj.autoCheckDsh === 'boolean' ? obj.autoCheckDsh : DEFAULT_SETTINGS.autoCheckDsh;
     const autoCheckHull = typeof obj.autoCheckHull === 'boolean' ? obj.autoCheckHull : DEFAULT_SETTINGS.autoCheckHull;
     const registry = typeof obj.registry === 'string' ? obj.registry : DEFAULT_SETTINGS.registry;
+    const theme: ThemeName =
+      obj.theme === 'dark' || obj.theme === 'light' ? obj.theme : DEFAULT_SETTINGS.theme;
     if (
       typeof obj.closeToQuit !== 'boolean' ||
       typeof obj.schemaVersion !== 'number' ||
@@ -117,11 +125,12 @@ export class SettingsProvider extends EventEmitter {
       (typeof obj.pinnedVersion !== 'string' && obj.pinnedVersion !== undefined && obj.pinnedVersion !== null) ||
       (typeof obj.autoCheckDsh !== 'boolean' && obj.autoCheckDsh !== undefined) ||
       (typeof obj.autoCheckHull !== 'boolean' && obj.autoCheckHull !== undefined) ||
-      (typeof obj.registry !== 'string' && obj.registry !== undefined)
+      (typeof obj.registry !== 'string' && obj.registry !== undefined) ||
+      (typeof obj.theme !== 'string' && obj.theme !== undefined)
     ) {
       this.logger.warn('settings.json 字段类型不符（回退默认值，不覆盖原文件）');
     }
-    return { closeToQuit, schemaVersion, channel, pinnedVersion, autoCheckDsh, autoCheckHull, registry };
+    return { closeToQuit, schemaVersion, channel, pinnedVersion, autoCheckDsh, autoCheckHull, registry, theme };
   }
 
   /**
@@ -133,6 +142,8 @@ export class SettingsProvider extends EventEmitter {
     const current = this.getSettings();
     const next: HullSettings = { ...current, ...partial, schemaVersion: SCHEMA_VERSION_CURRENT };
     if (next.channel === 'latest') next.pinnedVersion = null; // B4
+    // T2：非法 theme → 回退 dark（与读路径归一对称，磁盘恒存合法值）
+    if (next.theme !== 'dark' && next.theme !== 'light') next.theme = 'dark';
     // 校验（SETTINGS_ERRORS）
     if (partial.registry !== undefined && !isValidRegistry(partial.registry)) {
       throw new HullError('registry-invalid', `非法 registry 地址: ${partial.registry}`);
@@ -193,6 +204,7 @@ export class SettingsProvider extends EventEmitter {
       autoCheckHull: typeof obj.autoCheckHull === 'boolean' ? obj.autoCheckHull : DEFAULT_SETTINGS.autoCheckHull,
       // 🟢：旧文件 registry 格式校验（与 set() 校验链对称——非法 → 默认值）
       registry: typeof obj.registry === 'string' && isValidRegistry(obj.registry) ? obj.registry : DEFAULT_SETTINGS.registry,
+      theme: obj.theme === 'dark' || obj.theme === 'light' ? obj.theme : DEFAULT_SETTINGS.theme,
     };
     try {
       const tmp = `${this.filePath}.tmp`;

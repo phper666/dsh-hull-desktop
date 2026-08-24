@@ -58,6 +58,7 @@
 | registry | string | https://registry.npmjs.org | 任意 npm registry（CON-R013） |
 | channel | enum | latest | latest/pinned（S4） |
 | pinnedVersion | string | 空 | 锁定版本（S4） |
+| theme | enum | dark | dark/light（theme 需求，字段级扩展不 bump schemaVersion，非法值回退 dark，CON-R-theme-003/004） |
 
 ## 接口清单
 
@@ -85,8 +86,8 @@
 ### 1. SettingsStore.set(patch)
 
 - 使用场景：设置页任何修改
-- 共识：CON-R009
-- 行为：校验 → 原子写 settings.json → 广播 changed 事件
+- 共识：CON-R009 + CON-R-theme-003/004（theme 字段）
+- 行为：校验（registry 格式/版本号/channel 组合/theme 枚举 dark|light，非法 theme 回退 dark）→ 原子写 settings.json → 广播 changed 事件
 - 输出：Promise(settings)
 - 异常：SETTINGS_ERRORS
 

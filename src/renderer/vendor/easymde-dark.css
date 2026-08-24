@@ -1,0 +1,44 @@
+/* E1/Q-045：EasyMDE + CodeMirror 5 暗色主题 —— 全部选择器 scoped 到 .EasyMDEContainer 容器（EasyMDE 根 div 类名），
+   不污染壳内其他组件。色值引用 T1 CSS 变量 --hull-*，保持原暗色语义等价。 */
+[data-theme="dark"] .EasyMDEContainer { color-scheme: dark; }
+[data-theme="dark"] .EasyMDEContainer .CodeMirror { background: var(--hull-bg); color: var(--hull-text); border-color: var(--hull-border); }
+[data-theme="dark"] .EasyMDEContainer .CodeMirror-cursor { border-left-color: var(--hull-text); }
+[data-theme="dark"] .EasyMDEContainer .CodeMirror-selected { background: var(--hull-accent-medium) !important; }
+[data-theme="dark"] .EasyMDEContainer .CodeMirror-focused .CodeMirror-selected { background: var(--hull-accent-soft) !important; }
+[data-theme="dark"] .EasyMDEContainer .CodeMirror-gutters { background: var(--hull-panel); border-right-color: var(--hull-border); }
+[data-theme="dark"] .EasyMDEContainer .CodeMirror-linenumber { color: var(--hull-text-sub); }
+[data-theme="dark"] .EasyMDEContainer .CodeMirror-activeline-background { background: var(--hull-card); }
+[data-theme="dark"] .EasyMDEContainer .CodeMirror-matchingbracket { color: var(--hull-info) !important; }
+
+/* 工具栏 */
+[data-theme="dark"] .EasyMDEContainer .editor-toolbar { background: var(--hull-panel); border-top-color: var(--hull-border); border-bottom-color: var(--hull-border); }
+[data-theme="dark"] .EasyMDEContainer .editor-toolbar > * { color: var(--hull-text-dim) !important; }
+[data-theme="dark"] .EasyMDEContainer .editor-toolbar > button:hover,
+[data-theme="dark"] .EasyMDEContainer .editor-toolbar > button.active { background: var(--hull-hover) !important; border-color: var(--hull-border) !important; }
+[data-theme="dark"] .EasyMDEContainer .editor-toolbar > .separator { border-color: var(--hull-border) !important; }
+[data-theme="dark"] .EasyMDEContainer .editor-toolbar i.separator { border-left-color: var(--hull-border); }
+
+/* 图标兜底：autoDownloadFontAwesome:false 后无 Font Awesome——用 unicode 字符替代 FA 字形（Q-042 无 CDN/CSP 违规）。
+   按钮仍带 title 提示（可访问名），此处仅补可见字形 */
+[data-theme="dark"] .EasyMDEContainer .editor-toolbar button.fa::before { font-family: inherit; font-style: normal; font-weight: 400; }
+[data-theme="dark"] .EasyMDEContainer .editor-toolbar .fa-bold::before { content: "B"; font-weight: 700; }
+[data-theme="dark"] .EasyMDEContainer .editor-toolbar .fa-italic::before { content: "I"; font-style: italic; }
+[data-theme="dark"] .EasyMDEContainer .editor-toolbar .fa-strikethrough::before { content: "S"; text-decoration: line-through; }
+[data-theme="dark"] .EasyMDEContainer .editor-toolbar .fa-heading::before { content: "H"; font-weight: 700; }
+[data-theme="dark"] .EasyMDEContainer .editor-toolbar .fa-ul::before,
+[data-theme="dark"] .EasyMDEContainer .editor-toolbar .fa-list-ul::before { content: "≡"; }
+[data-theme="dark"] .EasyMDEContainer .editor-toolbar .fa-ol::before,
+[data-theme="dark"] .EasyMDEContainer .editor-toolbar .fa-list-ol::before { content: "1."; }
+[data-theme="dark"] .EasyMDEContainer .editor-toolbar .fa-check-square-o::before { content: "☑"; }
+[data-theme="dark"] .EasyMDEContainer .editor-toolbar .fa-table::before { content: "▦"; }
+[data-theme="dark"] .EasyMDEContainer .editor-toolbar .fa-link::before { content: "🔗"; }
+[data-theme="dark"] .EasyMDEContainer .editor-toolbar .fa-eye::before { content: "◉"; }
+[data-theme="dark"] .EasyMDEContainer .editor-toolbar .fa-columns::before { content: "◫"; }
+
+/* 预览面板（side-by-side / 全预览） */
+[data-theme="dark"] .EasyMDEContainer .editor-preview,
+[data-theme="dark"] .EasyMDEContainer .editor-preview-side { background: var(--hull-bg); color: var(--hull-text-dim); border-color: var(--hull-border); }
+
+/* 状态栏/提示 */
+[data-theme="dark"] .EasyMDEContainer .editor-statusbar { color: var(--hull-text-muted); border-top-color: var(--hull-border); }
+[data-theme="dark"] .EasyMDEContainer .CodeMirror-placeholder { color: var(--hull-text-sub); }
