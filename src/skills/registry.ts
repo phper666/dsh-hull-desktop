@@ -18,6 +18,10 @@ export const ALL_AGENT_PLATFORMS = [
   'roo',
   'continue',
   'devin',
+  'dsh',
+  'harness',
+  'qoder',
+  'reasonix',
 ] as const;
 
 export interface RegistryEntry {
@@ -43,6 +47,11 @@ export const REGISTRY: RegistryEntry[] = [
   { platform: 'roo', dir: '.roo/skills', affectedPlatforms: ['roo'] },
   { platform: 'continue', dir: '.continue/skills', affectedPlatforms: ['continue'] },
   { platform: 'devin', dir: '.config/devin/skills', affectedPlatforms: ['devin'] },
+  { platform: 'dsh', dir: '.dsh/skills', affectedPlatforms: ['dsh'] },
+  { platform: 'harness', dir: '.harness/skills', affectedPlatforms: ['harness'] },
+  { platform: 'qoder', dir: '.qoder/skills', affectedPlatforms: ['qoder'] },
+  { platform: 'qoder-cn', dir: '.qoder-cn/skills', affectedPlatforms: ['qoder'] },
+  { platform: 'reasonix', dir: '.reasonix/skills', affectedPlatforms: ['reasonix'] },
   { platform: 'shared', dir: '.agents/skills', affectedPlatforms: [...ALL_AGENT_PLATFORMS] },
 ];
 

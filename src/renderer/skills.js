@@ -29,7 +29,7 @@
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const $ = (sel) => root.querySelector(sel);
-  const PLATFORMS = ['claude-code', 'opencode', 'codex', 'gemini-cli', 'cursor', 'windsurf', 'warp', 'trae', 'cline', 'roo', 'continue', 'devin'];
+  const PLATFORMS = ['claude-code', 'opencode', 'codex', 'gemini-cli', 'cursor', 'windsurf', 'warp', 'trae', 'cline', 'roo', 'continue', 'devin', 'dsh', 'harness', 'qoder', 'reasonix'];
   const upgNames = { latest: '最新', upgradable: '▲ 可升级', unknown: '无法检测版本' };
   /** 升级按钮 tooltip：区分升级通道（无 source → 走 npx 官方通道，不依赖来源链接；有 source → git 轨可兜底） */
   const upgradeTitle = (e) =>
@@ -75,8 +75,10 @@
         </div>
         ` : ''}
         <div class="sk-spacer"></div>
-        <button class="sk-btn" id="sk-trash">回收站${trashEntries && trashEntries.length ? ` <span class="sk-badge notinstalled">${trashEntries.length}</span>` : ''}</button>
-        <button class="sk-btn" id="sk-rescan">重新扫描</button>
+        <div class="sk-ops">
+          <button class="sk-btn" id="sk-trash">回收站${trashEntries && trashEntries.length ? ` <span class="sk-badge notinstalled">${trashEntries.length}</span>` : ''}</button>
+          <button class="sk-btn" id="sk-rescan">重新扫描</button>
+        </div>
       </div>
       <div class="sk-statusbar" id="sk-statusbar"></div>
       <div class="sk-list" id="sk-list"></div>
@@ -332,7 +334,7 @@
 
   /** 选 agent 安装弹窗：确认目标 agent 后调 skills:installRemote（O-3） */
   function promptInstall(ref) {
-    const agents = ['claude-code', 'opencode', 'codex', 'gemini-cli', 'cursor', 'windsurf', 'warp', 'trae', 'cline', 'roo', 'continue', 'devin'];
+    const agents = ['claude-code', 'opencode', 'codex', 'gemini-cli', 'cursor', 'windsurf', 'warp', 'trae', 'cline', 'roo', 'continue', 'devin', 'dsh', 'harness', 'qoder', 'reasonix'];
     const m = modal('安装 skill', `
       <p>安装 <b>${esc(ref)}</b> 到哪个 agent？</p>
       <div class="sk-f"><label>目标 agent</label><select id="sk-install-agent" class="sk-select">${agents.map((a) => `<option>${a}</option>`).join('')}</select></div>

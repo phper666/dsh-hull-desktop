@@ -26,6 +26,8 @@
 .sk-input { width: 200px; }
 .sk-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--hull-text-dim); cursor: pointer; user-select: none; }
 .sk-spacer { flex: 1; }
+/* 工具条右侧操作组（回收站/重新扫描）：不压缩，wrap 时整体换行不拆散 */
+.sk-ops { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
 
 /* 显示样式切换（列表/卡片） */
 .sk-viewseg { display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--hull-border); }

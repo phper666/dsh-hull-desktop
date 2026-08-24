@@ -1,15 +1,16 @@
 /**
  * S1 注册表单测（CON-R-skills-001，设计 D1）
- * 十四目录硬编码单点：目录映射 + opencode 多目录读取特殊处理（affectedPlatforms 数据驱动）
- * v1.5 平台扩展：新增 windsurf/warp/trae(+cn)/cline/roo/continue/devin
+ * 十九目录硬编码单点：目录映射 + opencode 多目录读取特殊处理（affectedPlatforms 数据驱动）
+ * v1.5 平台扩展：windsurf/warp/trae(+cn)/cline/roo/continue/devin
+ * v1.6 平台扩展：dsh/harness/qoder(+cn)/reasonix
  */
 import { test } from 'node:test';
 import { deepEqual, equal, ok } from 'node:assert/strict';
 
 import { REGISTRY } from './registry';
 
-test('注册表 14 条目：平台与目录映射正确（CON-R-skills-001）', () => {
-  equal(REGISTRY.length, 14);
+test('注册表 19 条目：平台与目录映射正确（CON-R-skills-001）', () => {
+  equal(REGISTRY.length, 19);
   const byPlatform = new Map(REGISTRY.map((r) => [r.platform, r]));
   equal(byPlatform.get('claude-code')?.dir, '.claude/skills');
   equal(byPlatform.get('opencode')?.dir, '.config/opencode/skills');
@@ -24,6 +25,11 @@ test('注册表 14 条目：平台与目录映射正确（CON-R-skills-001）', 
   equal(byPlatform.get('roo')?.dir, '.roo/skills');
   equal(byPlatform.get('continue')?.dir, '.continue/skills');
   equal(byPlatform.get('devin')?.dir, '.config/devin/skills');
+  equal(byPlatform.get('dsh')?.dir, '.dsh/skills');
+  equal(byPlatform.get('harness')?.dir, '.harness/skills');
+  equal(byPlatform.get('qoder')?.dir, '.qoder/skills');
+  equal(byPlatform.get('qoder-cn')?.dir, '.qoder-cn/skills');
+  equal(byPlatform.get('reasonix')?.dir, '.reasonix/skills');
   equal(byPlatform.get('shared')?.dir, '.agents/skills');
 });
 
@@ -33,13 +39,15 @@ test('affectedPlatforms：~/.claude 含 claude-code+opencode；~/.config/opencod
   deepEqual(byPlatform.get('opencode')?.affectedPlatforms, ['opencode']);
 });
 
-test('affectedPlatforms：新增平台各自专属；trae-cn 归并 trae（CON-R-skills-002）', () => {
+test('affectedPlatforms：新增平台各自专属；trae-cn/qoder-cn 归并主平台（CON-R-skills-002）', () => {
   const byPlatform = new Map(REGISTRY.map((r) => [r.platform, r]));
-  for (const p of ['windsurf', 'warp', 'cline', 'roo', 'continue', 'devin']) {
+  for (const p of ['windsurf', 'warp', 'cline', 'roo', 'continue', 'devin', 'dsh', 'harness', 'reasonix']) {
     deepEqual(byPlatform.get(p)?.affectedPlatforms, [p]);
   }
   deepEqual(byPlatform.get('trae')?.affectedPlatforms, ['trae']);
   deepEqual(byPlatform.get('trae-cn')?.affectedPlatforms, ['trae'], 'trae-cn 归并 trae 平台');
+  deepEqual(byPlatform.get('qoder')?.affectedPlatforms, ['qoder']);
+  deepEqual(byPlatform.get('qoder-cn')?.affectedPlatforms, ['qoder'], 'qoder-cn 归并 qoder 平台');
 });
 
 test('affectedPlatforms：~/.agents universal = 全部 agent 平台', () => {
@@ -58,5 +66,9 @@ test('affectedPlatforms：~/.agents universal = 全部 agent 平台', () => {
     'roo',
     'continue',
     'devin',
+    'dsh',
+    'harness',
+    'qoder',
+    'reasonix',
   ]);
 });
