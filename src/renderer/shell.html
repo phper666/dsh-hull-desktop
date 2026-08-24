@@ -346,6 +346,19 @@
               </div>
             </div>
           </div>
+          <div class="srow">
+            <div class="info">
+              <div class="label">包管理器</div>
+              <div class="sub">安装 / 升级 dsh 时使用的包管理器，下次安装生效（原生依赖自动 rebuild）</div>
+            </div>
+            <div class="control" role="radiogroup" aria-label="包管理器">
+              <div class="theme-seg" id="pkgmgr-seg">
+                <button type="button" data-pkgmgr="npm" aria-pressed="false">npm</button>
+                <button type="button" data-pkgmgr="pnpm" aria-pressed="true">pnpm</button>
+                <button type="button" data-pkgmgr="yarn" aria-pressed="false">yarn</button>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section class="scard" aria-labelledby="sec-dsh">
@@ -573,7 +586,7 @@
   // camelCase key → kebab-case id 映射（settings.html 原 ID 规约）
   const SETT_IDS = {
     registry: 'registry', registryError: 'registry-error', closeToQuit: 'closeToQuit', autoCheckDsh: 'autoCheckDsh',
-    themeSeg: 'theme-seg',
+    themeSeg: 'theme-seg', pkgmgrSeg: 'pkgmgr-seg',
     dshStatusWrap: 'dsh-status-wrap', dshVersionWrap: 'dsh-version-wrap', channel: 'channel', pinnedVersion: 'pinnedVersion',
     versionList: 'version-list', channelError: 'channel-error', checkDsh: 'check-dsh', rollbackDsh: 'rollback-dsh',
     dshHint: 'dsh-hint', dshAlert: 'dsh-alert', hullVersionWrap: 'hull-version-wrap', checkHull: 'check-hull',
@@ -607,6 +620,25 @@
       if (next !== 'dark' && next !== 'light') return;
       const ok = await setSetting({ theme: next }, null);
       if (ok) setTheme(next);
+    });
+  }
+
+  // P3：包管理器三选一（npm/pnpm/yarn；CON-R-pkgmgr-001：当前高亮 + 切换即时持久化，下次安装生效）
+  function renderPkgMgrButtons(pkgmgr) {
+    const m = pkgmgr === 'npm' || pkgmgr === 'yarn' ? pkgmgr : 'pnpm';
+    if (!sett.els.pkgmgrSeg) return;
+    for (const btn of sett.els.pkgmgrSeg.querySelectorAll('button[data-pkgmgr]')) {
+      btn.setAttribute('aria-pressed', String(btn.dataset.pkgmgr === m));
+    }
+  }
+  if (sett.els.pkgmgrSeg) {
+    sett.els.pkgmgrSeg.addEventListener('click', async (e) => {
+      const btn = e.target.closest('button[data-pkgmgr]');
+      if (!btn) return;
+      const next = btn.dataset.pkgmgr;
+      if (next !== 'npm' && next !== 'pnpm' && next !== 'yarn') return;
+      const ok = await setSetting({ packageManager: next }, null);
+      if (ok) renderPkgMgrButtons(next);
     });
   }
 
@@ -677,6 +709,7 @@
     sett.els.autoCheckDsh.setAttribute('aria-checked', String(s.autoCheckDsh));
     sett.els.autoCheckHull.setAttribute('aria-checked', String(s.autoCheckHull));
     setTheme(s.theme);
+    renderPkgMgrButtons(s.packageManager);
     if (!sett.state.editing.pinned) {
       sett.els.channel.value = s.channel;
       sett.els.pinnedVersion.value = s.pinnedVersion || '';

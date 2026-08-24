@@ -25,6 +25,9 @@ const MAX_LINE_BYTES = 8 * 1024;
 /** 网络类错误码（三实现共用 → registry-unreachable） */
 const NETWORK_ERROR_CODES = ['ECONNREFUSED', 'EAI_AGAIN', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNRESET'];
 
+/** 原生依赖清单（CON-R-pkgmgr-003：需 build scripts 的包；实测可 rebuild） */
+export const NATIVE_DEP_PKGS = ['koffi', 'node-pty', 'protobufjs', '@google/genai', '@deepseek-ai/dsh-subprocess-local'];
+
 /**
  * 包管理器执行器基类（npm/pnpm/yarn 共用骨架）：
  * spawn 子进程 + 逐行输出缓冲（错误分类）+ 总超时 + 取消（SIGTERM→5s→SIGKILL）。
@@ -61,6 +64,52 @@ export abstract class BasePkgMgrRunner implements PkgMgrRunner {
 
   /** 子类：标签（错误文案/日志用） */
   protected abstract label(): string;
+
+  /** 子类：安装成功后追加的原生依赖 rebuild 命令（CON-R-pkgmgr-003）。
+   *  返回 null = 无需 rebuild（npm 自动 build；yarn 默认跑 build scripts）。
+   *  仅 pnpm 需显式 `pnpm rebuild <pkgs>`（pnpm 11 默认忽略 build scripts——ERR_PNPM_IGNORED_BUILDS）。 */
+  protected rebuildCommand(stagingDir: string): { command: string; args: string[] } | null {
+    return null;
+  }
+
+  /** 追加 rebuild（安装成功后调用）：告警不阻断（失败 → warn + 返回，不影响 install 结果） */
+  private async runRebuild(stagingDir: string): Promise<void> {
+    const spec = this.rebuildCommand(stagingDir);
+    if (!spec) return;
+    try {
+      const code = await this.spawnOnce(spec.command, spec.args, stagingDir);
+      if (code !== 0) {
+        this.logger.warn(`${this.label()} 原生依赖 rebuild 失败（exit=${code}），可手动补装: ${NATIVE_DEP_PKGS.join(' ')}`);
+      }
+    } catch (err) {
+      this.logger.warn(`${this.label()} 原生依赖 rebuild 失败: ${(err as Error).message}，可手动补装: ${NATIVE_DEP_PKGS.join(' ')}`);
+    }
+  }
+
+  /** 单次 spawn 到 exit（无超时/取消/逐行回调；rebuild 短命令用） */
+  private spawnOnce(command: string, args: string[], cwd: string): Promise<number> {
+    return new Promise<number>((resolve) => {
+      let child: ChildLike;
+      try {
+        child = this.spawnFn(command, args, {
+          cwd,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env },
+        });
+      } catch (err) {
+        resolve(-1);
+        return;
+      }
+      const onData = (c: Buffer | string) => {
+        const chunk = typeof c === 'string' ? c : c.toString('utf8');
+        this.logger.dshLog(0, `[pkgmgr-rebuild] ${chunk.trimEnd()}`);
+      };
+      child.stdout?.on('data', onData);
+      child.stderr?.on('data', onData);
+      child.on('error', () => resolve(-1));
+      child.on('exit', (code: number | null) => resolve(code ?? -1));
+    });
+  }
 
   /** 执行安装到 staging（总超时；registry env 透传） */
   async install(stagingDir: string, targetVersion: string, opts: PkgMgrRunOptions): Promise<PkgMgrResult> {
@@ -107,7 +156,8 @@ export abstract class BasePkgMgrRunner implements PkgMgrRunner {
           return;
         }
         if (code === 0) {
-          settle({ ok: true });
+          // P3：主 install 成功 → 追加原生依赖 rebuild（pnpm 显式；npm/yarn 返回 null 跳过）；失败告警不阻断
+          void this.runRebuild(stagingDir).then(() => settle({ ok: true }));
           return;
         }
         if (pkgErrorCode && this.isNetworkError(pkgErrorCode)) {
@@ -261,6 +311,12 @@ export class PnpmRunner extends BasePkgMgrRunner {
   /** ERR_PNPM_FETCH_* 属 registry 类错误（包解析/下载失败 → registry-unreachable） */
   protected override isNetworkError(code: string): boolean {
     return NETWORK_ERROR_CODES.includes(code) || code.startsWith('FETCH_');
+  }
+
+  /** P3：pnpm 11 默认忽略 build scripts（ERR_PNPM_IGNORED_BUILDS）→ 装后显式 rebuild 原生依赖（CON-R-pkgmgr-003）。
+   *  cwd=stagingDir 已由 runRebuild 注入，命令与实测可用形式一致：`pnpm rebuild <pkgs>` */
+  protected override rebuildCommand(stagingDir: string): { command: string; args: string[] } | null {
+    return { command: 'pnpm', args: ['rebuild', ...NATIVE_DEP_PKGS] };
   }
 }
 

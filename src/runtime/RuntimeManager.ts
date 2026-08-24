@@ -13,7 +13,7 @@ import {
 } from '../shared/types';
 import { HullError, StartTimeoutError, SpawnFailedError, DshMissingError, ChildExitedError } from '../shared/errors';
 import { ReadinessProbe, type ProbeResult } from './ReadinessProbe';
-import { buildSpawnArgv, dshBinPath } from './spawnArgs';
+import { buildSpawnArgv, dshEntryPath } from './spawnArgs';
 
 export type { RuntimeLogger, ChildLike } from '../shared/types';
 
@@ -35,6 +35,7 @@ export interface SpawnOptionsLike {
   detached?: boolean;
   cwd?: string;
   stdio?: StdioOptions;
+  env?: NodeJS.ProcessEnv;
 }
 
 /** spawn 注入类型（默认 child_process.spawn；测试注入 stub） */
@@ -164,13 +165,16 @@ export class RuntimeManager extends EventEmitter {
     if (this.child && this.child.exitCode === null) await this.killProcessGroup(this.child);
     const nodePath = this.resolveNodePath();
     this.transition(RuntimePhase.Starting, '正在启动 dsh…');
-    const argv = buildSpawnArgv(nodePath, dshBinPath(overlayDir));
+    // P2 CON-R-pkgmgr-004/005：真实 JS 入口（不依赖 .bin shim）+ ELECTRON_RUN_AS_NODE=1 + 剥离 env
+    const entryPath = dshEntryPath(overlayDir);
+    const argv = buildSpawnArgv(nodePath, entryPath);
     let child: ChildLike;
     try {
       child = this.spawnFn(argv[0], argv.slice(1), {
         detached: true,
         cwd: overlayDir,
         stdio: ['ignore', 'pipe', 'pipe'],
+        env: sanitizeSpawnEnv(),
       });
     } catch (err) {
       this.transition(RuntimePhase.Failed, `dsh 启动失败: ${(err as Error).message}`);
@@ -304,8 +308,7 @@ export class RuntimeManager extends EventEmitter {
     return 'node';
   }
 
-  /** 探测失败结构化映射（契约 #1 异常）：窗口耗尽/就绪行超时 → start-timeout；流提前结束 → child-exited */
-  private mapProbeFailure(pr: ProbeResult): HullError {
+  /** 探测失败结构化映射（契约 #1 异常）：窗口耗尽/就绪行超时 → start-timeout；流提前结束 → child-exited */  private mapProbeFailure(pr: ProbeResult): HullError {
     switch (pr.reason) {
       case 'ready-line-timeout':
       case 'probe-window-exhausted':
@@ -374,4 +377,20 @@ export class RuntimeManager extends EventEmitter {
       });
     });
   }
+}
+
+/**
+ * spawn 环境净化（P2 CON-R-pkgmgr-005，VS Code 实践 / lib-3 调研）：
+ * - 注入 ELECTRON_RUN_AS_NODE=1：即使 nodeBin 是捆绑 node 也统一（防被 Electron 环境变量污染）
+ * - 剥离 NODE_OPTIONS + 所有 ELECTRON_* 变量：防宿主 Electron 的 node 参数/环境泄漏进 dsh 子进程
+ * - 其余环境变量原样透传（PATH 等）
+ */
+function sanitizeSpawnEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.NODE_OPTIONS;
+  for (const key of Object.keys(env)) {
+    if (key.startsWith('ELECTRON_')) delete env[key];
+  }
+  env.ELECTRON_RUN_AS_NODE = '1';
+  return env;
 }

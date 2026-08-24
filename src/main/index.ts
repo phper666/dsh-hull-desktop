@@ -11,7 +11,7 @@ import { DshMissingError, HullError } from '../shared/errors';
 import { HullUpdatePhase, InstallPhase, RuntimePhase, UpgradePhase } from '../shared/types';
 import { OverlayManager } from '../overlay/OverlayManager';
 import { InstallFlow } from '../overlay/InstallFlow';
-import { createPkgMgrRunner, toRunNpmInstall, type PkgMgrRunOptions } from '../overlay/pkgMgr';
+import { createPkgMgrRunner, toRunNpmInstall, type PkgMgrRunOptions, type PkgMgrRunner } from '../overlay/pkgMgr';
 import { Updater } from '../updater/Updater';
 import { SwapManager } from '../updater/SwapManager';
 import { UpgradeQueue } from '../updater/UpgradeQueue';
@@ -163,11 +163,20 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   const npmOutputTarget: { fn: ((line: string) => void) | null } = { fn: null };
   // 首装进度钩子 holder：overlay 在后面构造，onLine 触发时可能 overlay 未初始化（与 npmOutputTarget 同模式）
   const installLineTarget: { fn: ((line: string) => void) | null } = { fn: null };
-  // P1 阶段默认 npm（P3 接 settings.packageManager 字段后改为 `settings.getSettings().packageManager ?? 'npm'`）
-  const pkgMgrRunner = createPkgMgrRunner('npm', {
+  // P3：包管理器按「安装时当前 settings.packageManager」选（用户切换设置后无需重启壳即生效）；
+  // 每次安装前经 createPkgMgrRunner 重建 runner——开关可读、切设置即时生效（CON-R-pkgmgr-008：
+  // 工厂未知/非法名已回退 npm）。pkgMgrRunner 供取消路径用（cancel 需命中当前 runner）。
+  let pkgMgrRunner: PkgMgrRunner = createPkgMgrRunner('npm', {
     nodePath: existsSync(bundledNode) ? bundledNode : 'node',
     logger,
   });
+  const newPkgMgrRunner = (): PkgMgrRunner => {
+    pkgMgrRunner = createPkgMgrRunner(settings.getSettings().packageManager, {
+      nodePath: existsSync(bundledNode) ? bundledNode : 'node',
+      logger,
+    });
+    return pkgMgrRunner;
+  };
   const pkgMgrOptions: PkgMgrRunOptions = {
     registry: settings.getSettings().registry, // S6 B7：settings.registry 优先 + env 兜底
     onLine: (line) => {
@@ -179,7 +188,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   const overlay = new OverlayManager({
     userDataPath,
     logger,
-    runNpmInstall: toRunNpmInstall(pkgMgrRunner, pkgMgrOptions), // 委托 pkgMgrRunner（错误码透传）
+    runNpmInstall: (stagingDir, targetVersion) => toRunNpmInstall(newPkgMgrRunner(), pkgMgrOptions)(stagingDir, targetVersion), // 委托 pkgMgrRunner（错误码透传）
   });
   installLineTarget.fn = (line) => overlay.onNpmLine(line);
   const installFlow = new InstallFlow({ userDataPath, overlay, isDev: !app.isPackaged, logger });

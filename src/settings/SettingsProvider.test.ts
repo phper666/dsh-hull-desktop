@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync,
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { SettingsProvider, type ThemeName } from './SettingsProvider';
+import { SettingsProvider, type PkgMgrName, type ThemeName } from './SettingsProvider';
 
 const tempDirs: string[] = [];
 after(() => {
@@ -298,4 +298,59 @@ test('T2-⑥ theme 类型错（number）→ 回退 dark + 告警', () => {
   const { provider } = makeProvider({ 'settings.json': JSON.stringify({ theme: 42 }) }, warns);
   equal(provider.getSettings().theme, 'dark');
   ok(warns.length >= 1, '应产生告警日志');
+});
+
+// ── P3 packageManager 字段（CON-R-pkgmgr-001/008）──
+test('P3-① 缺 settings.json → packageManager 默认 pnpm', () => {
+  const { provider } = makeProvider({});
+  equal(provider.getSettings().packageManager, 'pnpm');
+});
+
+test('P3-② set packageManager=yarn → 持久化 + 读回 + 文件落盘 + 广播', () => {
+  const { provider, dir } = makeProvider({});
+  const changed: Array<Record<string, unknown>> = [];
+  provider.on('changed', (s) => changed.push(s as unknown as Record<string, unknown>));
+  provider.set({ packageManager: 'yarn' });
+  equal(provider.getSettings().packageManager, 'yarn');
+  const parsed = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as { packageManager: string };
+  equal(parsed.packageManager, 'yarn');
+  equal(changed.length, 1);
+  equal(changed[0].packageManager, 'yarn');
+});
+
+test('P3-③ 非法 packageManager 值 → 读回退 pnpm + 告警', () => {
+  const warns: string[] = [];
+  const { provider } = makeProvider({ 'settings.json': JSON.stringify({ packageManager: 'bun' }) }, warns);
+  equal(provider.getSettings().packageManager, 'pnpm');
+  ok(warns.length >= 1, '应产生告警日志');
+});
+
+test('P3-④ 旧 settings 无 packageManager → 读回退 pnpm（既有字段不受影响）', () => {
+  const { provider } = makeProvider({ 'settings.json': JSON.stringify({ closeToQuit: true, theme: 'light' }) });
+  const s = provider.getSettings();
+  equal(s.packageManager, 'pnpm');
+  equal(s.closeToQuit, true);
+  equal(s.theme, 'light');
+});
+
+test('P3-⑤ set 非法 packageManager → 读回退 pnpm（与 theme 校验对称）', () => {
+  const { provider } = makeProvider({});
+  provider.set({ packageManager: 'bun' as PkgMgrName });
+  equal(provider.getSettings().packageManager, 'pnpm');
+});
+
+test('P3-⑥ migrate：旧文件 schemaVersion 1 → 补 packageManager 默认 pnpm', () => {
+  const { provider, dir } = makeProvider({ 'settings.json': JSON.stringify({ closeToQuit: true, schemaVersion: 1 }) });
+  provider.migrate();
+  const parsed = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as Record<string, unknown>;
+  equal(parsed.schemaVersion, 3);
+  equal(parsed.packageManager, 'pnpm');
+  equal(parsed.closeToQuit, true, '既有字段保留');
+});
+
+test('P3-⑦ set 已合法 packageManager 后 schemaVersion 仍 3（字段级扩展不 bump）', () => {
+  const { provider, dir } = makeProvider({});
+  provider.set({ packageManager: 'npm' });
+  const parsed = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as { schemaVersion: number };
+  equal(parsed.schemaVersion, 3);
 });

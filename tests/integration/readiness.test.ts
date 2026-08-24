@@ -115,11 +115,12 @@ test('⑤ spawnFn DI 主路：fake-dsh ready → RuntimeManager ready', async ()
   await mgr.stop();
 });
 
-test('⑥ symlink 补验路：临时 overlay + bin/dsh symlink → 真实 spawn 就绪', async () => {
+test('⑥ 真实入口补验路：临时 overlay + lib/bin.js 入口 → 真实 spawn 就绪（P2 不依赖 .bin shim）', async () => {
   const userDataPath = makeTempDir();
   const overlayDir = join(userDataPath, 'dsh');
-  mkdirSync(join(overlayDir, 'bin'), { recursive: true });
-  symlinkSync(FAKE_DSH, join(overlayDir, 'bin', 'dsh')); // bin/dsh → fake-dsh（S1 dshBinPath 落点）
+  mkdirSync(join(overlayDir, 'lib'), { recursive: true });
+  // P2：spawn 用 dshEntryPath 解析真实 JS 入口（无 package.json → <overlay>/lib/bin.js 兜底）
+  symlinkSync(FAKE_DSH, join(overlayDir, 'lib', 'bin.js'));
   const mgr = new RuntimeManager({
     userDataPath,
     sleep: async () => {}, // 即时 sleep：防 kill 宽限 5s 定时器挂起

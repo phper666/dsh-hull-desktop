@@ -53,11 +53,11 @@ function makeManager(dev = false, opts: MakeManagerOptions = {}) {
   const probeResult: ProbeResult | 'pending' = opts.probeResult ?? 'pending';
   let spawnCalls = 0;
   let lastChild = new FakeChild();
-  let lastSpawn: { cmd: string; args: readonly string[] } | null = null;
-  const spawnFn: SpawnFn = (cmd, args) => {
+  let lastSpawn: { cmd: string; args: readonly string[]; opts?: { env?: NodeJS.ProcessEnv; detached?: boolean; cwd?: string } } | null = null;
+  const spawnFn: SpawnFn = (cmd, args, spawnOpts) => {
     spawnCalls += 1;
     lastChild = new FakeChild();
-    lastSpawn = { cmd, args };
+    lastSpawn = { cmd, args, opts: spawnOpts as { env?: NodeJS.ProcessEnv; detached?: boolean; cwd?: string } };
     return lastChild;
   };
   const probeFactory = () => ({
@@ -73,9 +73,7 @@ function makeManager(dev = false, opts: MakeManagerOptions = {}) {
     ...(opts.logger ? { logger: opts.logger } : {}),
   });
   return { mgr, userDataPath, getSpawnCalls: () => spawnCalls, getChild: () => lastChild, getLastSpawn: () => lastSpawn };
-}
-
-const pidFile = (userDataPath: string) => join(userDataPath, 'dsh.pid');
+}const pidFile = (userDataPath: string) => join(userDataPath, 'dsh.pid');
 
 test('① idle→starting→ready 合法迁移 + status 事件序列', async () => {
   const { mgr } = makeManager(false, { probeResult: OK_RESULT });
@@ -330,3 +328,72 @@ test('🟡Y-2 stop 并发守卫：重复 stop 不冲突', async () => {
   await Promise.all([mgr.stop(), mgr.stop(), mgr.stop()]);
   equal(mgr.snapshot().phase, 'idle');
 });
+
+test('P2-① spawn 用真实入口路径（非 .bin shim）：args[1] = <overlay>/lib/bin.js 兜底', async () => {
+  const { mgr, userDataPath, getLastSpawn } = makeManager(false, { probeResult: OK_RESULT });
+  await mgr.start();
+  const args = getLastSpawn()?.args ?? [];
+  // args[0]=--expose-internals, args[1]=entry（包缺失 → <overlay>/lib/bin.js 兜底）
+  equal(args[0], '--expose-internals');
+  equal(args[1], join(userDataPath, 'dsh', 'lib', 'bin.js'));
+  ok(args.includes('web'));
+  ok(args.includes('--no-open'));
+});
+
+test('P2-② env 剥离：ELECTRON_* 与 NODE_OPTIONS 从 spawn env 删除', async () => {
+  // 预置会被剥离的变量
+  const prev = {
+    NODE_OPTIONS: process.env.NODE_OPTIONS,
+    ELECTRON_RUN_AS_NODE: process.env.ELECTRON_RUN_AS_NODE,
+    ELECTRON_ENABLE_LOGGING: process.env.ELECTRON_ENABLE_LOGGING,
+    ELECTRON_EXTRA_LAUNCH_ARGS: process.env.ELECTRON_EXTRA_LAUNCH_ARGS,
+    HULL_NODE_PATH: process.env.HULL_NODE_PATH,
+  };
+  process.env.NODE_OPTIONS = '--max-old-space-size=4096';
+  process.env.ELECTRON_RUN_AS_NODE = '1';
+  process.env.ELECTRON_ENABLE_LOGGING = '1';
+  process.env.ELECTRON_EXTRA_LAUNCH_ARGS = '--inspect';
+  delete process.env.HULL_NODE_PATH; // 确保 resolveNodePath 走 PATH（node）
+  try {
+    const { mgr, getLastSpawn } = makeManager(false, { probeResult: OK_RESULT });
+    await mgr.start();
+    const env = getLastSpawn()?.opts?.env ?? {};
+    equal(env.ELECTRON_RUN_AS_NODE, '1', '注入 ELECTRON_RUN_AS_NODE=1');
+    equal(env.NODE_OPTIONS, undefined, 'NODE_OPTIONS 被剥离');
+    equal(env.ELECTRON_ENABLE_LOGGING, undefined, 'ELECTRON_* 被剥离');
+    equal(env.ELECTRON_EXTRA_LAUNCH_ARGS, undefined, 'ELECTRON_* 被剥离');
+    equal(env.ELECTRON_RUN_AS_NODE, '1', 'ELECTRON_RUN_AS_NODE 显式重设（即使原 env 有）');
+  } finally {
+    for (const [k, v] of Object.entries(prev)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+});
+
+test('P2-③ 剥离后保留非 ELECTRON 环境变量（PATH 等）', async () => {
+  const prev = { NODE_OPTIONS: process.env.NODE_OPTIONS, ELECTRON_ENABLE_LOGGING: process.env.ELECTRON_ENABLE_LOGGING };
+  process.env.NODE_OPTIONS = '--trace-warnings';
+  process.env.ELECTRON_ENABLE_LOGGING = '1';
+  try {
+    const { mgr, getLastSpawn } = makeManager(false, { probeResult: OK_RESULT });
+    await mgr.start();
+    const env = getLastSpawn()?.opts?.env ?? {};
+    ok(typeof env.PATH === 'string', 'PATH 保留');
+    equal(env.NODE_OPTIONS, undefined);
+    equal(env.ELECTRON_ENABLE_LOGGING, undefined);
+  } finally {
+    for (const [k, v] of Object.entries(prev)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+});
+
+test('P2-④ detached=true + cwd=overlay 保持（进程组杀依赖）', async () => {
+  const { mgr, userDataPath, getLastSpawn } = makeManager(false, { probeResult: OK_RESULT });
+  await mgr.start();
+  equal(getLastSpawn()?.opts?.detached, true);
+  equal(getLastSpawn()?.opts?.cwd, join(userDataPath, 'dsh'));
+});
+
