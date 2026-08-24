@@ -3,6 +3,13 @@
 > Skills 检查器模块（壳内独立视图：统一扫描/全局 vs 平台判定/来源跳转/升级检测/搜索/禁用/移除）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-Skills检查器.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-08-24 平台扩展续（v1.6）——注册表新增 4 平台（dsh/harness/qoder/reasonix）
+
+- 类型：规则描述扩展（CON-R-skills-001/002，向后兼容），升共识 v1.6
+- 内容：**注册表新增 4 平台**（lib-2 调研官方目录约定）：dsh=`~/.dsh/skills/`（`$DSH_HOME/skills`，本机 `~/.dsh` 存在）、harness=`~/.harness/skills/`、qoder=`~/.qoder/skills/`+`~/.qoder-cn/skills/`（CN 归并，本机 `~/.qoder` 有 28 skills）、reasonix=`~/.reasonix/skills/`；平台清单 13→16；扫描目录同步；均为 scoped 单平台
+- 影响：registry.ts REGISTRY/ALL_AGENT_PLATFORMS + skills.js PLATFORMS/install 列表同步；registry.test/SkillsScanner.test 断言更新；另修复 skills 工具条操作按钮 wrap 拆散（.sk-ops 分组）
+- 状态：已发布（2026-08-24，PM）；实现已完成（unit 596 + int 8 + e2e 27 绿）
+
 ## 2026-08-24 平台扩展（v1.5）——注册表新增 7 平台（windsurf/warp/trae/cline/roo/continue/devin）
 
 - 类型：规则描述扩展（CON-R-skills-001/002，向后兼容），升共识 v1.5

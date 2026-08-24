@@ -1,16 +1,17 @@
 # Hull 桌面壳（Skills 检查器）共识文档
 
-> 版本：v1.5 · 更新：2026-08-24 · 维护者：phper666（PM） · 状态：已发布
+> 版本：v1.6 · 更新：2026-08-24 · 维护者：phper666（PM） · 状态：已发布
 > 数据来源：Skills Checker PRD v0.1（docs/prd/2026-08-22-skills-checker-prd.md）、交互原型（docs/prototype/2026-08-22-skills-checker-prototype.html）
 > 关联：独立新需求（非 M2 看板增量）；需求标识 `skills`；B2 范围
 
 ## 1. 文档元信息
 
-- **本版本变更**：v1.5 已发布——平台扩展（向后兼容）：CON-R-skills-001/002 注册表新增 7 平台（windsurf/warp/trae/cline/roo/continue/devin，trae 含 CN 版 `~/.trae-cn/skills/` 归并），平台清单 6→13；扫描目录清单同步；无标准 skills 约定的 agent（Amazon Q/Aider）明确不纳入；§3/§10/红线同步。
+- **本版本变更**：v1.6 已发布——平台扩展续（向后兼容）：CON-R-skills-001/002 注册表新增 4 平台（dsh/harness/qoder/reasonix，qoder 含 CN 版 `~/.qoder-cn/skills/` 归并），平台清单 13→16；扫描目录清单同步；lib-2 调研确认官方目录约定。
+- **历史变更摘要**：v1.5 已发布——平台扩展（向后兼容）：CON-R-skills-001/002 注册表新增 7 平台（windsurf/warp/trae/cline/roo/continue/devin，trae 含 CN 版 `~/.trae-cn/skills/` 归并），平台清单 6→13；扫描目录清单同步；无标准 skills 约定的 agent（Amazon Q/Aider）明确不纳入；§3/§10/红线同步。
 - **历史变更摘要**：v1.4 已发布——T-5 跨 agent 重叠展示定案关闭（实现已覆盖 §5.1 褶皱处理，确认定案，向后兼容不升主版本）：跨目录同名 skill 按 name 聚合、realpath 同源去重、平台徽标合并显示全部生效平台、全局路径优先展示（§5.3）；落地位置 SkillsScanner 七步管线（注册表遍历→realpath 解析去重→…→按 name 聚合）与前端平台筛选/多平台徽标。无新规则变化，T-5 由 open→已关闭。
 - **历史变更摘要**：v1.3 已发布——Q-034 变更（CON-R-skills-004/005）：skills-lock.json 移除，升级检测只依赖标准位置（详见变更摘要-Skills检查器.md 2026-08-24 条目，实现已落地）。v1.2 已发布——BE/FE/QA 扫描待确认项 Q-031~Q-038 全部定案回写（均为确认/细化，向后兼容，不升主版本）：① **Q-031（BLOCKER）禁用按路径粒度**——每个物理路径独立禁用/启用；共享目录 skill 整体移出=全平台禁，平台专属副本单独禁；② **Q-032 禁用物理操作对象**——symlink 来源移除 symlink（源保留在原始仓库/SSOT），实目录来源 rename 到 disabled 目录，userData 记录被禁用路径+原路径映射；③ **Q-033 升级非 git/lock 来源**——无 source+无 lock → 升级入口禁用「无法检测版本」；有 metadata.source 非 git → 用 source URL 重新获取（staging→原子替换）；git clone 来源不原位 git pull（非原子），改 clone 到 staging→原子替换→失败回滚；④ **Q-034 远端哈希四级优先级**——skills-lock.json → 各平台 lock → cc-switch content_hash → git remote 临时 clone 计算，按 name 匹配、skills-lock 优先覆盖，均无 → unknown；⑤ **Q-035 回收站策略**——TTL 30 天自动清理 + 容量上限 500MB（最旧先删），恢复冲突提示，条目记录原路径+删除时间；⑥ **Q-036 搜索 UI 定型**——本地/远程两 tab 默认本地，远程结果展示名称/描述/来源/安装数、仅浏览标注「未安装」；⑦ **Q-037 破坏性操作可测性**——SkillFsOps 接口抽象 + 临时目录注入 e2e，真实目录留冒烟；⑧ **Q-038 路径穿越校验**——basename(realpath) 校验拒绝 ../空名/非法字符，openExternal 仅 ^https:// 白名单。
 - **历史变更摘要**：v1.1 已发布——用户评审定案 T-1~T-4、T-6（T-5 保持 open）：① T-4 禁用=移目录真禁用（agent 平台真生效，否决壳内白名单）；② T-2 远程搜索接入、本地/远程分开展示（仅浏览不安装）；③ T-3 升级执行 npx skills update 优先/git pull 次选/不重 clone；④ T-1 远端哈希 skills-lock.json 优先/git remote 次选；⑤ T-6 移除前备份 userData 回收站；CON-R-skills-008 由「变更中」→「生效」（定案移目录），新增 CON-R-skills-010（本地/远程搜索分开）。v1.0 首次建立——从 Skills Checker PRD v0.1（待评审）+ 原型提取整理为业务事实源；登记 CON-R-skills-001~009（独立编号域）、未决项 T-1~T-6（PRD §10.2，评审前不关闭）。
-- **状态说明**：v1.5 已发布（平台扩展）；PRD 已升级至 v0.2 反映全部决策；T-1~T-6 全部关闭；扫描待确认项 Q-031~Q-038、Q-056 全部已关闭（§11.2）。
+- **状态说明**：v1.6 已发布（平台扩展续）；PRD 已升级至 v0.2 反映全部决策；T-1~T-6 全部关闭；扫描待确认项 Q-031~Q-038、Q-056 全部已关闭（§11.2）。
 
 ## 2. 文档结构总览
 
@@ -25,7 +26,7 @@
 |:-----|:-----|:-----|
 | skill | 装在某 agent 平台目录下、含 SKILL.md 的能力单元；本功能的最小管理单位 | PRD §1/§5 |
 | 全局 skill | 存在于 `~/.agents/skills/`（universal，所有平台生效）或 realpath 指向共享目录的 skill | PRD §5.1/FR-2 |
-| 平台 scoped skill | 仅特定平台生效的 skill；`~/.claude/skills/`=claude-code+opencode，`~/.config/opencode/skills/`=opencode 专属，其余各平台目录=各自专属（windsurf/warp/trae/cline/roo/continue/devin） | PRD §5.1/FR-2 |
+| 平台 scoped skill | 仅特定平台生效的 skill；`~/.claude/skills/`=claude-code+opencode，`~/.config/opencode/skills/`=opencode 专属，其余各平台目录=各自专属（windsurf/warp/trae/cline/roo/continue/devin/dsh/harness/qoder/reasonix） | PRD §5.1/FR-2 |
 | SKILL.md frontmatter | skill 目录内 SKILL.md 开头的 YAML 元数据：name（必填）/description（必填）/license/compatibility/metadata | PRD §5.2 |
 | 内容哈希 | SHA-256 覆盖 skill 文件夹全部文件（path+content 排序后计算），升级检测判据，非版本号 | PRD §3.4/§5.3 |
 | 来源解析 | 一级解析 skill 来源 URL（Q-034 v1.3 变更：lock 二级降级移除）：frontmatter `metadata.source` 匹配 `^https://` → 采用；无则「来源未知」 | PRD §3.5/§5.4 |
@@ -126,8 +127,8 @@
 
 | 编号 | 规则描述 | 来源 | 当前结论 | 变更状态 |
 |:-----|:---------|:-----|:---------|:---------|
-| CON-R-skills-001 | Agent→目录注册表硬编码：claude-code=`~/.claude/skills/`、opencode=`~/.config/opencode/skills/`（**同时读取** `~/.claude/skills/` 与 `~/.agents/skills/`）、codex=`~/.codex/skills/`、gemini-cli=`~/.gemini/skills/`、cursor=`~/.cursor/skills/`、windsurf=`~/.codeium/windsurf/skills/`、warp=`~/.warp/skills/`、trae=`~/.trae/skills/`（+`~/.trae-cn/skills/` 合并同平台）、cline=`~/.cline/skills/`、roo=`~/.roo/skills/`、continue=`~/.continue/skills/`、devin=`~/.config/devin/skills/`、shared=`~/.agents/skills/`；单点集中维护（§5.1），目录约定变化只改此处；无标准 skills 约定的 agent（Amazon Q/Aider）不纳入 | PRD §5.1/§7 | 生效 | 稳定 |
-| CON-R-skills-002 | 全局 vs 平台 scoped 判定 = 目录位置 + symlink realpath 解析：`~/.agents/skills/`=universal（所有平台）；`~/.claude/skills/`=claude-code+opencode（opencode 会读）；`~/.config/opencode/skills/`=opencode 专属；其余平台目录=各自专属；trae 与 trae-cn 归并为 trae 平台（同 agent 双发行版）；列表按 skill 名聚合、平台徽标显示全部生效平台；realpath 同源避免重复计入 | PRD §5.1/FR-2 | 生效 | 稳定 |
+| CON-R-skills-001 | Agent→目录注册表硬编码：claude-code=`~/.claude/skills/`、opencode=`~/.config/opencode/skills/`（**同时读取** `~/.claude/skills/` 与 `~/.agents/skills/`）、codex=`~/.codex/skills/`、gemini-cli=`~/.gemini/skills/`、cursor=`~/.cursor/skills/`、windsurf=`~/.codeium/windsurf/skills/`、warp=`~/.warp/skills/`、trae=`~/.trae/skills/`（+`~/.trae-cn/skills/` 合并同平台）、cline=`~/.cline/skills/`、roo=`~/.roo/skills/`、continue=`~/.continue/skills/`、devin=`~/.config/devin/skills/`、dsh=`~/.dsh/skills/`、harness=`~/.harness/skills/`、qoder=`~/.qoder/skills/`（+`~/.qoder-cn/skills/` 合并同平台）、reasonix=`~/.reasonix/skills/`、shared=`~/.agents/skills/`；单点集中维护（§5.1），目录约定变化只改此处；无标准 skills 约定的 agent（Amazon Q/Aider）不纳入 | PRD §5.1/§7 | 生效 | 稳定 |
+| CON-R-skills-002 | 全局 vs 平台 scoped 判定 = 目录位置 + symlink realpath 解析：`~/.agents/skills/`=universal（所有平台）；`~/.claude/skills/`=claude-code+opencode（opencode 会读）；`~/.config/opencode/skills/`=opencode 专属；其余平台目录=各自专属；trae 与 trae-cn 归并为 trae、qoder 与 qoder-cn 归并为 qoder（同 agent 双发行版）；列表按 skill 名聚合、平台徽标显示全部生效平台；realpath 同源避免重复计入 | PRD §5.1/FR-2 | 生效 | 稳定 |
 | CON-R-skills-003 | 破坏性操作（移除/升级/禁用）必须二次确认，展示物理路径 + 受影响平台清单；全局 skill 移除额外警示（影响所有平台）；移除前备份到 userData 回收站（`<userData>/skills/trash/`，可恢复）；回收站策略（Q-035 定案）：条目记录原路径+删除时间，TTL 30 天自动清理 + 容量上限 500MB（超出最旧先删），恢复时目标路径被占用 → 提示冲突；操作日志留痕 | PRD §3.1/FR-5/§8/T-6/Q-035 | 生效 | 稳定 |
 | CON-R-skills-004 | 升级检测 = 内容哈希（SHA-256 覆盖 skill 文件夹全部文件，path+content 排序，顺序无关）对比远端哈希，非版本号对比（生态无统一 version 字段）；远端哈希来源（Q-034 v1.3 变更：skills-lock.json 移除——历史静态快照无持续生成者，升级检测只依赖标准位置）：① 各平台 lock（`.arkcli-managed-skills.json` 等，name→sha256）→ ② frontmatter metadata.source 推断 → ③ cc-switch content_hash（表空待办）→ ④ git remote 临时 clone（网络成本待办）；均无 → unknown「无法检测」；升级执行（T-3/Q-033 定案）：优先 `npx skills update`（不依赖 source URL，npx 官方通道）；无 source+无远端哈希 → 升级入口禁用显示「无法检测版本」；有 metadata.source 非 git → 用 source URL 重新获取（staging→原子替换）；git clone 来源不原位 git pull（非原子），改 clone 到 staging → 原子替换 → 失败回滚 | PRD §3.4/§5.3/§6/D-3/T-1/T-3/Q-033/Q-034 | 生效 | 稳定 |
 | CON-R-skills-005 | 来源解析一级（Q-034 v1.3 变更：lock 二级降级移除——来源只认 frontmatter `metadata.source`）：① SKILL.md frontmatter `metadata.source` 匹配 `^https://` → 采用；无 → 显示「来源未知」，跳转/升级 git 轨禁用（npx 轨升级仍可用，不依赖 source） | PRD §3.5/§5.4/D-4 | 生效 | 稳定 |
@@ -139,19 +140,19 @@
 
 ## 9. 枚举值与常量
 
-- **平台**：claude-code / opencode / codex / gemini-cli / cursor / windsurf / warp / trae / cline / roo / continue / devin / shared（全局）。
+- **平台**：claude-code / opencode / codex / gemini-cli / cursor / windsurf / warp / trae / cline / roo / continue / devin / dsh / harness / qoder / reasonix / shared（全局）。
 - **scope**：global（全局）/ scoped（平台限定）。
 - **升级状态**：latest（最新）/ upgradable（可升级）/ unknown（无法检测版本，升级禁用）。
 - **来源状态**：resolved / unknown（「来源未知」）。
 - **skill 启用状态**：enabled / disabled。
-- **扫描目录清单**：`~/.claude/skills/`、`~/.config/opencode/skills/`、`~/.agents/skills/`、`~/.codex/skills/`、`~/.gemini/skills/`、`~/.cursor/skills/`、`~/.codeium/windsurf/skills/`、`~/.warp/skills/`、`~/.trae/skills/`、`~/.trae-cn/skills/`、`~/.cline/skills/`、`~/.roo/skills/`、`~/.continue/skills/`、`~/.config/devin/skills/`（+ 参考 `~/.cc-switch/` 只读，数据自管不依赖其运行）。
+- **扫描目录清单**：`~/.claude/skills/`、`~/.config/opencode/skills/`、`~/.agents/skills/`、`~/.codex/skills/`、`~/.gemini/skills/`、`~/.cursor/skills/`、`~/.codeium/windsurf/skills/`、`~/.warp/skills/`、`~/.trae/skills/`、`~/.trae-cn/skills/`、`~/.cline/skills/`、`~/.roo/skills/`、`~/.continue/skills/`、`~/.config/devin/skills/`、`~/.dsh/skills/`、`~/.harness/skills/`、`~/.qoder/skills/`、`~/.qoder-cn/skills/`、`~/.reasonix/skills/`（+ 参考 `~/.cc-switch/` 只读，数据自管不依赖其运行）。
 - **常量**：描述列表截断 2 行（详情可展开/悬浮）；内容哈希 SHA-256；首屏性能 <2s（200+ skill）；升级原子替换（staging → 替换 → 失败回滚）；回收站 TTL 30 天 + 容量上限 500MB（Q-035）。
 
 ## 10. 第三方对接
 
 | 外部系统 | 用途 | 关键点 |
 |:---------|:-----|:-------|
-| agent 平台 skill 目录（claude-code/opencode/codex/gemini-cli/cursor/windsurf/warp/trae/cline/roo/continue/devin） | 统一扫描数据源 | 目录约定硬编码注册表（§5.1）；opencode 多目录读取（`~/.claude` + `~/.agents` + 自身）单独处理；目录不存在→跳过标「未安装」 |
+| agent 平台 skill 目录（claude-code/opencode/codex/gemini-cli/cursor/windsurf/warp/trae/cline/roo/continue/devin/dsh/harness/qoder/reasonix） | 统一扫描数据源 | 目录约定硬编码注册表（§5.1）；opencode 多目录读取（`~/.claude` + `~/.agents` + 自身）单独处理；目录不存在→跳过标「未安装」 |
 | 远端哈希来源（T-1/Q-034 定案，v1.3 变更） | 升级检测对比 | 来源优先级：① 各平台 lock（`.arkcli-managed-skills.json` 等，name→sha256，标准位置）→ ② frontmatter metadata.source 推断 → ③ cc-switch content_hash（表空待办）→ ④ git remote 临时 clone（网络成本待办）；skills-lock.json 已移除（历史静态快照无持续生成者，不再读取）；均无 → unknown「无法检测」、升级禁用 |
 | cc-switch（只读） | 远端哈希来源 ③（Q-034）：content_hash；另参考 per-agent 生效布尔思路 | `~/.cc-switch/cc-switch.db` skills 表含 enabled_claude/enabled_codex/enabled_gemini/enabled_opencode/enabled_hermes、content_hash、readme_url；数据自管（壳 userData），不依赖 cc-switch 运行 |
 | shell.openExternal | 来源跳转浏览器 | 仅 https URL 白名单校验（CON-R-skills-007） |
@@ -237,6 +238,7 @@
 
 | 版本 | 日期 | 变更摘要条目 | 说明 |
 |:-----|:-----|:-------------|:-----|
+| v1.6 | 2026-08-24 | 已登记（已发布） | 平台扩展续（向后兼容）：CON-R-skills-001/002 注册表新增 4 平台（dsh/harness/qoder/reasonix，qoder 含 CN 归并）；平台清单 13→16；扫描目录同步 |
 | v1.5 | 2026-08-24 | 已登记（已发布） | 平台扩展（向后兼容）：CON-R-skills-001/002 注册表新增 7 平台（windsurf/warp/trae/cline/roo/continue/devin，trae 含 CN 归并）；平台清单 6→13；扫描目录同步；Amazon Q/Aider 无标准约定不纳入 |
 | v1.4 | 2026-08-24 | 已登记（已发布） | T-5 跨 agent 重叠展示定案关闭（实现已覆盖 §5.1 褶皱处理）：按 name 聚合 + realpath 同源去重 + 平台徽标合并 + 全局优先展示；无新规则变化，向后兼容 |
 | v1.3 | 2026-08-24 | 已登记（已发布） | Q-034 变更（CON-R-skills-004/005）：skills-lock.json 移除，升级检测只依赖标准位置；T-1 结论同步（各平台 lock → metadata.source 推断，均无则 unknown） |
