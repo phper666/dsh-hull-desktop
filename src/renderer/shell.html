@@ -107,9 +107,9 @@
   /* 左导航（S8 D2：NAV_WIDTH=200 与主进程常量一致） */
   #nav { width: 200px; flex-shrink: 0; background: var(--hull-panel); border-right: 1px solid var(--hull-border); display: flex; flex-direction: column; }
   #nav-title { padding: 16px 16px 10px; font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
-  #nav-items { flex: 1; padding: 4px 8px; overflow-y: auto; }
+  #nav-items { flex: 1; padding: 4px 0; overflow-y: auto; }
   .nav-item {
-    display: block; width: 100%; text-align: left; padding: 9px 12px; margin-bottom: 2px;
+    display: block; width: calc(100% - 16px); text-align: left; padding: 9px 12px; margin: 0 8px 2px;
     border-radius: 8px; border: none; background: transparent; color: var(--hull-text-dim);
     font-size: 13px; cursor: pointer;
   }
