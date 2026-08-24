@@ -37,8 +37,11 @@ npm-debug.log*
 # Coverage
 coverage/
 
-# 构建期 node 下载产物（fetch-node.mjs）
+# 构建期 node 下载产物（fetch-node.mjs，根 vendor/）
 vendor/
+# 豁免：src/renderer/vendor/ = E1 编辑器手动 vendored 资源（easymde/markdown-it/purify + 主题 css），必须入库随壳发布（Q-045 vendoring）
+!src/renderer/vendor/
+!src/renderer/vendor/**
 
 # 测试产物（S7 e2e）
 dist-tests/
