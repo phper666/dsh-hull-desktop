@@ -3,6 +3,13 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-08-24 Hull 包管理器支持共识发布 v1.0（新需求 pkgmgr）
+
+- 类型：共识基线发布（新需求建立）+ 登记 CON-R-pkgmgr-001~008
+- 内容：**三包管理器支持（npm/pnpm/yarn）**——dsh 安装链路改造；默认 pnpm（冷装 28s vs npm 28min 实测）、设置页选择 + settings 持久化；原生依赖自动 rebuild；spawn 跨平台改造（解析真实 JS 入口 + ELECTRON_RUN_AS_NODE，绕开 .bin shim，适配三端 macOS/Windows/Linux）；取消/错误码三包管理器一致；3 子需求 P1（执行器抽象）/P2（spawn 改造）/P3（settings+设置页+rebuild）；未决项 U-1 自动探测/U-2 bun/U-3 包管理器升级
+- 影响：npmRunner 抽象为包管理器执行器；RuntimeManager/buildSpawnArgv spawn 改造（跨平台）；HullSettings 加 packageManager 字段（字段级不 bump schema）；settings 页加选择 UI
+- 状态：已发布（2026-08-24，PM）
+
 ## 2026-08-24 首装流程需求变更（共识 v1.8）——不再自动触发安装，进引导态手动装
 
 - 类型：需求变更（用户拍板，向后兼容语义调整），升共识 v1.8
