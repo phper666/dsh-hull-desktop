@@ -1,14 +1,14 @@
 # Hull 桌面壳（主题切换）共识文档
 
-> 版本：v1.0 · 更新：2026-08-24 · 维护者：phper666（PM） · 状态：已发布
+> 版本：v1.1 · 更新：2026-08-24 · 维护者：phper666（PM） · 状态：已发布
 > 数据来源：Hull Theme PRD v0.1（docs/prd/2026-08-24-hull-theme-prd.md）
 > 关联：新增需求（Hull 模块壳 UI 增强）；需求标识 `theme`；B1 范围
 
 ## 1. 文档元信息
 
-- **本版本变更**：v1.0 首次建立——从 Hull Theme PRD v0.1 提取整理为业务事实源；登记 CON-R-theme-001~005。
-- **历史变更摘要**：无（新需求）。
-- **状态说明**：v1.0 已发布；无未决项、无扫描待确认项。
+- **本版本变更**：v1.1 已发布——BE 扫描修正（确认定案，向后兼容）：CON-R-theme-003 主题持久化改「字段级扩展不 bump schemaVersion」（对齐 S6 registry 先例，schemaVersion 保持 3，migrate() `<3` 补齐兜底）；新增 §4.5 schema 处理。
+- **历史变更摘要**：v1.0 首次建立——从 Hull Theme PRD v0.1 提取整理为业务事实源；登记 CON-R-theme-001~005。
+- **状态说明**：v1.1 已发布；BE/FE/QA 扫描完成，无新增 Q-items（全部被共识 §6/FR-2/验收5 覆盖，1 项 BE 修正回写 v1.1）；无未决项。
 
 ## 2. 文档结构总览
 
@@ -50,6 +50,11 @@
 - 设置页选择 → hull:setSettings 持久化 + 根节点 data-theme 更新 → 全 UI 即时生效；
 - 重启后从 settings.json 读 theme 应用。
 
+### 4.5 schema 处理（BE 扫描修正，2026-08-24）
+
+- theme 为**字段级扩展**（对齐 S6 registry 先例）：SettingsProvider 读路径字段级防御解析，旧 settings 无 theme → 回退默认 dark；非法值（非 dark/light）→ 回退 dark 并归一化；
+- **不 bump schemaVersion**（保持 3）——S6 加 registry 字段即不 bump，schemaVersion 仅记录破坏性迁移（S4/S5 合并定 3）；migrate() 的 `< 3` 补齐逻辑已兜底旧数据。
+
 ### 4.5 编辑器主题（FR-5）
 
 - EasyMDE 暗色主题（easymde-dark.css）同样抽变量，亮色有对应亮色变体（Q-045 遗留的暗色 vendor CSS 需配套亮色）。
@@ -57,7 +62,7 @@
 ## 5. 状态
 
 - **主题状态**：dark（默认，保持现状）/ light（新增）。
-- **持久化状态**：theme 字段持久化于 settings.json（HullSettings），schemaVersion bump 3→4（S5/S6 迁移以版本号为判据）。
+- **持久化状态**：theme 字段持久化于 settings.json（HullSettings），**字段级扩展不 bump schemaVersion**（保持 3，对齐 S6 registry 先例；migrate() `< 3` 补齐已兜底旧数据）。
 
 ## 6. 异常分支
 
@@ -79,7 +84,7 @@
 
 ## 9. 扫描待确认项
 
-> 本需求 v1.0 尚未扫描，待 BE/FE/QA 扫描产出。
+> 本需求 v1.1 扫描完成（BE/FE/QA）：无新增 Q-items（持久化失败回退=§6、设置页纳入主题化=FR-2、亮色对比度=验收5 均已覆盖）；BE 发现 1 项修正（schemaVersion bump 非必要，对齐 S6 先例）→ 已回写 §4.5/CON-R-theme-003（v1.1）。
 
 ## 10. 规则编号（CON-R-theme-001~005）
 
@@ -87,7 +92,7 @@
 |:-----|:-----|:-----|:---------|:---------|
 | CON-R-theme-001 | 主题范围 = 仅壳 UI，官方 dsh Web UI 零注入 | PRD §2/FR-2 | 生效 | 稳定 |
 | CON-R-theme-002 | 主题载体 = CSS 变量（`--hull-*`）+ 壳根节点 `data-theme` 属性 | PRD FR-3/FR-4 | 生效 | 稳定 |
-| CON-R-theme-003 | 主题持久化 = settings.json（HullSettings `theme` 字段），schemaVersion bump 3→4 | PRD FR-1/§5 | 生效 | 稳定 |
+| CON-R-theme-003 | 主题持久化 = settings.json（HullSettings `theme` 字段），字段级扩展不 bump schemaVersion（保持 3，对齐 S6 registry 先例；旧数据/非法值读时回退 dark） | PRD FR-1/§5 | 生效 | 稳定 |
 | CON-R-theme-004 | 默认主题 = dark（保持现状），非法值回退 dark | PRD FR-1/§6 | 生效 | 稳定 |
 | CON-R-theme-005 | 硬编码色值全部抽取为 CSS 变量，无残留（除变量定义处） | PRD FR-3/验收6 | 生效 | 稳定 |
 
@@ -118,7 +123,7 @@
 | # | 子需求 | 验收标准（可测试） | 规则绑定 | 依赖 | 来源 PRD |
 |:--|:-------|:-------------------|:---------|:-----|:---------|
 | T1 | 主题化重构（CSS 变量抽取 + 亮色变量集） | 硬编码色值全抽为 `--hull-*` 变量（验收6）；亮色/暗色两套变量集，data-theme 切换生效 | CON-R-theme-002/005 | 无 | hull-theme PRD FR-3 |
-| T2 | 主题持久化 + 设置页切换（settings.theme + schema bump） | 设置页主题区块可切换暗/亮；即时生效；重启保持；非法值回退 dark | CON-R-theme-003/004 | T1 | hull-theme PRD FR-1/FR-4 |
+| T2 | 主题持久化 + 设置页切换（settings.theme 字段级扩展） | 设置页主题区块可切换暗/亮；即时生效；重启保持；非法值回退 dark；旧 settings 无 theme 不报错 | CON-R-theme-003/004 | T1 | hull-theme PRD FR-1/FR-4 |
 | T3 | 编辑器主题配套 | EasyMDE 亮色变体；编辑/预览/详情在亮色下可读 | CON-R-theme-002/005 | T1 | hull-theme PRD FR-5 |
 
 ## 15. 附录
@@ -131,6 +136,7 @@
 
 | 版本 | 日期 | 变更摘要条目 | 说明 |
 |:-----|:-----|:-------------|:-----|
+| v1.1 | 2026-08-24 | 已登记（已发布） | BE 扫描修正：CON-R-theme-003 主题持久化改字段级扩展不 bump schemaVersion（对齐 S6 registry 先例）；新增 §4.5 |
 | v1.0 | 2026-08-24 | 已登记（已发布） | 首次建立：从 Hull Theme PRD v0.1 提取；登记 CON-R-theme-001~005、U-1~U-3 |
 
 ### 15.3 后续规划
