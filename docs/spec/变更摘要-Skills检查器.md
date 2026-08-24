@@ -3,6 +3,13 @@
 > Skills 检查器模块（壳内独立视图：统一扫描/全局 vs 平台判定/来源跳转/升级检测/搜索/禁用/移除）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-Skills检查器.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-08-24 平台扩展（v1.5）——注册表新增 7 平台（windsurf/warp/trae/cline/roo/continue/devin）
+
+- 类型：规则描述扩展（CON-R-skills-001/002，向后兼容），升共识 v1.5
+- 内容：**注册表新增 7 平台**（librarian 调研官方目录约定）：windsurf=`~/.codeium/windsurf/skills/`、warp=`~/.warp/skills/`、trae=`~/.trae/skills/`+`~/.trae-cn/skills/`（CN 版归并同平台）、cline=`~/.cline/skills/`、roo=`~/.roo/skills/`、continue=`~/.continue/skills/`、devin=`~/.config/devin/skills/`；平台清单 6→13（+shared 全局）；扫描目录清单同步；**明确不纳入**：Amazon Q（CLI 已弃用）、Aider（无 skills 体系，社区约定非官方）
+- 影响：registry.ts REGISTRY/ALL_AGENT_PLATFORMS + skills.js 前端 PLATFORMS/install 列表同步；registry.test 断言更新；均为 scoped 单平台（无多目录读取特殊处理）
+- 状态：共识已发布（2026-08-24，PM）；实现待接
+
 ## 2026-08-24 T-5 跨 agent 重叠展示定案关闭（v1.4）
 
 - 类型：未决项定案关闭（确认定案，无新规则变化），升共识 v1.4
