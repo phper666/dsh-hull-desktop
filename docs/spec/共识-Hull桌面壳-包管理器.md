@@ -124,13 +124,13 @@
 
 ## 14. 子需求清单
 
-> 待拆解（Gate B 前补齐）。
+> 已拆解（Gate B 通过 2026-08-24）：ticket 已落 dsh-hull-desktop 清单。
 
-| # | 子需求 | 验收标准（可测试） | 规则绑定 | 依赖 | 来源 PRD |
-|:--|:-------|:-------------------|:---------|:-----|:---------|
-| P1 | 包管理器执行器抽象（npm/pnpm/yarn 三实现） | 三包管理器均能装 dsh 到 staging；输出进度落盘；取消杀子进程；**错误码解析按包管理器适配**（pnpm/yarn 错误格式不同于 npm 的 `npm error code`，registry-unreachable 判定需分别处理）；**取消杀完整进程树**（pnpm/yarn 可能有 store/worker 子进程） | CON-R-pkgmgr-001/002/006/007 | 无 | PRD FR-2/FR-5 |
-| P2 | spawn 跨平台改造（解析真实入口 + Electron node） | spawn 不依赖 .bin shim；三端路径覆盖单测；dsh web 可启动；**createRequire.resolve 在 asar/打包环境可解析 <userData>/dsh 包入口**（需验证打包后路径） | CON-R-pkgmgr-004/005 | P1 | PRD FR-4 |
-| P3 | settings.packageManager + 设置页选择 + 原生依赖自动 rebuild | 设置页三选一持久化重启保持；pnpm/yarn 装完自动 rebuild 原生依赖 | CON-R-pkgmgr-001/003/008 | P1 | PRD FR-1/FR-3 |
+| # | 子需求 | 验收标准（可测试） | 规则绑定 | 依赖 | 来源 PRD | ticket |
+|:--|:-------|:-------------------|:---------|:-----|:---------|:-------|
+| P1 | 包管理器执行器抽象（npm/pnpm/yarn 三实现） | 三包管理器均能装 dsh 到 staging；输出进度落盘；取消杀子进程；**错误码解析按包管理器适配**（pnpm/yarn 错误格式不同于 npm 的 `npm error code`，registry-unreachable 判定需分别处理）；**取消杀完整进程树**（pnpm/yarn 可能有 store/worker 子进程） | CON-R-pkgmgr-001/002/006/007 | 无 | PRD FR-2/FR-5 | t100086 |
+| P2 | spawn 跨平台改造（解析真实入口 + Electron node） | spawn 不依赖 .bin shim；三端路径覆盖单测；dsh web 可启动；**createRequire.resolve 在 asar/打包环境可解析 <userData>/dsh 包入口**（需验证打包后路径） | CON-R-pkgmgr-004/005 | P1 | PRD FR-4 | t100087 |
+| P3 | settings.packageManager + 设置页选择 + 原生依赖自动 rebuild | 设置页三选一持久化重启保持；pnpm/yarn 装完自动 rebuild 原生依赖 | CON-R-pkgmgr-001/003/008 | P1 | PRD FR-1/FR-3 | t100088 |
 
 ## 15. 附录
 
