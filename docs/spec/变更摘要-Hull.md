@@ -3,6 +3,13 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-08-24 pkgmgr 实现完成——三包管理器支持落地（P1/P2/P3）
+
+- 类型：实现完成（共识 v1.1 落地，CON-R-pkgmgr-001~008 全生效）
+- 内容：**P1 执行器抽象**（src/overlay/pkgMgr/ 新建，PkgMgrRunner 接口 + npm/pnpm/yarn 三实现，错误解析/取消按管理器适配）；**P2 spawn 跨平台改造**（dshEntryPath 解析真实 JS 入口绕开 .bin shim + ELECTRON_RUN_AS_NODE=1 + 剥离 NODE_OPTIONS/ELECTRON_*，适配三端）；**P3 settings.packageManager**（默认 pnpm 字段级扩展不 bump schema）+ 设置页三选一 + pnpm 装完自动 rebuild 原生依赖（失败告警不阻断）；e2e 假 registry 场景显式 npm
+- 影响：npmRunner 迁移 pkgMgr/；RuntimeManager spawn 改 entryPath；S2 契约安装链路更新；HullSettings +packageManager；settings 页 +选择 UI；验证 unit 644 + int 8 + e2e 27 全绿 + semgrep 干净
+- 状态：已实现（2026-08-24，feature/pkgmgr 分支）
+
 ## 2026-08-24 Hull 包管理器支持共识发布 v1.0（新需求 pkgmgr）
 
 - 类型：共识基线发布（新需求建立）+ 登记 CON-R-pkgmgr-001~008
