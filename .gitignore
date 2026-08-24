@@ -18,6 +18,9 @@ src/**/*.js.map
 !src/skills/
 !src/skills/**/*.ts
 !src/renderer/skills.js
+# P1 pkgMgr 包管理器执行器手写源（同 skills 先例——新目录默认被 /src/**/*.ts 忽略）
+!src/overlay/pkgMgr/
+!src/overlay/pkgMgr/**/*.ts
 
 # Logs
 *.log

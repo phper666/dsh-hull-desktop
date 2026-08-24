@@ -24,7 +24,7 @@
 
 - 捆绑 Node 24 LTS（构建时下载，锁定小版本，跟随官方 engines ^22.19 或 >=24）
 - overlay 目录布局：userData/dsh（当前）、userData/dsh-staging（安装中）、userData/dsh-previous（上一版）
-- 首次安装流程：npm install @deepseek-ai/dsh@目标版本 到 staging → 原子替换 → 启动
+- 首次安装流程：按 settings.packageManager 选包管理器（npm/pnpm/yarn，默认 pnpm）装 @deepseek-ai/dsh@目标版本 到 staging → 原子替换 → 启动；pnpm 装完自动 rebuild 原生依赖（CON-R-pkgmgr-001/003）
 - 取消安装 → 未安装引导态（壳框架右侧内容区显示安装按钮）
 - DSH_HOME 默认 ~/.dsh（环境变量透传，壳零读写）
 

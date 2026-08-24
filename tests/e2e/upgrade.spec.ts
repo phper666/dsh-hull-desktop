@@ -40,7 +40,7 @@ test.describe('E2E-03 升级全流程', () => {
     let app: ElectronApplication | null = null;
     try {
       seedFakeDsh(tmp.dir, '0.1.0-rc.7');
-      seedSettings(tmp.dir, { registry: reg.url }); // 升级走假 registry
+      seedSettings(tmp.dir, { registry: reg.url, packageManager: 'npm' }); // 升级走假 registry（npm 场景）
       writeFileSync(join(tmp.dir, 'user-marker.txt'), 'keep-me'); // 数据无损标记
       app = await launchApp({ userData: tmp.dir, registry: reg.url });
       await waitForReady(app);
@@ -74,7 +74,7 @@ test.describe('E2E-04 坏版本注入', () => {
     let app: ElectronApplication | null = null;
     try {
       seedFakeDsh(tmp.dir, '0.1.0-rc.7');
-      seedSettings(tmp.dir, { registry: reg.url });
+      seedSettings(tmp.dir, { registry: reg.url, packageManager: 'npm' });
       app = await launchApp({ userData: tmp.dir, registry: reg.url });
       await waitForReady(app);
       // 注入坏探测目标（仅作用升级 verify 段——ReadinessProbe 构造时读 env；初始启动已就绪不受影响）

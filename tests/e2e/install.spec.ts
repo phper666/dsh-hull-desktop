@@ -62,7 +62,7 @@ test.describe('E2E-02 首装+取消', () => {
     const reg = await startFakeRegistry({ latest: '9.9.9' });
     let app: ElectronApplication | null = null;
     try {
-      seedSettings(tmp.dir, { registry: reg.url }); // 安装走假 registry（userData 仍无 dsh → 触发首装）
+      seedSettings(tmp.dir, { registry: reg.url, packageManager: 'npm' }); // 安装走假 registry（npm 场景；pnpm 需真实 store）
       app = await launchApp({ userData: tmp.dir, registry: reg.url });
       const win = await waitForMainWindow(app);
       // 首装：进「未安装」引导态（需求变更 2026-08-24：不再自动触发，需手动点安装）

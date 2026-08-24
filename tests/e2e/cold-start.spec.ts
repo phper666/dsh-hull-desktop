@@ -87,7 +87,7 @@ test.describe('E2E-01 冷启动', () => {
     let app: ElectronApplication | null = null;
     try {
       seedFakeDsh(tmp.dir);
-      seedSettings(tmp.dir, { registry: reg.url });
+      seedSettings(tmp.dir, { registry: reg.url, packageManager: 'npm' });
       app = await launchApp({ userData: tmp.dir, registry: reg.url });
       const shell = await waitForReady(app);
       // 设置 → hull:showSettings → 壳内 settings section 显示（view=placeholder:settings）
@@ -159,7 +159,7 @@ test.describe('E2E-06 托盘', () => {
     let app: ElectronApplication | null = null;
     try {
       seedFakeDsh(tmp.dir);
-      seedSettings(tmp.dir, { registry: reg.url }); // 升级走假 registry
+      seedSettings(tmp.dir, { registry: reg.url, packageManager: 'npm' }); // 升级走假 registry（npm 场景）
       app = await launchApp({ userData: tmp.dir, registry: reg.url });
       const shell = await waitForReady(app);
       // 托盘菜单存在（5 菜单项 + 分隔符 = 6）

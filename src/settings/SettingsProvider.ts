@@ -5,6 +5,10 @@ import { join } from 'node:path';
 import { HullError } from '../shared/errors';
 import { NOOP_LOGGER, type RuntimeLogger } from '../shared/types';
 import { isValidVersion } from '../updater/semver';
+import type { PkgMgrName } from '../overlay/pkgMgr/types';
+
+// 复用 pkgMgr/types 的 PkgMgrName（P3：settings.packageManager 三选一；不重复定义）
+export type { PkgMgrName } from '../overlay/pkgMgr/types';
 
 /** 通道名（S4 契约 §Schema：latest/pinned） */
 export type ChannelName = 'latest' | 'pinned';
@@ -33,6 +37,8 @@ export interface HullSettings {
   registry: string;
   /** 主题（T2：dark/light，默认 dark；字段级扩展不 bump schemaVersion） */
   theme: ThemeName;
+  /** 包管理器（P3：npm/pnpm/yarn，默认 pnpm；CON-R-pkgmgr-001/008；字段级扩展不 bump schemaVersion） */
+  packageManager: PkgMgrName;
 }
 
 /** 当前 schema 版本（S4 bump 1→2，S5 两字段再 bump 2→3） */
@@ -47,6 +53,7 @@ const DEFAULT_SETTINGS: HullSettings = {
   autoCheckHull: true,
   registry: DEFAULT_REGISTRY,
   theme: 'dark',
+  packageManager: 'pnpm',
 };
 
 export interface SettingsProviderOptions {
@@ -64,6 +71,11 @@ function isValidRegistry(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** 包管理器名校验（npm/pnpm/yarn 三选一；非法 → 默认 pnpm，CON-R-pkgmgr-008） */
+function isValidPkgMgr(value: unknown): value is PkgMgrName {
+  return value === 'npm' || value === 'pnpm' || value === 'yarn';
 }
 
 /**
@@ -118,6 +130,10 @@ export class SettingsProvider extends EventEmitter {
     const registry = typeof obj.registry === 'string' ? obj.registry : DEFAULT_SETTINGS.registry;
     const theme: ThemeName =
       obj.theme === 'dark' || obj.theme === 'light' ? obj.theme : DEFAULT_SETTINGS.theme;
+    const packageManager: PkgMgrName =
+      obj.packageManager === 'npm' || obj.packageManager === 'pnpm' || obj.packageManager === 'yarn'
+        ? obj.packageManager
+        : DEFAULT_SETTINGS.packageManager;
     if (
       typeof obj.closeToQuit !== 'boolean' ||
       typeof obj.schemaVersion !== 'number' ||
@@ -126,11 +142,13 @@ export class SettingsProvider extends EventEmitter {
       (typeof obj.autoCheckDsh !== 'boolean' && obj.autoCheckDsh !== undefined) ||
       (typeof obj.autoCheckHull !== 'boolean' && obj.autoCheckHull !== undefined) ||
       (typeof obj.registry !== 'string' && obj.registry !== undefined) ||
-      (typeof obj.theme !== 'string' && obj.theme !== undefined)
+      (typeof obj.theme !== 'string' && obj.theme !== undefined) ||
+      // P3：非法 packageManager 值（非 npm/pnpm/yarn 的非 undefined 值）→ 告警
+      (obj.packageManager !== undefined && !isValidPkgMgr(obj.packageManager))
     ) {
       this.logger.warn('settings.json 字段类型不符（回退默认值，不覆盖原文件）');
     }
-    return { closeToQuit, schemaVersion, channel, pinnedVersion, autoCheckDsh, autoCheckHull, registry, theme };
+    return { closeToQuit, schemaVersion, channel, pinnedVersion, autoCheckDsh, autoCheckHull, registry, theme, packageManager };
   }
 
   /**
@@ -144,6 +162,8 @@ export class SettingsProvider extends EventEmitter {
     if (next.channel === 'latest') next.pinnedVersion = null; // B4
     // T2：非法 theme → 回退 dark（与读路径归一对称，磁盘恒存合法值）
     if (next.theme !== 'dark' && next.theme !== 'light') next.theme = 'dark';
+    // P3：非法 packageManager → 回退 pnpm（与读路径归一对称，CON-R-pkgmgr-008）
+    if (!isValidPkgMgr(next.packageManager)) next.packageManager = 'pnpm';
     // 校验（SETTINGS_ERRORS）
     if (partial.registry !== undefined && !isValidRegistry(partial.registry)) {
       throw new HullError('registry-invalid', `非法 registry 地址: ${partial.registry}`);
@@ -205,6 +225,8 @@ export class SettingsProvider extends EventEmitter {
       // 🟢：旧文件 registry 格式校验（与 set() 校验链对称——非法 → 默认值）
       registry: typeof obj.registry === 'string' && isValidRegistry(obj.registry) ? obj.registry : DEFAULT_SETTINGS.registry,
       theme: obj.theme === 'dark' || obj.theme === 'light' ? obj.theme : DEFAULT_SETTINGS.theme,
+      // P3：旧文件 packageManager 非法 → 默认 pnpm（与 set() 校验链对称）
+      packageManager: isValidPkgMgr(obj.packageManager) ? obj.packageManager : DEFAULT_SETTINGS.packageManager,
     };
     try {
       const tmp = `${this.filePath}.tmp`;
