@@ -474,6 +474,8 @@
 
   // 安装进度轮询（250ms；状态离开 installing → 停止，主进程负责 view 切换）
   let polling = false;
+  // 首装输出区 autoscroll 标志：是否停在底部（scroll 事件实时维护）。true=跟随最新，false=用户滚动中保持位置
+  let installOutputAtBottom = true;
   function pollInstall() {
     if (polling || !bridge) return;
     polling = true;
@@ -491,13 +493,13 @@
           barEl.style.width = s.progress.pct + '%';
           pctEl.textContent = s.progress.pct + '%';
         }
-        // 首装输出区：npm 行（最近 N 行）→ 仅行数变化时重建 + 滚动到底（对齐升级输出框 autoscroll 语义）
+        // 首装输出区：npm 行（最近 N 行）→ 仅行数变化时重建 + autoscroll（用户停在底部才滚到底，对齐升级输出框 tail -f 语义）
         if (outputEl && Array.isArray(s.output)) {
           const lines = s.output;
           if (lines.length !== outputEl.dataset.lineCount) {
             outputEl.innerHTML = lines.map((l) => `<span class="line">${esc(l)}</span>`).join('');
             outputEl.dataset.lineCount = String(lines.length);
-            outputEl.scrollTop = outputEl.scrollHeight;
+            if (installOutputAtBottom) outputEl.scrollTop = outputEl.scrollHeight;
           }
         }
         setTimeout(tick, 250);
@@ -1062,6 +1064,14 @@
     await bridge.install(); // 主进程切换 installing 视图 + 自动安装
   });
   document.getElementById('cancel-install').addEventListener('click', () => bridge && bridge.cancelInstall());
+  // 首装输出区 autoscroll：scroll 事件维护「是否在底部」标志——用户拉回底部 → 恢复跟随；滚动离开底部 → 停止跟随（保持位置）
+  const installOutputBox = document.getElementById('installing-output');
+  if (installOutputBox) {
+    installOutputBox.addEventListener('scroll', () => {
+      const box = installOutputBox;
+      installOutputAtBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+    });
+  }
   document.getElementById('open-logs').addEventListener('click', () => bridge && bridge.openLogs());
   document.getElementById('open-logs-2').addEventListener('click', () => bridge && bridge.openLogs());
 
