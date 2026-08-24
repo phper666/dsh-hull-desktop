@@ -3,6 +3,13 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-08-24 Hull 主题切换共识发布 v1.0（新需求 theme）
+
+- 类型：共识基线发布（新需求建立）+ 登记 CON-R-theme-001~005
+- 内容：**壳 UI 主题切换**——仅壳 UI（nav/看板/Skills/设置/编辑器/时间线），官方 dsh Web UI 零注入（CON-R001 不破）；机制 = 硬编码色值抽 CSS 变量（--hull-*）+ 壳根节点 data-theme="dark|light" 切换；本轮暗/亮 2 款，默认 dark 保持现状；设置页主题区块切换即时生效；持久化 settings.json（HullSettings.theme + schemaVersion bump 3→4）；EasyMDE 亮色配套；3 子需求 T1（变量抽取）/T2（持久化+设置页）/T3（编辑器配套）；未决项 U-1 跟随系统/U-2 3+色系/U-3 自定义（P2 排后）
+- 影响：SettingsProvider schema bump 3→4（S5/S6 迁移判据）；kanban.css/skills.css/easymde-dark.css 硬编码色值重构；复用 hull:setSettings 无新 IPC 风险面
+- 状态：已发布（2026-08-24，PM）
+
 ## 2026-08-22 M1-重构迭代调整（共识 v1.7）
 
 - 类型：产品决策修订（用户目验反馈）+ 共识修订 v1.6→v1.7
