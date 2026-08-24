@@ -267,6 +267,8 @@
         <p id="installing-phase"></p>
         <div class="bar"><div id="installing-bar" class="bar-fill"></div></div>
         <p id="installing-pct"></p>
+        <!-- 首装 npm 输出区（数据源：installStatus 快照 output，最近 N 行；样式对齐 .up-output） -->
+        <div id="installing-output" class="up-output" role="log" aria-live="polite" style="max-height:180px;width:420px;text-align:left;margin:8px auto 0"></div>
         <button id="cancel-install" class="ghost">取消安装</button>
         <p class="muted">首次安装需要下载 dsh 及全部插件（约几十 MB），可随时取消，之后可在引导态重新安装。</p>
       </div>
@@ -478,6 +480,7 @@
     const phaseEl = document.getElementById('installing-phase');
     const barEl = document.getElementById('installing-bar');
     const pctEl = document.getElementById('installing-pct');
+    const outputEl = document.getElementById('installing-output');
     const phaseNamesInstall = { download: '准备运行环境', 'npm-install': '下载并安装 dsh', swap: '安装收尾' };
     const tick = async () => {
       try {
@@ -487,6 +490,15 @@
           phaseEl.textContent = phaseNamesInstall[s.progress.phase] || s.progress.phase;
           barEl.style.width = s.progress.pct + '%';
           pctEl.textContent = s.progress.pct + '%';
+        }
+        // 首装输出区：npm 行（最近 N 行）→ 仅行数变化时重建 + 滚动到底（对齐升级输出框 autoscroll 语义）
+        if (outputEl && Array.isArray(s.output)) {
+          const lines = s.output;
+          if (lines.length !== outputEl.dataset.lineCount) {
+            outputEl.innerHTML = lines.map((l) => `<span class="line">${esc(l)}</span>`).join('');
+            outputEl.dataset.lineCount = String(lines.length);
+            outputEl.scrollTop = outputEl.scrollHeight;
+          }
         }
         setTimeout(tick, 250);
       } catch { polling = false; }

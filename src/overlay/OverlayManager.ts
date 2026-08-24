@@ -84,6 +84,12 @@ export class OverlayManager extends EventEmitter {
   private cancelled = false;
   private swapping = false;
   private targetVersion: string | null = null;
+  /** npm http fetch 行计数（首装进度渐进；对齐 Updater.pushOutput，50→60 每 25 行 +1%） */
+  private npmFetchCount = 0;
+  /** npm 输出环形缓冲（最近 N 行，首装输出框数据源；snapshot().output 透传） */
+  private output: string[] = [];
+  /** 输出缓冲上限（对齐 Updater.MAX_OUTPUT_LINES 语义） */
+  private static readonly MAX_OUTPUT_LINES = 50;
   private readonly userDataPath: string;
   private readonly logger: RuntimeLogger;
   private readonly fs: OverlayFs;
@@ -118,7 +124,23 @@ export class OverlayManager extends EventEmitter {
       version: this.version,
       progress: this.progress ? { ...this.progress } : null,
       message: this.message,
+      output: [...this.output],
     };
+  }
+
+  /** npm 输出行钩子（main 的 npmRunner onLine → 本方法；首装进度 + 输出缓冲）。
+   *  仅 installing 段收集（对齐 Updater.pushOutput：其他段不污染缓冲）。
+   *  npm http fetch 行计数 → pct 渐进（50→60，每 25 行 +1%，封顶 60——installing 段留余量给 swap 90）。 */
+  onNpmLine(line: string): void {
+    if (this.phase !== InstallPhase.Installing) return;
+    this.output.push(line);
+    if (this.output.length > OverlayManager.MAX_OUTPUT_LINES) {
+      this.output.splice(0, this.output.length - OverlayManager.MAX_OUTPUT_LINES);
+    }
+    if (/^npm http fetch/.test(line)) {
+      this.npmFetchCount += 1;
+      this.setProgress({ phase: 'npm-install', pct: Math.min(60, 50 + Math.floor(this.npmFetchCount / 25)) });
+    }
   }
 
   /** 轮询安装状态（契约 #6） */
@@ -148,6 +170,9 @@ export class OverlayManager extends EventEmitter {
     this.targetVersion = targetVersion;
     this.transition(InstallPhase.Installing, '正在安装 dsh…');
     this.setProgress({ phase: 'npm-install', pct: 50 });
+    // 输出缓冲 + fetch 计数重置（防跨次安装残留；对齐 Updater.clearOutput）
+    this.output = [];
+    this.npmFetchCount = 0;
     // 起始清 stale staging（幂等）
     this.fs.rm(this.stagingDir);
     this.fs.mkdir(this.stagingDir);

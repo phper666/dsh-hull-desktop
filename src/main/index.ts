@@ -160,17 +160,23 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   // 改进 2：npmRunner onLine 接线——npm install 逐行输出 → Updater 输出缓冲（升级输出框数据源）。
   // updater 在后面装配，先占位 holder、装配后赋真实引用（onLine 触发时 upgrade 已初始化）。
   const npmOutputTarget: { fn: ((line: string) => void) | null } = { fn: null };
+  // 首装进度钩子 holder：overlay 在后面构造，onLine 触发时可能 overlay 未初始化（与 npmOutputTarget 同模式）
+  const installLineTarget: { fn: ((line: string) => void) | null } = { fn: null };
   const npmRunner = new NpmRunner({
     nodePath: existsSync(bundledNode) ? bundledNode : 'node',
     logger,
     getRegistry: () => settings.getSettings().registry, // S6 B7：settings.registry 优先 + env 兜底
-    onLine: (line) => npmOutputTarget.fn?.(line),
+    onLine: (line) => {
+      npmOutputTarget.fn?.(line);
+      installLineTarget.fn?.(line); // 首装进度：npm 行 → OverlayManager.onNpmLine
+    },
   });
   const overlay = new OverlayManager({
     userDataPath,
     logger,
     runNpmInstall: npmRunner.toRunNpmInstall(), // 委托 npmRunner（错误码透传）
   });
+  installLineTarget.fn = (line) => overlay.onNpmLine(line);
   const installFlow = new InstallFlow({ userDataPath, overlay, isDev: !app.isPackaged, logger });
   // S3：升级编排栈（UpgradeQueue 单例 → SwapManager 薄层 → Updater）
   const upgradeQueue = new UpgradeQueue();
@@ -379,7 +385,14 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   ipcMain.handle('hull:install', async () => {
     if (quitting) return { ok: false, message: '正在退出' };
     if (overlay.installStatus().phase === InstallPhase.Installing) return { ok: false, message: '安装进行中' };
-    void runInstallFlow('latest'); // S4 起 targetVersion 由版本通道决定
+    // S4 版本通道：resolveTarget 解析真实目标版本（latest → registry 最新 / pinned → 锁定版）；失败回退 latest
+    let target = 'latest';
+    try {
+      target = await channelService.resolveTarget();
+    } catch {
+      /* registry 不可达 → 回退 latest，安装仍可尝试 */
+    }
+    void runInstallFlow(target);
     return { ok: true };
   });
   ipcMain.handle('hull:cancelInstall', async () => {

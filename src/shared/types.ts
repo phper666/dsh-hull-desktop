@@ -51,6 +51,8 @@ export interface InstallSnapshot {
   version: string | null;
   progress: InstallProgress | null;
   message: string;
+  /** npm 安装输出缓冲（最近 N 行，首装输出框数据源；OverlayManager 维护，installing 段收集） */
+  output: string[];
 }
 
 /** 子进程最小接口（child_process.ChildProcess 结构兼容；RuntimeManager/npmRunner 共用，测试可注入 fake） */
