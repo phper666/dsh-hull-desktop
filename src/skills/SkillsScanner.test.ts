@@ -53,7 +53,20 @@ test('六目录扫描聚合：全局判定 + scoped 判定 + 平台徽标（T1/T
 
   const alpha = byName(snap.entries, 'alpha');
   equal(alpha.scope, 'global'); // ~/.agents = universal
-  deepEqual([...alpha.platforms].sort(), ['claude-code', 'codex', 'cursor', 'gemini-cli', 'opencode']);
+  deepEqual([...alpha.platforms].sort(), [
+    'claude-code',
+    'cline',
+    'codex',
+    'continue',
+    'cursor',
+    'devin',
+    'gemini-cli',
+    'opencode',
+    'roo',
+    'trae',
+    'warp',
+    'windsurf',
+  ]);
 
   const beta = byName(snap.entries, 'beta');
   equal(beta.scope, 'scoped');
@@ -77,7 +90,20 @@ test('realpath 同源去重：symlink 指向 shared 只计一条，paths 保留�
   equal(dup.name, 'dup');
   equal(dup.scope, 'global'); // realpath 落于 ~/.agents
   equal(dup.paths.length, 2); // 两个物理位置各自独立（S2 按路径操作）
-  deepEqual([...dup.platforms].sort(), ['claude-code', 'codex', 'cursor', 'gemini-cli', 'opencode']);
+  deepEqual([...dup.platforms].sort(), [
+    'claude-code',
+    'cline',
+    'codex',
+    'continue',
+    'cursor',
+    'devin',
+    'gemini-cli',
+    'opencode',
+    'roo',
+    'trae',
+    'warp',
+    'windsurf',
+  ]);
   ok(dup.paths.every((p) => p.mtimeMs > 0));
   ok(dup.paths.some((p) => p.isSymlink));
   ok(dup.paths.some((p) => !p.isSymlink));
