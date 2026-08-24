@@ -11,7 +11,7 @@ import { DshMissingError, HullError } from '../shared/errors';
 import { HullUpdatePhase, InstallPhase, RuntimePhase, UpgradePhase } from '../shared/types';
 import { OverlayManager } from '../overlay/OverlayManager';
 import { InstallFlow } from '../overlay/InstallFlow';
-import { NpmRunner } from '../overlay/npmRunner';
+import { createPkgMgrRunner, toRunNpmInstall, type PkgMgrRunOptions } from '../overlay/pkgMgr';
 import { Updater } from '../updater/Updater';
 import { SwapManager } from '../updater/SwapManager';
 import { UpgradeQueue } from '../updater/UpgradeQueue';
@@ -157,25 +157,29 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   const runtime = new RuntimeManager({ userDataPath, logger });
   // S2：overlay 管理栈（首装自动触发 / ensure 三态 / 取消）
   const bundledNode = join(userDataPath, 'node', 'bin', 'node');
-  // 改进 2：npmRunner onLine 接线——npm install 逐行输出 → Updater 输出缓冲（升级输出框数据源）。
+  // P1：包管理器执行器抽象（npm/pnpm/yarn 三实现；P1 阶段默认 npm，P3 接 settings.packageManager 字段）
+  // 改进 2：pkgMgrRunner onLine 接线——install 逐行输出 → Updater 输出缓冲（升级输出框数据源）。
   // updater 在后面装配，先占位 holder、装配后赋真实引用（onLine 触发时 upgrade 已初始化）。
   const npmOutputTarget: { fn: ((line: string) => void) | null } = { fn: null };
   // 首装进度钩子 holder：overlay 在后面构造，onLine 触发时可能 overlay 未初始化（与 npmOutputTarget 同模式）
   const installLineTarget: { fn: ((line: string) => void) | null } = { fn: null };
-  const npmRunner = new NpmRunner({
+  // P1 阶段默认 npm（P3 接 settings.packageManager 字段后改为 `settings.getSettings().packageManager ?? 'npm'`）
+  const pkgMgrRunner = createPkgMgrRunner('npm', {
     nodePath: existsSync(bundledNode) ? bundledNode : 'node',
     logger,
-    getRegistry: () => settings.getSettings().registry, // S6 B7：settings.registry 优先 + env 兜底
+  });
+  const pkgMgrOptions: PkgMgrRunOptions = {
+    registry: settings.getSettings().registry, // S6 B7：settings.registry 优先 + env 兜底
     onLine: (line) => {
       npmOutputTarget.fn?.(line);
-      installLineTarget.fn?.(line); // 首装进度：npm 行 → OverlayManager.onNpmLine
-      logger.dshLog(0, `[npm] ${line}`); // npm 逐包输出落盘（排查安装慢/卡包）
+      installLineTarget.fn?.(line); // 首装进度：install 行 → OverlayManager.onNpmLine
+      logger.dshLog(0, `[pkgmgr] ${line}`); // 逐包输出落盘（排查安装慢/卡包）
     },
-  });
+  };
   const overlay = new OverlayManager({
     userDataPath,
     logger,
-    runNpmInstall: npmRunner.toRunNpmInstall(), // 委托 npmRunner（错误码透传）
+    runNpmInstall: toRunNpmInstall(pkgMgrRunner, pkgMgrOptions), // 委托 pkgMgrRunner（错误码透传）
   });
   installLineTarget.fn = (line) => overlay.onNpmLine(line);
   const installFlow = new InstallFlow({ userDataPath, overlay, isDev: !app.isPackaged, logger });
@@ -195,7 +199,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     settingsProvider: settings, // S6 B4：autoCheckDsh 门控
     logger,
   });
-  // 改进 2：npmRunner onLine → Updater 输出缓冲（升级输出框数据源）
+  // 改进 2：pkgMgrRunner onLine → Updater 输出缓冲（升级输出框数据源）
   npmOutputTarget.fn = (line) => updater.pushOutput(line);
   // S5：Hull 自更新栈（adapter → HullUpdater；与 dsh Updater 共享 UpgradeQueue 互斥）
   // owner/repo：发布链核对注记（与 electron-builder.yml publish 一致，S6/发布时确认）
@@ -281,7 +285,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
       } catch (err) {
         logger.warn(`退出取消安装失败: ${(err as Error).message}`);
       }
-      npmRunner.cancel();
+      pkgMgrRunner.cancel();
     }
     try {
       await runtime.stop();
@@ -398,7 +402,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   });
   ipcMain.handle('hull:cancelInstall', async () => {
     void overlay.cancelInstall();
-    npmRunner.cancel();
+    pkgMgrRunner.cancel();
     return { ok: true };
   });
   ipcMain.handle('hull:installStatus', async () => overlay.installStatus());
@@ -594,11 +598,11 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   });
   // Bug 修复：升级取消同步 kill npm——Updater.cancel() 只清 staging 不杀 npm（install 仍 await 至
   // 120s 超时/完成才 finally release queue），用户取消后立刻 recheck 会被 queueBusy 静默挡掉。
-  // 与 hull:cancelInstall 同模式（overlay.cancelInstall + npmRunner.cancel），杀 npm → install 快返回
+  // 与 hull:cancelInstall 同模式（overlay.cancelInstall + pkgMgrRunner.cancel），杀 npm → install 快返回
   // → doUpgrade finally 快 release → recheck 立即可用。
   ipcMain.handle('hull:cancelDshUpgrade', async () => {
     const status = updater.cancel();
-    npmRunner.cancel();
+    pkgMgrRunner.cancel();
     return status;
   });
   ipcMain.handle('hull:dismissDshUpdate', async () => updater.dismiss());
