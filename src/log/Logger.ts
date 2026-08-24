@@ -65,8 +65,27 @@ export class Logger implements RuntimeLogger {
     this.appendTo(this.dshPath, `[dsh pid=${pid}] ${text}`);
   }
 
+  /** 上海时区标准时间戳（YYYY-MM-DD HH:mm:ss.SSS，Asia/Shanghai）——不用 toISOString（UTC Z 后缀非本地可读） */
+  private static formatTime(d: Date): string {
+    const pad = (n: number, w = 2): string => String(n).padStart(w, '0');
+    const p = new Intl.DateTimeFormat('zh-CN', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).formatToParts(d);
+    const get = (t: Intl.DateTimeFormatPartTypes): string => p.find((x) => x.type === t)?.value ?? '00';
+    // 毫秒用本地毫秒（formatToParts 无 ms；上海 = UTC+8，用 getTime+8h 的 ms 等价本地 ms）
+    const ms = pad(d.getTime() % 1000, 3);
+    return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}.${ms}`;
+  }
+
   private append(level: string, message: string): void {
-    this.appendTo(this.hullPath, `[${new Date().toISOString()}] [${level}] ${message}\n`);
+    this.appendTo(this.hullPath, `[${Logger.formatTime(new Date())}] [${level}] ${message}\n`);
   }
 
   private appendTo(basePath: string, text: string): void {

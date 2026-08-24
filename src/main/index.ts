@@ -169,6 +169,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     onLine: (line) => {
       npmOutputTarget.fn?.(line);
       installLineTarget.fn?.(line); // 首装进度：npm 行 → OverlayManager.onNpmLine
+      logger.dshLog(0, `[npm] ${line}`); // npm 逐包输出落盘（排查安装慢/卡包）
     },
   });
   const overlay = new OverlayManager({
