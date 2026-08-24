@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync,
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { SettingsProvider } from './SettingsProvider';
+import { SettingsProvider, type ThemeName } from './SettingsProvider';
 
 const tempDirs: string[] = [];
 after(() => {
@@ -258,4 +258,44 @@ test('🟢 migrate：旧文件非法 registry → 默认值（与 set 校验链�
   provider.migrate();
   const parsed = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as { registry: string };
   equal(parsed.registry, 'https://registry.npmjs.org', '非法 registry 迁移为默认');
+});
+
+test('T2-① 缺 settings.json → theme 默认 dark', () => {
+  const { provider } = makeProvider({});
+  equal(provider.getSettings().theme, 'dark');
+});
+
+test('T2-② set theme=light → 持久化 + 读回 + 文件落盘', () => {
+  const { provider, dir } = makeProvider({});
+  provider.set({ theme: 'light' });
+  equal(provider.getSettings().theme, 'light');
+  const parsed = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as { theme: string };
+  equal(parsed.theme, 'light');
+});
+
+test('T2-③ 非法 theme 值 → 回退 dark + 告警', () => {
+  const warns: string[] = [];
+  const { provider } = makeProvider({ 'settings.json': JSON.stringify({ theme: 'neon' }) }, warns);
+  equal(provider.getSettings().theme, 'dark');
+  ok(warns.length >= 1, '应产生告警日志');
+});
+
+test('T2-④ 旧 settings 无 theme → 读回退 dark', () => {
+  const { provider } = makeProvider({ 'settings.json': JSON.stringify({ closeToQuit: true }) });
+  const s = provider.getSettings();
+  equal(s.theme, 'dark');
+  equal(s.closeToQuit, true, '既有字段不受影响');
+});
+
+test('T2-⑤ set 非法 theme → 读回退 dark（与 channel 校验对称）', () => {
+  const { provider } = makeProvider({});
+  provider.set({ theme: 'neon' as ThemeName });
+  equal(provider.getSettings().theme, 'dark');
+});
+
+test('T2-⑥ theme 类型错（number）→ 回退 dark + 告警', () => {
+  const warns: string[] = [];
+  const { provider } = makeProvider({ 'settings.json': JSON.stringify({ theme: 42 }) }, warns);
+  equal(provider.getSettings().theme, 'dark');
+  ok(warns.length >= 1, '应产生告警日志');
 });

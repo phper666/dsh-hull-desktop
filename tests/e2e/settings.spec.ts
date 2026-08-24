@@ -13,6 +13,7 @@ import {
   seedSettings,
   waitForReady,
   waitForSettingsRegistry,
+  waitForSettingsTheme,
 } from './helpers';
 
 test.describe('E2E-07 设置页', () => {
@@ -62,6 +63,38 @@ test.describe('E2E-07 设置页', () => {
       await closeMainWindow(app);
       await app.waitForEvent('close');
       app = null; // 已退出
+    } finally {
+      if (app) await app.close().catch(() => {});
+      tmp.cleanup();
+    }
+  });
+
+  test('T2-UI 主题切换：即时应用 + 持久化', async () => {
+    const tmp = makeTempUserData();
+    let app: ElectronApplication | null = null;
+    try {
+      seedFakeDsh(tmp.dir);
+      seedSettings(tmp.dir);
+      app = await launchApp({ userData: tmp.dir });
+      await waitForReady(app);
+
+      const shell = await openSettings(app);
+      await expect(shell.locator('#theme-seg')).toBeVisible();
+      // 默认暗色
+      await expect(shell.locator('body')).toHaveAttribute('data-theme', 'dark');
+      await expect(shell.locator('#theme-seg button[data-theme="dark"]')).toHaveAttribute('aria-pressed', 'true');
+
+      // 切亮色
+      await shell.click('#theme-seg button[data-theme="light"]');
+      await expect(shell.locator('body')).toHaveAttribute('data-theme', 'light');
+      await expect(shell.locator('#theme-seg button[data-theme="light"]')).toHaveAttribute('aria-pressed', 'true');
+      await waitForSettingsTheme(tmp.dir, 'light');
+
+      // 重开后仍为亮色
+      await shell.click('#nav-web');
+      await shell.click('#nav-settings');
+      await expect(shell.locator('body')).toHaveAttribute('data-theme', 'light');
+      await expect(shell.locator('#theme-seg button[data-theme="light"]')).toHaveAttribute('aria-pressed', 'true');
     } finally {
       if (app) await app.close().catch(() => {});
       tmp.cleanup();
