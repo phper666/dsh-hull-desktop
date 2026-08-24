@@ -1,14 +1,15 @@
 # Hull 桌面壳（包管理器支持）共识文档
 
-> 版本：v1.0 · 更新：2026-08-24 · 维护者：phper666（PM） · 状态：已发布
+> 版本：v1.1 · 更新：2026-08-24 · 维护者：phper666（PM） · 状态：已发布
 > 数据来源：Hull PkgMgr PRD v0.1（docs/prd/2026-08-24-hull-pkgmgr-prd.md）
 > 关联：新增需求（Hull 模块 dsh 安装链路）；需求标识 `pkgmgr`；B1 范围
 
 ## 1. 文档元信息
 
-- **本版本变更**：v1.0 首次建立——从 Hull PkgMgr PRD v0.1 提取整理为业务事实源；登记 CON-R-pkgmgr-001~008。
+- **本版本变更**：v1.1 已发布——BE 扫描结论回写（确认定案，向后兼容）：P1/P2 验收标准补 3 项 BE 发现——① 错误码解析按包管理器适配（pnpm/yarn 错误格式不同于 npm）；② 取消杀完整进程树（pnpm/yarn 有 store/worker 子进程）；③ createRequire.resolve 在 asar/打包环境解析 <userData>/dsh 入口需验证。
+- **历史变更摘要**：v1.0 首次建立——从 Hull PkgMgr PRD v0.1 提取整理为业务事实源；登记 CON-R-pkgmgr-001~008。
 - **历史变更摘要**：无（新需求）。
-- **状态说明**：v1.0 已发布；无未决项、无扫描待确认项。
+- **状态说明**：v1.1 已发布（BE 扫描结论回写）；无未决项、无扫描待确认项。
 
 ## 2. 文档结构总览
 
@@ -86,7 +87,7 @@
 
 ## 9. 扫描待确认项
 
-> 本需求 v1.0 尚未扫描，待 BE/FE/QA 扫描产出。
+> 本需求 v1.1 扫描完成（BE/FE/QA）：无新增 Q-items（共识 P1/P2 已覆盖方向），3 项 BE 发现回写 P1/P2 验收细化（错误码解析适配/取消进程树/asar resolve）。
 
 ## 10. 规则编号（CON-R-pkgmgr-001~008）
 
@@ -127,8 +128,8 @@
 
 | # | 子需求 | 验收标准（可测试） | 规则绑定 | 依赖 | 来源 PRD |
 |:--|:-------|:-------------------|:---------|:-----|:---------|
-| P1 | 包管理器执行器抽象（npm/pnpm/yarn 三实现） | 三包管理器均能装 dsh 到 staging；输出进度落盘；取消杀子进程 | CON-R-pkgmgr-001/002/006/007 | 无 | PRD FR-2/FR-5 |
-| P2 | spawn 跨平台改造（解析真实入口 + Electron node） | spawn 不依赖 .bin shim；三端路径覆盖单测；dsh web 可启动 | CON-R-pkgmgr-004/005 | P1 | PRD FR-4 |
+| P1 | 包管理器执行器抽象（npm/pnpm/yarn 三实现） | 三包管理器均能装 dsh 到 staging；输出进度落盘；取消杀子进程；**错误码解析按包管理器适配**（pnpm/yarn 错误格式不同于 npm 的 `npm error code`，registry-unreachable 判定需分别处理）；**取消杀完整进程树**（pnpm/yarn 可能有 store/worker 子进程） | CON-R-pkgmgr-001/002/006/007 | 无 | PRD FR-2/FR-5 |
+| P2 | spawn 跨平台改造（解析真实入口 + Electron node） | spawn 不依赖 .bin shim；三端路径覆盖单测；dsh web 可启动；**createRequire.resolve 在 asar/打包环境可解析 <userData>/dsh 包入口**（需验证打包后路径） | CON-R-pkgmgr-004/005 | P1 | PRD FR-4 |
 | P3 | settings.packageManager + 设置页选择 + 原生依赖自动 rebuild | 设置页三选一持久化重启保持；pnpm/yarn 装完自动 rebuild 原生依赖 | CON-R-pkgmgr-001/003/008 | P1 | PRD FR-1/FR-3 |
 
 ## 15. 附录
@@ -141,6 +142,7 @@
 
 | 版本 | 日期 | 变更摘要条目 | 说明 |
 |:-----|:-----|:-------------|:-----|
+| v1.1 | 2026-08-24 | 已登记（已发布） | BE 扫描结论回写：P1/P2 验收补 3 项（错误码按包管理器适配/取消杀进程树/asar resolve 验证） |
 | v1.0 | 2026-08-24 | 已登记（已发布） | 首次建立：从 Hull PkgMgr PRD v0.1 提取；登记 CON-R-pkgmgr-001~008、U-1~U-3 |
 
 ### 15.3 后续规划
