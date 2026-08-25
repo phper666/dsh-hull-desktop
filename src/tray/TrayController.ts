@@ -67,7 +67,7 @@ export class TrayController {
     const image = nativeImage.createFromDataURL(`data:image/png;base64,${TRAY_ICON_PNG_BASE64}`);
     const tray = new Tray(image);
     this.tray = tray;
-    tray.setToolTip('Hull Desktop');
+    tray.setToolTip('Dsh Hull Desktop');
     this.rebuildMenu();
     this.options.runtime.on('status', (s: RuntimeSnapshot) => {
       this.runtimeSnapshot = s;
@@ -127,7 +127,7 @@ export class TrayController {
     }
     const rs = this.runtimeSnapshot;
     if (!rs) {
-      this.tray.setToolTip('Hull Desktop');
+      this.tray.setToolTip('Dsh Hull Desktop');
       return;
     }
     if (rs.phase === RuntimePhase.Ready && rs.url) {

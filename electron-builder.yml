@@ -8,7 +8,7 @@
 # - output: release（gitignore 已含 release/；与 tsc 产物 dist/ 隔离，避免覆盖编译输出）
 
 appId: com.dsh.hull
-productName: Hull Desktop
+productName: Dsh Hull Desktop
 directories:
   output: release
 files:
@@ -22,6 +22,8 @@ mac:
     - zip          # zip 供 electron-updater 更新（PK3）
   category: public.app-category.developer-tools
   identity: null   # CON-R-packaging-005：暂不签名/公证
+  # cicd 决策 6：mac 双架构产物命名统一带 arch（arm64-mac / x64-mac）
+  artifactName: ${productName}-${version}-${arch}-mac.${ext}
   extraResources:
     # cicd 决策 6：mac 双架构（arm64+x64），${arch} 宏按构建架构选 node
     # fetch-node 产物 vendor/node-24.10.0-darwin-{arm64|x64} 匹配 ${arch}
