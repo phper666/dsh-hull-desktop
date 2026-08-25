@@ -3,7 +3,7 @@ import { equal, ok } from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
 import { createPkgMgrRunner, toRunNpmInstall } from './index';
-import { NpmRunner, PnpmRunner, YarnRunner } from './npmRunner';
+import { NpmRunner, PnpmRunner } from './npmRunner';
 
 class FakeChild extends EventEmitter {
   exitCode: number | null = null;
@@ -14,11 +14,10 @@ class FakeChild extends EventEmitter {
   }
 }
 
-test('工厂：按 name 返回对应实现（npm/pnpm/yarn；未知回退 npm）', () => {
+test('工厂：按 name 返回对应实现（npm/pnpm；未知回退 npm）', () => {
   const base = { nodePath: '/usr/local/fake-node/bin/node' };
   ok(createPkgMgrRunner('npm', base) instanceof NpmRunner);
   ok(createPkgMgrRunner('pnpm', base) instanceof PnpmRunner);
-  ok(createPkgMgrRunner('yarn', base) instanceof YarnRunner);
   // 非法值回退 npm（默认兼容；P3 接 settings.packageManager 非法值回退）
   ok(createPkgMgrRunner('bun' as 'npm', base) instanceof NpmRunner);
 });

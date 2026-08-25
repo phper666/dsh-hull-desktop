@@ -306,16 +306,16 @@ test('P3-① 缺 settings.json → packageManager 默认 pnpm', () => {
   equal(provider.getSettings().packageManager, 'pnpm');
 });
 
-test('P3-② set packageManager=yarn → 持久化 + 读回 + 文件落盘 + 广播', () => {
+test('P3-② set packageManager=npm → 持久化 + 读回 + 文件落盘 + 广播', () => {
   const { provider, dir } = makeProvider({});
   const changed: Array<Record<string, unknown>> = [];
   provider.on('changed', (s) => changed.push(s as unknown as Record<string, unknown>));
-  provider.set({ packageManager: 'yarn' });
-  equal(provider.getSettings().packageManager, 'yarn');
+  provider.set({ packageManager: 'npm' });
+  equal(provider.getSettings().packageManager, 'npm');
   const parsed = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as { packageManager: string };
-  equal(parsed.packageManager, 'yarn');
+  equal(parsed.packageManager, 'npm');
   equal(changed.length, 1);
-  equal(changed[0].packageManager, 'yarn');
+  equal(changed[0].packageManager, 'npm');
 });
 
 test('P3-③ 非法 packageManager 值 → 读回退 pnpm + 告警', () => {

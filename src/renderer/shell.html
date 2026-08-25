@@ -355,7 +355,6 @@
               <div class="theme-seg" id="pkgmgr-seg">
                 <button type="button" data-pkgmgr="npm" aria-pressed="false">npm</button>
                 <button type="button" data-pkgmgr="pnpm" aria-pressed="true">pnpm</button>
-                <button type="button" data-pkgmgr="yarn" aria-pressed="false">yarn</button>
               </div>
             </div>
           </div>
@@ -623,9 +622,9 @@
     });
   }
 
-  // P3：包管理器三选一（npm/pnpm/yarn；CON-R-pkgmgr-001：当前高亮 + 切换即时持久化，下次安装生效）
+  // P3：包管理器二选一（npm/pnpm；CON-R-pkgmgr-001：当前高亮 + 切换即时持久化，下次安装生效）
   function renderPkgMgrButtons(pkgmgr) {
-    const m = pkgmgr === 'npm' || pkgmgr === 'yarn' ? pkgmgr : 'pnpm';
+    const m = pkgmgr === 'npm' ? 'npm' : 'pnpm';
     if (!sett.els.pkgmgrSeg) return;
     for (const btn of sett.els.pkgmgrSeg.querySelectorAll('button[data-pkgmgr]')) {
       btn.setAttribute('aria-pressed', String(btn.dataset.pkgmgr === m));
@@ -636,7 +635,7 @@
       const btn = e.target.closest('button[data-pkgmgr]');
       if (!btn) return;
       const next = btn.dataset.pkgmgr;
-      if (next !== 'npm' && next !== 'pnpm' && next !== 'yarn') return;
+      if (next !== 'npm' && next !== 'pnpm') return;
       const ok = await setSetting({ packageManager: next }, null);
       if (ok) renderPkgMgrButtons(next);
     });

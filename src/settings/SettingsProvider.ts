@@ -37,7 +37,7 @@ export interface HullSettings {
   registry: string;
   /** 主题（T2：dark/light，默认 dark；字段级扩展不 bump schemaVersion） */
   theme: ThemeName;
-  /** 包管理器（P3：npm/pnpm/yarn，默认 pnpm；CON-R-pkgmgr-001/008；字段级扩展不 bump schemaVersion） */
+  /** 包管理器（P3：npm/pnpm，默认 pnpm；CON-R-pkgmgr-001/008；字段级扩展不 bump schemaVersion） */
   packageManager: PkgMgrName;
 }
 
@@ -73,9 +73,9 @@ function isValidRegistry(url: string): boolean {
   }
 }
 
-/** 包管理器名校验（npm/pnpm/yarn 三选一；非法 → 默认 pnpm，CON-R-pkgmgr-008） */
+/** 包管理器名校验（npm/pnpm 二选一；非法 → 默认 pnpm，CON-R-pkgmgr-008） */
 function isValidPkgMgr(value: unknown): value is PkgMgrName {
-  return value === 'npm' || value === 'pnpm' || value === 'yarn';
+  return value === 'npm' || value === 'pnpm';
 }
 
 /**
@@ -131,9 +131,7 @@ export class SettingsProvider extends EventEmitter {
     const theme: ThemeName =
       obj.theme === 'dark' || obj.theme === 'light' ? obj.theme : DEFAULT_SETTINGS.theme;
     const packageManager: PkgMgrName =
-      obj.packageManager === 'npm' || obj.packageManager === 'pnpm' || obj.packageManager === 'yarn'
-        ? obj.packageManager
-        : DEFAULT_SETTINGS.packageManager;
+      obj.packageManager === 'npm' || obj.packageManager === 'pnpm' ? obj.packageManager : DEFAULT_SETTINGS.packageManager;
     if (
       typeof obj.closeToQuit !== 'boolean' ||
       typeof obj.schemaVersion !== 'number' ||
@@ -143,7 +141,7 @@ export class SettingsProvider extends EventEmitter {
       (typeof obj.autoCheckHull !== 'boolean' && obj.autoCheckHull !== undefined) ||
       (typeof obj.registry !== 'string' && obj.registry !== undefined) ||
       (typeof obj.theme !== 'string' && obj.theme !== undefined) ||
-      // P3：非法 packageManager 值（非 npm/pnpm/yarn 的非 undefined 值）→ 告警
+      // P3：非法 packageManager 值（非 npm/pnpm 的非 undefined 值）→ 告警
       (obj.packageManager !== undefined && !isValidPkgMgr(obj.packageManager))
     ) {
       this.logger.warn('settings.json 字段类型不符（回退默认值，不覆盖原文件）');

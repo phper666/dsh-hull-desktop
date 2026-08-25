@@ -157,7 +157,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   const runtime = new RuntimeManager({ userDataPath, logger });
   // S2：overlay 管理栈（首装自动触发 / ensure 三态 / 取消）
   const bundledNode = join(userDataPath, 'node', 'bin', 'node');
-  // P1：包管理器执行器抽象（npm/pnpm/yarn 三实现；P1 阶段默认 npm，P3 接 settings.packageManager 字段）
+  // P1：包管理器执行器抽象（npm/pnpm 两实现；P1 阶段默认 npm，P3 接 settings.packageManager 字段；yarn 已移除）
   // 改进 2：pkgMgrRunner onLine 接线——install 逐行输出 → Updater 输出缓冲（升级输出框数据源）。
   // updater 在后面装配，先占位 holder、装配后赋真实引用（onLine 触发时 upgrade 已初始化）。
   const npmOutputTarget: { fn: ((line: string) => void) | null } = { fn: null };
@@ -166,8 +166,8 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   // P3：包管理器按「安装时当前 settings.packageManager」选（用户切换设置后无需重启壳即生效）；
   // 每次安装前经 createPkgMgrRunner 重建 runner——开关可读、切设置即时生效（CON-R-pkgmgr-008：
   // 工厂未知/非法名已回退 npm）。pkgMgrRunner 供取消路径用（cancel 需命中当前 runner）。
-  // A 方案：corepackHome 壳控（<userData>/corepack）——corepack 缓存 pnpm/yarn 到壳控目录，脱离用户环境；
-  // 固定官方最新稳定版（pnpm 11.23.0 / yarn 4.18.0），corepack 按需下载后复用。
+  // A 方案：corepackHome 壳控（<userData>/corepack）——corepack 缓存 pnpm 到壳控目录，脱离用户环境；
+  // 固定官方最新稳定版 pnpm 11.23.0，corepack 按需下载后复用。
   const corepackHome = join(userDataPath, 'corepack');
   let pkgMgrRunner: PkgMgrRunner = createPkgMgrRunner('npm', {
     nodePath: existsSync(bundledNode) ? bundledNode : 'node',

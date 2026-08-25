@@ -1,18 +1,16 @@
 import { HullError } from '../../shared/errors';
 import { INSTALL_ERRORS } from '../OverlayManager';
-import { NpmRunner, PnpmRunner, YarnRunner } from './npmRunner';
+import { NpmRunner, PnpmRunner } from './npmRunner';
 import type { PkgMgrName, PkgMgrResult, PkgMgrRunOptions, PkgMgrRunner, PkgMgrRunnerOptions } from './types';
 
 export type { PkgMgrName, PkgMgrResult, PkgMgrRunOptions, PkgMgrRunner, PkgMgrRunnerOptions } from './types';
-export { NpmRunner, PnpmRunner, YarnRunner } from './npmRunner';
+export { NpmRunner, PnpmRunner } from './npmRunner';
 
-/** 工厂：按包管理器名返回对应执行器（P1：npm/pnpm/yarn 三实现；默认回退 npm） */
+/** 工厂：按包管理器名返回对应执行器（P1：npm/pnpm 两实现；默认回退 npm） */
 export function createPkgMgrRunner(name: PkgMgrName, options: PkgMgrRunnerOptions): PkgMgrRunner {
   switch (name) {
     case 'pnpm':
       return new PnpmRunner(options);
-    case 'yarn':
-      return new YarnRunner(options);
     case 'npm':
     default:
       return new NpmRunner(options);
