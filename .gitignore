@@ -21,6 +21,9 @@ src/**/*.js.map
 # P1 pkgMgr 包管理器执行器手写源（同 skills 先例——新目录默认被 /src/**/*.ts 忽略）
 !src/overlay/pkgMgr/
 !src/overlay/pkgMgr/**/*.ts
+# PK2 extractNode 捆绑 node 解压手写源（同 pkgMgr 先例）
+!src/overlay/extractNode.ts
+!src/overlay/extractNode.test.ts
 
 # Logs
 *.log

@@ -12,12 +12,18 @@
     "test:integration": "tsc -p tsconfig.tests.json && node --test \"dist-tests/tests/**/*.test.js\"",
     "test:e2e": "tsc && playwright test",
     "verify:acceptance": "node scripts/verify-acceptance.mjs",
-    "dev": "tsc && electron ."
+    "dev": "tsc && electron .",
+    "fetch:node": "node scripts/fetch-node.mjs",
+    "pack": "tsc && electron-builder",
+    "pack:mac": "tsc && electron-builder --mac",
+    "pack:win": "tsc && electron-builder --win",
+    "pack:linux": "tsc && electron-builder --linux"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
     "@types/node": "^22.0.0",
     "electron": "^43.4.0",
+    "electron-builder": "^26.15.3",
     "playwright": "^1.62.1",
     "typescript": "^5.4.0"
   },
