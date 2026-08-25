@@ -8,7 +8,7 @@ Hull 是一个开源的 Electron 桌面壳，包住官方的 [DeepSeek Harness](
 
 Hull 面向程序员，在官方之上叠加自己的层：任务看板、原生托盘与通知集成、以及通过 dsh 官方扩展点提供的插件扩展——全部是增量的、可摘除的，绝不挡 dsh 的路。
 
-> **状态：** M1 已交付（M2 已完成验收，M1-重构已交付，476+8+12 全绿）——桌面壳、dsh 升级、Hull 自更新、设置页/托盘、主窗口壳框架（左侧导航 + 官方 UI 内嵌）全部完成并通过测试验收；M2 任务看板（B1~B5）与多 agent 注册表 + 审批流（dsh ACP 集成）已完成；M1-重构把设置/升级收进壳内右侧视图，统一壳内交互模型（升级体验全链：输出框/进度/日志规范）。
+> **状态：** M1 已交付（M2 已完成验收，M1-重构已交付，主题/包管理器/三端打包/CI 发布链已交付，476+8+12 全绿）——桌面壳、dsh 升级、Hull 自更新、设置页/托盘、主窗口壳框架（左侧导航 + 官方 UI 内嵌）全部完成并通过测试验收；M2 任务看板（B1~B5）与多 agent 注册表 + 审批流（dsh ACP 集成）已完成；M1-重构把设置/升级收进壳内右侧视图，统一壳内交互模型（升级体验全链：输出框/进度/日志规范）；主题化（亮/暗）、包管理器（npm/pnpm）、三端打包（electron-builder）、CI 发布链（workflow_dispatch + 三端 matrix）已交付。
 
 > **AI 工作流声明：** 本项目使用 [ai-workflow-skills](https://github.com/phper666/ai-workflow-skills)（团队 AI 研发工作流 skills 套件）驱动开发——共识文档 → 三角色扫描 → 待确认闭环 → 接口契约 → 技术方案（判级）→ 实现纪律（TDD/lint/Review/Semgrep）→ 交付核验 → 变更传播 → 经验沉淀。工作流产物见 `docs/`（spec/共识、api/契约、design/技术方案、prd/需求、prototype/原型、records/实现记录、lessons/经验）。
 
@@ -46,6 +46,13 @@ Hull 面向程序员，在官方之上叠加自己的层：任务看板、原生
 - [x] 升级体验全链：实时输出框（npm 逐包输出 + autoscroll）、诚实阶段进度、日志 dsh.log 单文件轮转、npm 超时 3000s + prefer-offline
 - [x] Hull 版本号显示 + dsh web 地址可点击浏览器访问 + 防自动弹浏览器（--no-open）
 - [x] 看板点击 ticket 弹详情 + 设置页更新区块视觉统一
+
+### ✅ 主题/包管理器/打包/CI 已完成（2026-08-25）
+
+- [x] 主题化：CSS 变量 + 亮/暗色切换 + 设置页持久化（T1）
+- [x] 包管理器：npm/pnpm 两实现 + 设置页选择 + 跨平台 spawn（P1~P3）
+- [x] 三端打包：electron-builder 三平台 target + 捆绑 node + GitHub Releases 更新源（PK1~PK3）
+- [x] CI 发布链：workflow_dispatch 手动触发 + 三端 matrix（mac arm64/x64 双架构 / win / linux）+ 版本三档 bump + 失败隔离（C1~C4）
 
 ## 架构
 

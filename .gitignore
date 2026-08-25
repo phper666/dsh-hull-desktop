@@ -53,3 +53,6 @@ vendor/
 dist-tests/
 test-results/
 playwright-report/
+
+# 项目级 opencode 残留（无实际插件代码，仅 SDK 类型依赖空壳；插件走全局配置）
+.opencode/

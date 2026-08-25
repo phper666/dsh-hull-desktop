@@ -8,7 +8,7 @@ Hull is an open-source Electron desktop shell around the official [DeepSeek Harn
 
 Built for developers, Hull adds its own layer on top: a task kanban for planning work, native tray and notification integration, and plugin extensions through dsh's official extension points — all additive, all removable, none of it in dsh's way.
 
-> **Status:** M1 shipped, M2 accepted, and the M1-refactor delivered (476+8+12 all green) — desktop shell, in-app dsh upgrade, Hull self-update, settings page + tray, and the shell-framework window (left Hull nav + embedded official UI) are all done and acceptance-tested; the M2 task kanban (B1~B5) plus the multi-agent registry + approval flow (dsh ACP integration) are complete; the M1-refactor moved settings/upgrade into in-shell right-side views for a unified interaction model (full upgrade-experience chain: live output box / progress / logging discipline).
+> **Status:** M1 shipped, M2 accepted, and the M1-refactor delivered (476+8+12 all green) — desktop shell, in-app dsh upgrade, Hull self-update, settings page + tray, and the shell-framework window (left Hull nav + embedded official UI) are all done and acceptance-tested; the M2 task kanban (B1~B5) plus the multi-agent registry + approval flow (dsh ACP integration) are complete; the M1-refactor moved settings/upgrade into in-shell right-side views for a unified interaction model (full upgrade-experience chain: live output box / progress / logging discipline); theming (light/dark), package managers (npm/pnpm), three-platform packaging (electron-builder), and the CI release pipeline (workflow_dispatch + multi-platform matrix) are delivered.
 
 > **AI workflow statement:** This project is developed with [ai-workflow-skills](https://github.com/phper666/ai-workflow-skills), a team AI R&D workflow skill suite — consensus docs → tri-role scanning → open-question closure → API contracts → technical design (graded) → implementation discipline (TDD/lint/Review/Semgrep) → delivery verification → change propagation → lesson deposit. Workflow artifacts live under `docs/` (spec/consensus, api/contracts, design/technical design, prd/requirements, prototype/, records/implementation records, lessons/).
 
@@ -46,6 +46,13 @@ Built for developers, Hull adds its own layer on top: a task kanban for planning
 - [x] Upgrade-experience chain: live output box (per-package npm output + autoscroll), honest staged progress, single-file dsh.log rotation, npm timeout 3000s + prefer-offline
 - [x] Hull version shown + dsh web address click-to-open in browser + no auto-browser popup (--no-open)
 - [x] Kanban click-ticket-detail + settings update-block visual unification
+
+### ✅ Theming / pkgmgr / packaging / CI delivered (2026-08-25)
+
+- [x] Theming: CSS variables + light/dark switch + settings persistence (T1)
+- [x] Package managers: npm/pnpm implementations + settings picker + cross-platform spawn (P1~P3)
+- [x] Three-platform packaging: electron-builder targets + bundled node + GitHub Releases update source (PK1~PK3)
+- [x] CI release pipeline: workflow_dispatch manual trigger + multi-platform matrix (mac arm64/x64 dual-arch / win / linux) + three-level version bump + failure isolation (C1~C4)
 
 ## Architecture
 
