@@ -3,6 +3,13 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-08-26 pkgmgr 共识升 v1.3——pnpm peer deps 需显式 fixup（cicd 首次实测）
+
+- 类型：共识结论变更（cicd 首次实测发现 dsh 启动失败，2026-08-26）
+- 内容：**pnpm 装 dsh 后 dsh-app-boot 的 9 个 peer 不链接顶层 → dsh 启动 ERR_MODULE_NOT_FOUND**。与 yarn 同因（peer 不自动装）但机制不同：pnpm `auto-install-peers=true` 对**传递依赖的 peer**（dsh-app-boot 是 dsh 的依赖非顶层）不生效，须装后显式 `pnpm add <peer>@<versionRange>`（peer fixup）。CON-R-pkgmgr-002/003 补充 peer fixup 语义
+- 影响：PnpmRunner 加 peer fixup（读 dsh-app-boot peerDependencies → 顶层缺失显式 add）；buildArgs 写 .npmrc auto-install-peers 兜底；TDD 4 测试 + 手动验证 dsh 启动成功；产出 lesson（docs/lessons/2026-08-26-pnpm-peer-deps-dsh-startup-lesson.md）
+- 状态：已发布（2026-08-26，PM）
+
 ## 2026-08-25 packaging 共识升 v1.2——mac 双架构（cicd 决策 6 传播）
 
 - 类型：跨需求规则变更（cicd 决策 6 传播到 packaging，2026-08-25）

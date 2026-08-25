@@ -1,12 +1,12 @@
 # Hull 桌面壳（包管理器支持）共识文档
 
-> 版本：v1.2 · 更新：2026-08-25 · 维护者：phper666（PM） · 状态：已发布
+> 版本：v1.3 · 更新：2026-08-26 · 维护者：phper666（PM） · 状态：已发布
 > 数据来源：Hull PkgMgr PRD v0.1（docs/prd/2026-08-24-hull-pkgmgr-prd.md）
 > 关联：新增需求（Hull 模块 dsh 安装链路）；需求标识 `pkgmgr`；B1 范围
 
 ## 1. 文档元信息
 
-- **本版本变更**：v1.2 已发布——**去掉 yarn 支持（用户拍板，2026-08-25）**：yarn 4 默认不自动装 peerDependencies → dsh 启动 `ERR_MODULE_NOT_FOUND`（dsh-app-boot 的 `cordis-plugin-group` 缺失），与 dsh 生态不兼容；CON-R-pkgmgr-001 从「三包管理器」改「两包管理器（npm/pnpm）」，其余规则同步收敛；corepack 托管保留（pnpm 走 corepack，固定 11.23.0）；未决项 U-2 bun 保留排后。
+- **本版本变更**：v1.3 已发布——**pnpm peer deps 需显式 fixup（cicd 首次实测发现，2026-08-26）**：pnpm 装 dsh 后 `dsh-app-boot` 的 9 个 peer（cordis-plugin-group 等）不链接到顶层 node_modules → dsh 启动 `ERR_MODULE_NOT_FOUND`。与 yarn 同因（peer 不自动装）但机制不同：**pnpm `auto-install-peers=true` 对传递依赖的 peer 不生效**（dsh-app-boot 是 dsh 的依赖非顶层），须装后显式 `pnpm add <peer>@<versionRange>`（peer fixup）。CON-R-pkgmgr-002/003 补充 peer fixup 语义。
 - **历史变更摘要**：v1.1 已发布——BE 扫描结论回写（确认定案，向后兼容）：P1/P2 验收标准补 3 项 BE 发现——① 错误码解析按包管理器适配（pnpm/yarn 错误格式不同于 npm）；② 取消杀完整进程树（pnpm/yarn 有 store/worker 子进程）；③ createRequire.resolve 在 asar/打包环境解析 <userData>/dsh 入口需验证。
 - **历史变更摘要**：v1.0 首次建立——从 Hull PkgMgr PRD v0.1 提取整理为业务事实源；登记 CON-R-pkgmgr-001~008。
 - **历史变更摘要**：无（新需求）。
@@ -39,7 +39,7 @@
 ### 4.2 两包管理器安装（FR-2）
 
 - npm：现状（`npm install`，兼容回退）；
-- pnpm：`pnpm add` + `prefer-symlinked-executables=true`（POSIX .bin 变 symlink，Windows 忽略）；
+- pnpm：`pnpm add` + `prefer-symlinked-executables=true`（POSIX .bin 变 symlink，Windows 忽略）+ **peer fixup**（v1.3：装后读 dsh-app-boot peerDependencies，顶层缺失的显式 `pnpm add <peer>@<versionRange>`——pnpm auto-install-peers 对传递依赖 peer 不生效，须显式补装）；
 - 各包管理器输出逐包进度（fetch 行）落盘 + 进度条渐进（复用 onNpmLine）。
 
 ### 4.3 原生依赖自动处理（FR-3）
@@ -94,8 +94,8 @@
 | 编号 | 规则 | 来源 | 当前结论 | 变更状态 |
 |:-----|:-----|:-----|:---------|:---------|
 | CON-R-pkgmgr-001 | 两包管理器支持（npm/pnpm），默认 pnpm，设置页选择 + settings 持久化 | PRD FR-1 | 生效 | 稳定 |
-| CON-R-pkgmgr-002 | pnpm 装 dsh 用 `prefer-symlinked-executables=true`（POSIX .bin 变 symlink） | PRD FR-2 | 生效 | 稳定 |
-| CON-R-pkgmgr-003 | 原生依赖（koffi/node-pty 等）自动 rebuild，失败告警不阻断 | PRD FR-3 | 生效 | 稳定 |
+| CON-R-pkgmgr-002 | pnpm 装 dsh 用 `prefer-symlinked-executables=true`（POSIX .bin 变 symlink）+ **peer fixup**（v1.3：装后显式补装 dsh-app-boot 的 peer，pnpm auto-install-peers 对传递依赖 peer 不生效） | PRD FR-2 | 生效 | v1.3 补充 |
+| CON-R-pkgmgr-003 | 原生依赖（koffi/node-pty 等）自动 rebuild + **peer deps 显式补装**，失败告警不阻断 | PRD FR-3 | 生效 | v1.3 补充 |
 | CON-R-pkgmgr-004 | spawn 不依赖 .bin shim，解析包真实 JS 入口（createRequire + bin 字段） | PRD FR-4 | 生效 | 稳定 |
 | CON-R-pkgmgr-005 | spawn 用 process.execPath + ELECTRON_RUN_AS_NODE=1，剥离 NODE_OPTIONS/ELECTRON_* | PRD FR-4 | 生效 | 稳定 |
 | CON-R-pkgmgr-006 | 两包管理器取消安装（杀子进程）语义一致 | PRD FR-5 | 生效 | 稳定 |
@@ -142,6 +142,7 @@
 
 | 版本 | 日期 | 变更摘要条目 | 说明 |
 |:-----|:-----|:-------------|:-----|
+| v1.3 | 2026-08-26 | 已登记（已发布） | pnpm peer deps 需显式 fixup（cicd 首次实测）：auto-install-peers 对传递依赖 peer 不生效，装后显式 add；CON-R-pkgmgr-002/003 补充 |
 | v1.2 | 2026-08-25 | 已登记（已发布） | 去掉 yarn 支持（用户拍板）：yarn 4 与 dsh peer 不兼容；CON-R-pkgmgr-001 三→两包管理器；corepack 托管保留（pnpm 11.23.0） |
 | v1.1 | 2026-08-24 | 已登记（已发布） | BE 扫描结论回写：P1/P2 验收补 3 项（错误码按包管理器适配/取消杀进程树/asar resolve 验证） |
 | v1.0 | 2026-08-24 | 已登记（已发布） | 首次建立：从 Hull PkgMgr PRD v0.1 提取；登记 CON-R-pkgmgr-001~008、U-1~U-3 |
