@@ -11,7 +11,7 @@ import { DshMissingError, HullError } from '../shared/errors';
 import { HullUpdatePhase, InstallPhase, RuntimePhase, UpgradePhase } from '../shared/types';
 import { OverlayManager } from '../overlay/OverlayManager';
 import { InstallFlow } from '../overlay/InstallFlow';
-import { extractBundledNode } from '../overlay/extractNode';
+import { extractBundledNode, isNodeExtracted } from '../overlay/extractNode';
 import { createPkgMgrRunner, toRunNpmInstall, type PkgMgrRunOptions, type PkgMgrRunner } from '../overlay/pkgMgr';
 import { Updater } from '../updater/Updater';
 import { SwapManager } from '../updater/SwapManager';
@@ -710,6 +710,9 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   winMgr.create();
   if (overlayPhase === InstallPhase.Ready) {
     try {
+      // PK2 补充：就位（dsh 已装）时也确保捆绑 node 解压——extractNode 原绑定安装流程，
+      // dsh 已装重启不触发 → userData/node 缺失 → resolveNodePath 回退 PATH → 打包环境无 node → spawn ENOENT
+      await ensureBundledNode(userDataPath, logger);
       await runtime.start();
       maybeAutoCheck(); // S3：dsh 就绪后自动检查（🟢-2）
       maybeAutoCheckHull(); // S5：Hull 自动检查（autoCheckHull + DismissStore('hull') 门控）
@@ -722,6 +725,23 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   } else {
     // 首装：进「未安装」引导态，用户手动点「安装 dsh」再走安装流程（需求变更 2026-08-24：不再自动触发）
     showNotInstalled();
+  }
+}
+
+/**
+ * PK2 补充：幂等确保捆绑 node 解压到 <userData>/node（CON-R-packaging-003/008）。
+ * - 已解压（bin/node + 版本文件）→ 跳过
+ * - dev / 无打包资源 → extractBundledNode 抛错 → 告警跳过（PATH 兜底）
+ * - 失败 → 告警不阻断启动（resolveNodePath 仍会 PATH 兜底，但打包环境会 ENOENT——留日志可查）
+ * 就位分支（dsh 已装）也要调用：extractNode 原绑定安装流程，重启不触发 → 缺失 node 会 spawn ENOENT。
+ */
+async function ensureBundledNode(userDataPath: string, logger: Logger): Promise<void> {
+  const nodeDir = join(userDataPath, 'node');
+  if (isNodeExtracted(nodeDir)) return; // 幂等：已解压跳过
+  try {
+    await extractBundledNode(process.resourcesPath, nodeDir);
+  } catch (err) {
+    logger.warn(`捆绑 node 解压失败（PATH 兜底）: ${(err as Error).message}`);
   }
 }
 
