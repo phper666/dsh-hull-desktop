@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import { equal, deepEqual, ok } from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
-import { PnpmRunner, NATIVE_DEP_PKGS } from './npmRunner';
+import { PnpmRunner, NATIVE_DEP_PKGS, COREPACK_PNPM_VERSION } from './npmRunner';
 import type { PkgMgrSpawnOptions } from './types';
 
 class FakeChild extends EventEmitter {
@@ -22,6 +22,7 @@ function makeRunner(opts: {
   sleep?: (ms: number) => Promise<void>;
   onLine?: (l: string) => void;
   warns?: string[];
+  corepackHome?: string;
 } = {}) {
   let lastChild = new FakeChild();
   let lastSpawn: { cmd: string; args: string[]; opts: PkgMgrSpawnOptions } | null = null;
@@ -38,6 +39,7 @@ function makeRunner(opts: {
     now: opts.now,
     sleep: opts.sleep,
     writePkgJson: (dir) => writes.push(dir),
+    corepackHome: opts.corepackHome,
     logger: opts.warns ? { info() {}, warn: (m) => opts.warns!.push(m), error() {}, dshLog() {} } : undefined,
   });
   return {
@@ -50,12 +52,15 @@ function makeRunner(opts: {
   };
 }
 
-test('pnpm ① 参数串：pnpm add / --prefix / prefer-symlinked-executables / 写 package.json', async () => {
+const COREPACK_BIN = '/usr/local/fake-node/bin/corepack';
+
+test('pnpm ① 参数串：corepack pnpm@<固定版本> add / --prefix / prefer-symlinked-executables / 写 package.json', async () => {
   const { runner, getChild, getSpawn, getSpawns, writes, runOpts } = makeRunner();
   const p = runner.install('/tmp/staging', '1.0.0', runOpts);
   const s = getSpawn();
-  equal(s!.cmd, 'pnpm');
+  equal(s!.cmd, COREPACK_BIN); // corepack 从 nodePath 推导（捆绑 node 同 bin 目录）
   deepEqual(s!.args, [
+    `pnpm@${COREPACK_PNPM_VERSION}`,
     'add',
     '@deepseek-ai/dsh@1.0.0',
     '--prefix',
@@ -65,11 +70,11 @@ test('pnpm ① 参数串：pnpm add / --prefix / prefer-symlinked-executables / 
   equal(s!.opts.cwd, '/tmp/staging');
   deepEqual(writes, ['/tmp/staging']); // staging 根 package.json 先写
   getChild().emit('exit', 0, null);
-  // P3：安装成功后追加 rebuild（第二次 spawn）
+  // P3：安装成功后追加 rebuild（第二次 spawn，同样走 corepack）
   const rebuild = getSpawns()[1];
   ok(rebuild, '安装成功后应追加 rebuild spawn');
-  equal(rebuild.cmd, 'pnpm');
-  deepEqual(rebuild.args, ['rebuild', ...NATIVE_DEP_PKGS]);
+  equal(rebuild.cmd, COREPACK_BIN);
+  deepEqual(rebuild.args, [`pnpm@${COREPACK_PNPM_VERSION}`, 'rebuild', ...NATIVE_DEP_PKGS]);
   getChild().emit('exit', 0, null); // rebuild 成功
   const r = await p;
   equal(r.ok, true);
@@ -112,11 +117,31 @@ test('pnpm ①d ERR_PNPM_IGNORED_BUILDS exit 1 → 视为成功（良性退出�
   // 应视为成功 → 触发 rebuild
   const rebuild = getSpawns()[1];
   ok(rebuild, 'ignored-builds exit 1 应视为成功并触发 rebuild');
-  equal(rebuild.cmd, 'pnpm');
-  deepEqual(rebuild.args, ['rebuild', ...NATIVE_DEP_PKGS]);
+  equal(rebuild.cmd, COREPACK_BIN);
+  deepEqual(rebuild.args, [`pnpm@${COREPACK_PNPM_VERSION}`, 'rebuild', ...NATIVE_DEP_PKGS]);
   getChild().emit('exit', 0, null); // rebuild 成功
   const r = await p;
   equal(r.ok, true, 'ERR_PNPM_IGNORED_BUILDS 不应判为安装失败');
+});
+
+test('pnpm ①e COREPACK_HOME env 注入 → 壳控缓存目录（main 注入 corepackHome）', async () => {
+  const { runner, getChild, getSpawn } = makeRunner({ corepackHome: '/tmp/userdata/corepack' });
+  const p = runner.install('/tmp/staging', '1.0.0', { registry: '' });
+  equal(getSpawn()!.opts.env.COREPACK_HOME, '/tmp/userdata/corepack');
+  getChild().emit('exit', 0, null);
+  getChild().emit('exit', 0, null); // rebuild
+  const r = await p;
+  equal(r.ok, true);
+});
+
+test('pnpm ①f 未配 corepackHome → 不设 COREPACK_HOME（默认用户缓存）', async () => {
+  const { runner, getChild, getSpawn } = makeRunner();
+  const p = runner.install('/tmp/staging', '1.0.0', { registry: '' });
+  equal(getSpawn()!.opts.env.COREPACK_HOME, undefined);
+  getChild().emit('exit', 0, null);
+  getChild().emit('exit', 0, null); // rebuild
+  const r = await p;
+  equal(r.ok, true);
 });
 
 test('pnpm ② ERR_PNPM_FETCH_404 → registry-unreachable（错误格式适配）', async () => {

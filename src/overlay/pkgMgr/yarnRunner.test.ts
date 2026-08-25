@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import { equal, deepEqual, ok } from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
-import { YarnRunner } from './npmRunner';
+import { YarnRunner, COREPACK_YARN_VERSION } from './npmRunner';
 import type { PkgMgrSpawnOptions } from './types';
 
 class FakeChild extends EventEmitter {
@@ -17,10 +17,11 @@ class FakeChild extends EventEmitter {
   }
 }
 
-function makeRunner(opts: { now?: () => number; sleep?: (ms: number) => Promise<void>; onLine?: (l: string) => void } = {}) {
+function makeRunner(opts: { now?: () => number; sleep?: (ms: number) => Promise<void>; onLine?: (l: string) => void; corepackHome?: string } = {}) {
   let lastChild = new FakeChild();
   let lastSpawn: { cmd: string; args: string[]; opts: PkgMgrSpawnOptions } | null = null;
   const writes: string[] = [];
+  const writesFiles: Array<{ dir: string; name: string; content: string }> = [];
   const runner = new YarnRunner({
     nodePath: '/usr/local/fake-node/bin/node',
     spawnFn: (cmd, args, o) => {
@@ -31,24 +32,40 @@ function makeRunner(opts: { now?: () => number; sleep?: (ms: number) => Promise<
     now: opts.now,
     sleep: opts.sleep,
     writePkgJson: (dir) => writes.push(dir),
+    writeFile: (dir, name, content) => writesFiles.push({ dir, name, content }),
+    corepackHome: opts.corepackHome,
   });
   return {
     runner,
     getChild: () => lastChild,
     getSpawn: () => lastSpawn,
     writes,
+    writesFiles,
     runOpts: { registry: '', onLine: opts.onLine },
   };
 }
 
-test('yarn ① 参数串：yarn add / cwd=staging / 写 package.json', async () => {
-  const { runner, getChild, getSpawn, writes, runOpts } = makeRunner();
+const COREPACK_BIN = '/usr/local/fake-node/bin/corepack';
+
+test('yarn ① 参数串：corepack yarn@<固定版本> add / cwd=staging / 写 package.json + .yarnrc.yml(nodeLinker=node-modules)', async () => {
+  const { runner, getChild, getSpawn, writes, writesFiles, runOpts } = makeRunner();
   const p = runner.install('/tmp/staging', '1.0.0', runOpts);
   const s = getSpawn();
-  equal(s!.cmd, 'yarn');
-  deepEqual(s!.args, ['add', '@deepseek-ai/dsh@1.0.0']);
+  equal(s!.cmd, COREPACK_BIN); // corepack 从 nodePath 推导（捆绑 node 同 bin 目录）
+  deepEqual(s!.args, [`yarn@${COREPACK_YARN_VERSION}`, 'add', '@deepseek-ai/dsh@1.0.0']);
   equal(s!.opts.cwd, '/tmp/staging');
   deepEqual(writes, ['/tmp/staging']); // staging 根 package.json 先写
+  // yarn 4 需 nodeLinker=node-modules（否则 PnP 布局，壳 spawn 不兼容）
+  deepEqual(writesFiles, [{ dir: '/tmp/staging', name: '.yarnrc.yml', content: 'nodeLinker: node-modules\n' }]);
+  getChild().emit('exit', 0, null);
+  const r = await p;
+  equal(r.ok, true);
+});
+
+test('yarn ①b COREPACK_HOME env 注入 → 壳控缓存目录', async () => {
+  const { runner, getChild, getSpawn } = makeRunner({ corepackHome: '/tmp/userdata/corepack' });
+  const p = runner.install('/tmp/staging', '1.0.0', { registry: '' });
+  equal(getSpawn()!.opts.env.COREPACK_HOME, '/tmp/userdata/corepack');
   getChild().emit('exit', 0, null);
   const r = await p;
   equal(r.ok, true);

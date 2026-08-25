@@ -166,13 +166,18 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   // P3：包管理器按「安装时当前 settings.packageManager」选（用户切换设置后无需重启壳即生效）；
   // 每次安装前经 createPkgMgrRunner 重建 runner——开关可读、切设置即时生效（CON-R-pkgmgr-008：
   // 工厂未知/非法名已回退 npm）。pkgMgrRunner 供取消路径用（cancel 需命中当前 runner）。
+  // A 方案：corepackHome 壳控（<userData>/corepack）——corepack 缓存 pnpm/yarn 到壳控目录，脱离用户环境；
+  // 固定官方最新稳定版（pnpm 11.23.0 / yarn 4.18.0），corepack 按需下载后复用。
+  const corepackHome = join(userDataPath, 'corepack');
   let pkgMgrRunner: PkgMgrRunner = createPkgMgrRunner('npm', {
     nodePath: existsSync(bundledNode) ? bundledNode : 'node',
+    corepackHome,
     logger,
   });
   const newPkgMgrRunner = (): PkgMgrRunner => {
     pkgMgrRunner = createPkgMgrRunner(settings.getSettings().packageManager, {
       nodePath: existsSync(bundledNode) ? bundledNode : 'node',
+      corepackHome,
       logger,
     });
     return pkgMgrRunner;

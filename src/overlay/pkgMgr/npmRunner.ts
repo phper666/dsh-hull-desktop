@@ -28,6 +28,10 @@ const NETWORK_ERROR_CODES = ['ECONNREFUSED', 'EAI_AGAIN', 'ETIMEDOUT', 'ENOTFOUN
 /** 原生依赖清单（CON-R-pkgmgr-003：需 build scripts 的包；实测可 rebuild） */
 export const NATIVE_DEP_PKGS = ['koffi', 'node-pty', 'protobufjs', '@google/genai', '@deepseek-ai/dsh-subprocess-local'];
 
+/** A 方案：corepack 托管固定版本（官方 latest 稳定——pnpm 12 是 RC 不用；corepack 渠道 yarn 最新稳定） */
+export const COREPACK_PNPM_VERSION = '11.23.0';
+export const COREPACK_YARN_VERSION = '4.18.0';
+
 /**
  * 包管理器执行器基类（npm/pnpm/yarn 共用骨架）：
  * spawn 子进程 + 逐行输出缓冲（错误分类）+ 总超时 + 取消（SIGTERM→5s→SIGKILL）。
@@ -35,21 +39,35 @@ export const NATIVE_DEP_PKGS = ['koffi', 'node-pty', 'protobufjs', '@google/gena
  */
 export abstract class BasePkgMgrRunner implements PkgMgrRunner {
   protected readonly nodePath: string;
+  protected readonly corepackHome?: string;
   protected readonly spawnFn: PkgMgrSpawnFn;
   protected readonly logger: RuntimeLogger;
   protected readonly now: () => number;
   protected readonly sleepImpl: (ms: number) => Promise<void>;
   protected readonly writePkgJson: (stagingDir: string) => void;
+  protected readonly writeFile: (stagingDir: string, name: string, content: string) => void;
   private child: ChildLike | null = null;
   private cancelled = false;
 
   constructor(options: PkgMgrRunnerOptions) {
     this.nodePath = resolveExecutablePath(options.nodePath);
+    this.corepackHome = options.corepackHome;
     this.spawnFn = options.spawnFn ?? ((cmd, args, opts) => spawn(cmd, args, opts));
     this.logger = options.logger ?? NOOP_LOGGER;
     this.now = options.now ?? Date.now;
     this.sleepImpl = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
     this.writePkgJson = options.writePkgJson ?? ((dir) => writeFileSync(join(dir, 'package.json'), '{}\n', 'utf8'));
+    this.writeFile = options.writeFile ?? ((dir, name, content) => writeFileSync(join(dir, name), content, 'utf8'));
+  }
+
+  /** 捆绑 corepack 二进制路径（A 方案：nodePath 同 bin 目录；nodePath 为绝对路径——resolveExecutablePath 已解析） */
+  protected corepackBin(): string {
+    return join(dirname(this.nodePath), 'corepack');
+  }
+
+  /** COREPACK_HOME env 注入（壳控缓存；未配 → 不设，corepack 用用户默认缓存） */
+  protected corepackEnv(env: NodeJS.ProcessEnv): void {
+    if (this.corepackHome) env.COREPACK_HOME = this.corepackHome;
   }
 
   /** 子类：spawn 命令 + 参数（registry env 已写入 env.npm_config_registry） */
@@ -100,10 +118,12 @@ export abstract class BasePkgMgrRunner implements PkgMgrRunner {
     return new Promise<number>((resolve) => {
       let child: ChildLike;
       try {
+        const env: NodeJS.ProcessEnv = { ...process.env };
+        this.corepackEnv(env); // COREPACK_HOME 壳控（rebuild 同走 corepack）
         child = this.spawnFn(command, args, {
           cwd,
           stdio: ['ignore', 'pipe', 'pipe'],
-          env: { ...process.env },
+          env,
         });
       } catch (err) {
         resolve(-1);
@@ -127,6 +147,7 @@ export abstract class BasePkgMgrRunner implements PkgMgrRunner {
     // registry env 注入（npm_config_registry 通用变量——npm/pnpm/yarn 均识别）
     if (opts.registry) env.npm_config_registry = opts.registry;
     else if (process.env.HULL_REGISTRY) env.npm_config_registry = process.env.HULL_REGISTRY;
+    this.corepackEnv(env); // A 方案：COREPACK_HOME 壳控（pnpm/yarn 走 corepack）
     const { command, args } = this.buildArgs(stagingDir, targetVersion, env);
     const child = this.spawnFn(command, args, {
       cwd: stagingDir,
@@ -287,7 +308,7 @@ export class NpmRunner extends BasePkgMgrRunner {
   }
 }
 
-/** pnpm 实现（`pnpm add <pkg>@<ver> --prefix <staging>` + prefer-symlinked-executables） */
+/** pnpm 实现（A 方案：corepack 托管固定版本，脱离用户环境——`corepack pnpm@<ver> add ...`） */
 export class PnpmRunner extends BasePkgMgrRunner {
   protected label(): string {
     return 'pnpm';
@@ -300,8 +321,9 @@ export class PnpmRunner extends BasePkgMgrRunner {
   ): { command: string; args: string[] } {
     this.writePkgJson(stagingDir); // pnpm --prefix 需指向含 package.json 的目录
     return {
-      command: 'pnpm',
+      command: this.corepackBin(),
       args: [
+        `pnpm@${COREPACK_PNPM_VERSION}`,
         'add',
         `@deepseek-ai/dsh@${targetVersion}`,
         '--prefix',
@@ -334,13 +356,13 @@ export class PnpmRunner extends BasePkgMgrRunner {
   }
 
   /** P3：pnpm 11 默认忽略 build scripts（ERR_PNPM_IGNORED_BUILDS）→ 装后显式 rebuild 原生依赖（CON-R-pkgmgr-003）。
-   *  cwd=stagingDir 已由 runRebuild 注入，命令与实测可用形式一致：`pnpm rebuild <pkgs>` */
+   *  A 方案：同走 corepack（cwd=stagingDir 已由 runRebuild 注入） */
   protected override rebuildCommand(stagingDir: string): { command: string; args: string[] } | null {
-    return { command: 'pnpm', args: ['rebuild', ...NATIVE_DEP_PKGS] };
+    return { command: this.corepackBin(), args: [`pnpm@${COREPACK_PNPM_VERSION}`, 'rebuild', ...NATIVE_DEP_PKGS] };
   }
 }
 
-/** yarn 实现（`yarn add <pkg>@<ver>`） */
+/** yarn 实现（A 方案：corepack 托管固定版本 + yarn4 nodeLinker=node-modules——PnP 布局壳 spawn 不兼容） */
 export class YarnRunner extends BasePkgMgrRunner {
   protected label(): string {
     return 'yarn';
@@ -352,9 +374,11 @@ export class YarnRunner extends BasePkgMgrRunner {
     _env: NodeJS.ProcessEnv
   ): { command: string; args: string[] } {
     this.writePkgJson(stagingDir); // yarn 需 staging 根 package.json
+    // yarn 4 默认 PnP 布局（.pnp.cjs，壳 spawn 按 node_modules 解析 → 不兼容）；强制 nodeLinker=node-modules
+    this.writeFile(stagingDir, '.yarnrc.yml', 'nodeLinker: node-modules\n');
     return {
-      command: 'yarn',
-      args: ['add', `@deepseek-ai/dsh@${targetVersion}`],
+      command: this.corepackBin(),
+      args: [`yarn@${COREPACK_YARN_VERSION}`, 'add', `@deepseek-ai/dsh@${targetVersion}`],
     };
   }
 

@@ -37,8 +37,10 @@ export type PkgMgrSpawnFn = (command: string, args: readonly string[], options: 
 
 /** 执行器构造选项（三实现共用；测试可注入 spawn/clock/sleep/package.json 写入） */
 export interface PkgMgrRunnerOptions {
-  /** 捆绑 node 二进制路径（npm 实现经其推导 npm-cli.js；pnpm/yarn 命令独立走 PATH） */
+  /** 捆绑 node 二进制路径（npm 实现经其推导 npm-cli.js；pnpm/yarn 经其推导 corepack，走捆绑 corepack 脱离用户环境） */
   nodePath: string;
+  /** COREPACK_HOME（A 方案：corepack 缓存目录，壳控；<userData>/corepack 可随壳预置/预下载；缺省 → 用户默认缓存） */
+  corepackHome?: string;
   logger?: RuntimeLogger;
   /** spawn 注入（默认 child_process.spawn） */
   spawnFn?: PkgMgrSpawnFn;
@@ -48,4 +50,6 @@ export interface PkgMgrRunnerOptions {
   sleep?: (ms: number) => Promise<void>;
   /** staging 根 package.json 写入（pnpm/yarn 需先有 package.json；测试注入 no-op） */
   writePkgJson?: (stagingDir: string) => void;
+  /** staging 任意文件写入（yarn 4 需 .yarnrc.yml；测试注入记录） */
+  writeFile?: (stagingDir: string, name: string, content: string) => void;
 }
