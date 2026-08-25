@@ -3,6 +3,13 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-08-25 pkgmgr 去 yarn（共识 v1.2）——只留 npm/pnpm
+
+- 类型：需求变更（用户拍板，2026-08-25），升共识 v1.2
+- 内容：**去掉 yarn 支持**——yarn 4 默认不自动装 peerDependencies → dsh 启动 `ERR_MODULE_NOT_FOUND`（dsh-app-boot 的 `cordis-plugin-group` 缺失），与 dsh 生态不兼容；CON-R-pkgmgr-001 从「三包管理器」改「两包管理器（npm/pnpm）」；corepack 托管保留（pnpm 固定 11.23.0）
+- 影响：删 YarnRunner + COREPACK_YARN_VERSION + yarn4 .yarnrc.yml 逻辑 + yarn 测试；PkgMgrName/校验/设置页/工厂收敛二选一；npm/pnpm 零改动；PRD/规则索引/共识同步
+- 状态：已实现（2026-08-25，unit 640 绿）
+
 ## 2026-08-24 pkgmgr 实现完成——三包管理器支持落地（P1/P2/P3）
 
 - 类型：实现完成（共识 v1.1 落地，CON-R-pkgmgr-001~008 全生效）
