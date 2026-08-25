@@ -1,6 +1,6 @@
 {
   "name": "dsh-hull-desktop",
-  "version": "0.1.1",
+  "version": "0.1.0",
   "private": true,
   "description": "Dsh Hull Desktop — 包住官方 DeepSeek Harness (dsh) 的 Electron 桌面壳",
   "main": "dist/main/index.js",
