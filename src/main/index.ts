@@ -380,6 +380,9 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   // S2：首装/重装编排（自动触发 + 引导态重装共用同一入口）
   const runInstallFlow = async (targetVersion: string): Promise<void> => {
     if (quitting) return;
+    // PK2 补充：首装前确保捆绑 node 解压——否则 nodePath 走 PATH 兜底（'node'），
+    // pnpm 的 corepackBin（nodePath 同目录/corepack）路径错 → spawn corepack pnpm 127（command not found）
+    await ensureBundledNode(userDataPath, logger);
     winMgr.showPlaceholder('installing', `正在安装 dsh@${targetVersion}…`);
     const result = await installFlow.run(targetVersion);
     if (quitting) return;
