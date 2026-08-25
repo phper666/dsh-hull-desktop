@@ -72,6 +72,15 @@ export abstract class BasePkgMgrRunner implements PkgMgrRunner {
     return null;
   }
 
+  /**
+   * 良性非零退出判定：包已装好但包管理器返回 warning 型 exit 1（如 pnpm 的 ERR_PNPM_IGNORED_BUILDS——
+   * 原生依赖 build scripts 被跳过但安装本身成功）。命中 → 视为成功（走 rebuild）。
+   * 默认 false（npm/yarn 非零即失败）；pnpm 覆写识别 ERR_PNPM_IGNORED_BUILDS。
+   */
+  protected isBenignExit(code: number, lines: string[]): boolean {
+    return false;
+  }
+
   /** 追加 rebuild（安装成功后调用）：告警不阻断（失败 → warn + 返回，不影响 install 结果） */
   private async runRebuild(stagingDir: string): Promise<void> {
     const spec = this.rebuildCommand(stagingDir);
@@ -135,8 +144,11 @@ export abstract class BasePkgMgrRunner implements PkgMgrRunner {
         }
       };
       // 输出行缓冲：逐行 → onLine + 错误码提取
+      const seenLines: string[] = [];
       const lineBuf = createLineBuffer((line) => {
         opts.onLine?.(line);
+        seenLines.push(line);
+        if (seenLines.length > 200) seenLines.shift(); // 只保留最近 200 行（容错判定用）
         const code = this.classify(line);
         if (code) pkgErrorCode = code;
       });
@@ -155,8 +167,8 @@ export abstract class BasePkgMgrRunner implements PkgMgrRunner {
           settle({ ok: false, code: INSTALL_ERRORS.cancelled, error: `${this.label()} 安装已取消` });
           return;
         }
-        if (code === 0) {
-          // P3：主 install 成功 → 追加原生依赖 rebuild（pnpm 显式；npm/yarn 返回 null 跳过）；失败告警不阻断
+        if (code === 0 || this.isBenignExit(code ?? -1, seenLines)) {
+          // P3：主 install 成功（含良性 exit，如 pnpm ignored-builds）→ 追加原生依赖 rebuild；失败告警不阻断
           void this.runRebuild(stagingDir).then(() => settle({ ok: true }));
           return;
         }
@@ -311,6 +323,14 @@ export class PnpmRunner extends BasePkgMgrRunner {
   /** ERR_PNPM_FETCH_* 属 registry 类错误（包解析/下载失败 → registry-unreachable） */
   protected override isNetworkError(code: string): boolean {
     return NETWORK_ERROR_CODES.includes(code) || code.startsWith('FETCH_');
+  }
+
+  /**
+   * pnpm 良性退出：exit 1 + 输出含 ERR_PNPM_IGNORED_BUILDS（原生依赖 build scripts 被跳过但安装成功）
+   * → 视为成功（包已装好，rebuild 会补原生依赖编译）。前提：无网络错误（pkgErrorCode 非网络类已在上游判定）。
+   */
+  protected override isBenignExit(code: number, lines: string[]): boolean {
+    return code === 1 && lines.some((l) => l.includes('ERR_PNPM_IGNORED_BUILDS'));
   }
 
   /** P3：pnpm 11 默认忽略 build scripts（ERR_PNPM_IGNORED_BUILDS）→ 装后显式 rebuild 原生依赖（CON-R-pkgmgr-003）。

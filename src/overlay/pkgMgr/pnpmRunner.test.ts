@@ -100,6 +100,25 @@ test('pnpm ①c 安装成功 + rebuild spawn 失败 → 仍返回 ok + 告警', 
   ok(warns.some((w) => w.includes('rebuild 失败')), '应产生 rebuild 失败告警');
 });
 
+test('pnpm ①d ERR_PNPM_IGNORED_BUILDS exit 1 → 视为成功（良性退出，走 rebuild）——修复误判安装失败', async () => {
+  const { runner, getChild, getSpawns, runOpts } = makeRunner();
+  const p = runner.install('/tmp/staging', '1.0.0', runOpts);
+  // pnpm 装完报 ERR_PNPM_IGNORED_BUILDS（原生依赖 build 被跳过，但安装本身成功）→ exit 1
+  (getChild().stdout as unknown as EventEmitter).emit(
+    'data',
+    '[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: koffi@3.1.6, node-pty@1.2.0-beta.15\n'
+  );
+  getChild().emit('exit', 1, null);
+  // 应视为成功 → 触发 rebuild
+  const rebuild = getSpawns()[1];
+  ok(rebuild, 'ignored-builds exit 1 应视为成功并触发 rebuild');
+  equal(rebuild.cmd, 'pnpm');
+  deepEqual(rebuild.args, ['rebuild', ...NATIVE_DEP_PKGS]);
+  getChild().emit('exit', 0, null); // rebuild 成功
+  const r = await p;
+  equal(r.ok, true, 'ERR_PNPM_IGNORED_BUILDS 不应判为安装失败');
+});
+
 test('pnpm ② ERR_PNPM_FETCH_404 → registry-unreachable（错误格式适配）', async () => {
   const { runner, getChild, runOpts } = makeRunner();
   const p = runner.install('/tmp/staging', '1.0.0', runOpts);
