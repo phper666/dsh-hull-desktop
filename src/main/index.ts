@@ -227,7 +227,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   // S5：Hull 自更新栈（adapter → HullUpdater；与 dsh Updater 共享 UpgradeQueue 互斥）
   // owner/repo：发布链核对注记（与 electron-builder.yml publish 一致，S6/发布时确认）
   const hullUpdater = new HullUpdater({
-    adapter: createElectronUpdaterAdapter({ owner: 'dsh-hull-desktop', repo: 'dsh-hull-desktop' }),
+    adapter: createElectronUpdaterAdapter({ owner: 'phper666', repo: 'dsh-hull-desktop' }),
     queue: upgradeQueue,
     runtimeManager: runtime,
     settingsProvider: settings,

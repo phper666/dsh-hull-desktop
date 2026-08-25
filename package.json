@@ -4,6 +4,10 @@
   "private": true,
   "description": "Hull Desktop — 包住官方 DeepSeek Harness (dsh) 的 Electron 桌面壳",
   "main": "dist/main/index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/phper666/dsh-hull-desktop.git"
+  },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",

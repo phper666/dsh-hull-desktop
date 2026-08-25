@@ -43,5 +43,6 @@ linux:
 nsis:
   oneClick: false  # 安装引导（非一键）
 publish:
-  provider: generic
-  url: https://example.com/hull-updates   # PK3 占位：填真实更新源（GitHub Releases 或私有源）
+  provider: github  # PK3 定案（用户拍板 A）：GitHub Releases 更新源；electron-builder 自动生成 latest 元数据
+  owner: phper666
+  repo: dsh-hull-desktop
