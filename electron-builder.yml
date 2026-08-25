@@ -1,27 +1,48 @@
-# electron-builder 配置（S5 设计 D8/B5 定案 a）
-# - mac targets zip + dmg（GitHub provider 发布，latest-mac.yml 由 electron-builder 生成）
-# - extraResources：vendor/node-*（S2 fetch-node 产物内嵌——extractNode 运行时解压 seam 复用，B5）
-# - mac.identity: null（CI 无证书，🟢-2；正式发布前补公证/签名）
-# - owner/repo：发布链核对注记（与 main/index.ts HullUpdater 装配一致，S6/发布时确认）
+# electron-builder 配置（PK1 三端打包，CON-R-packaging-001/002）
+# - 三平台 target：mac dmg+zip / win nsis+portable / linux AppImage+deb（CON-R-packaging-002）
+# - extraResources：vendor/node-*（fetch-node 产物）→ to: node（PK2 捆绑 node，extractNode 从 resources/node 解压）
+#   ⚠️ 平台名映射：fetch-node 用 node.org 命名（darwin-arm64/win32-x64/linux-x64），
+#   electron-builder ${os} 用 mac/win/linux → per-platform extraResources 显式映射（CON-R-packaging-003）
+# - publish url 占位（PK3 填真实更新源；provider generic）
+# - mac.identity: null（暂不签名/公证 CON-R-packaging-005；正式分发前补）
+# - output: release（gitignore 已含 release/；与 tsc 产物 dist/ 隔离，避免覆盖编译输出）
 
-appId: com.dsh.hull-desktop
+appId: com.dsh.hull
 productName: Hull Desktop
 directories:
   output: release
 files:
   - dist/**
+  - src/renderer/**
   - package.json
-extraResources:
-  - from: vendor
-    to: vendor
-    filter:
-      - node-*
+# 顶层不带 extraResources——per-platform 覆盖映射（PK2 三端 node 命名差异）
 mac:
   target:
-    - zip
     - dmg
-  identity: null
+    - zip          # zip 供 electron-updater 更新（PK3）
+  category: public.app-category.developer-tools
+  identity: null   # CON-R-packaging-005：暂不签名/公证
+  extraResources:
+    - from: vendor/node-24.10.0-darwin-arm64
+      to: node
+win:
+  target:
+    - nsis
+    - portable
+  extraResources:
+    - from: vendor/node-24.10.0-win32-x64
+      to: node
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Development
+  extraResources:
+    - from: vendor/node-24.10.0-linux-x64
+      to: node
+nsis:
+  oneClick: false  # 安装引导（非一键）
 publish:
-  provider: github
-  owner: dsh-hull-desktop
+  provider: github  # PK3 定案（用户拍板 A）：GitHub Releases 更新源；electron-builder 自动生成 latest 元数据
+  owner: phper666
   repo: dsh-hull-desktop
