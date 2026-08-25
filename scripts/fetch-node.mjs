@@ -30,6 +30,7 @@ import { fileURLToPath } from 'node:url';
 /** 平台注册表（PK2：各平台归档格式/布局/二进制路径不同——BE 扫描发现） */
 const PLATFORMS = {
   'darwin-arm64': { ext: 'tar.gz', tarFlags: '-xzf', bin: join('bin', 'node') },
+  'darwin-x64': { ext: 'tar.gz', tarFlags: '-xzf', bin: join('bin', 'node') }, // cicd 决策 6：mac Intel
   'linux-x64': { ext: 'tar.xz', tarFlags: '-xJf', bin: join('bin', 'node') },
   'win32-x64': { ext: 'zip', tarFlags: null, bin: 'node.exe' }, // win zip 根为 node.exe（无 bin/）
 };

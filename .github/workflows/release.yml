@@ -1,22 +1,96 @@
-# CI 发布链（S5 契约 #6）：tag push（v*）→ build → electron-builder → GitHub Releases
-# GH_TOKEN：仓库 Secrets（fine-grained PAT，Contents+Actions 写权限，契约协调事项已就绪）
-# permissions: contents: write（最小化，🟢-3）
+# CI 发布链（cicd C1~C4，演进自 S5 契约 #6 mac-only 版本）
+# 触发：workflow_dispatch 手动（branch + version 三档 + release_notes），CON-R-cicd-003
+# 流程：bump（commit+tag+push）→ 多端 matrix 构建发布（mac arm64+x64 / win / linux）→ release-body 标注
+# GH_TOKEN：仓库 Secrets（fine-grained PAT，Contents+Actions 写权限，S5 契约已就绪）
+# permissions: contents: write（bump push + 建 Release，最小化）
+# 并发锁按版本线分组（CON-R-cicd-003/Q-058）：同 branch 发布串行，异 branch 并行
 # Semgrep（CWE-1357）：actions pin 到完整 40 字符 commit SHA（防 mutable tag 供应链攻击）
 
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 发布源分支（默认 main；维护线发布选 release/x.y）
+        default: main
+        required: true
+      version:
+        description: 版本档位（patch=bug+小功能 / minor=攒批 / major=破坏性重构）
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+        required: true
+      release_notes:
+        description: 发布说明（可选，写入 GitHub Release body）
+        default: ''
+
+concurrency:
+  group: release-${{ inputs.branch }}
+  cancel-in-progress: false
 
 jobs:
-  release:
-    runs-on: macos-latest
+  # C2 版本 bump：bump → commit → tag → push（先于 build，产物版本=bump 后 tag）
+  bump:
+    runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.branch }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Bump version
+        id: bump
+        env:
+          BUMP: ${{ inputs.version }}
+        run: |
+          NEXT=$(node scripts/bump-version.mjs --bump "$BUMP")
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+
+      - name: Commit + tag + push
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+          BRANCH: ${{ inputs.branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "chore: release v${VERSION} [skip ci]"
+          git tag "v${VERSION}"
+          git push origin "$BRANCH"
+          git push origin "v${VERSION}"
+
+  # C1/C3 多端 matrix 构建发布（mac 双架构决策 6 / C7 前置门禁 / C8 失败隔离）
+  build:
+    needs: bump
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest,   platform: darwin-arm64, arch: arm64 }
+          - { os: macos-13,       platform: darwin-x64,   arch: x64 }   # Intel Mac（决策 6）
+          - { os: windows-latest, platform: win32-x64,    arch: x64 }
+          - { os: ubuntu-latest,  platform: linux-x64,    arch: x64 }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.branch }}
+          fetch-depth: 0
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -26,13 +100,57 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Fetch bundled Node (S2 fetch-node 产物，extraResources 内嵌)
-        run: node scripts/fetch-node.mjs
+      - name: Fetch bundled Node (C3，按平台生成；win32-x64 CI 补齐 Q-059)
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: node scripts/fetch-node.mjs --platform "$PLATFORM"
 
-      - name: Build
+      - name: Typecheck (C7 前置门禁)
+        run: npm run typecheck
+
+      - name: Build (C7 前置门禁)
         run: npm run build
 
-      - name: Package & publish
-        run: npx electron-builder --publish always
+      - name: Package & publish (C3，发布 GitHub Releases + latest 元数据)
+        run: npx electron-builder --publish always --${{ matrix.arch }}
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+  # C4 失败隔离可观察性（Q-060）：release body 标注各平台
+  # 双通道：① workflow 结论页 job 红绿（matrix 天然可见）② release body 资产驱动标注
+  # 成功才发布资产 → 用 gh release view 读真实资产按存在性标注，天然准确
+  release-body:
+    needs: build
+    runs-on: ubuntu-latest
+    if: always()
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.branch }}
+          fetch-depth: 0
+
+      - name: Update release body (asset-driven platform status)
+        env:
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          VER=$(node -p "require('./package.json').version")
+          ASSETS=$(gh release view "v$VER" --json assets --jq '.assets[].name' 2>/dev/null || echo "")
+
+          # 按真实资产存在性标注各平台（成功才发布资产）
+          CHECK() { printf '%s' "$ASSETS" | grep -qi "$1" && echo "✅" || echo "❌"; }
+          MAC_ARM=$(CHECK "arm64-mac.zip")
+          MAC_X64=$(CHECK "x64-mac.zip")
+          WIN=$(CHECK "Setup.*exe\|portable.*exe" || CHECK "nsis")
+          LINUX=$(CHECK "AppImage")
+
+          gh release edit "v$VER" --notes "${RELEASE_NOTES:-}
+
+          ## 构建状态（资产驱动）
+          - macOS arm64: $MAC_ARM
+          - macOS x64: $MAC_X64
+          - Windows: $WIN
+          - Linux: $LINUX
+          " || echo "release edit skipped (version $VER)"
