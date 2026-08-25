@@ -117,13 +117,13 @@
 
 ## 14. 子需求清单
 
-> 待拆解（Gate B 前补齐）。
+> 已拆解（Gate B 通过 2026-08-25）：ticket 已落 dsh-hull-desktop 清单。
 
-| # | 子需求 | 验收标准（可测试） | 规则绑定 | 依赖 | 来源 PRD |
-|:--|:-------|:-------------------|:---------|:-----|:---------|
-| PK1 | electron-builder 配置 + 三平台 target 打包 | mac dmg+zip / win nsis+portable / linux AppImage+deb 出包成功；**Windows 打包需 Windows 环境**（nsis 不能 mac 交叉，BE 扫描发现） | CON-R-packaging-001/002/007 | 无 | PRD FR-1/FR-2 |
-| PK2 | 三端捆绑 node（fetch-node 按平台 + extractNode 承接） | 三端包内 node 就位；全新环境 dsh 首装不依赖用户 node；**fetch-node.mjs 扩展按平台下载**（现只 darwin-arm64，win 需 zip/exe、linux 需 tar.xz，格式不同，BE 扫描发现） | CON-R-packaging-003/008 | PK1 | PRD FR-3 |
-| PK3 | 三端自动更新 + 平台适配验证 | electron-updater 三端检测/下载/安装；spawn/托盘/路径三端验证；**electron-updater 三端更新机制差异**（mac zip / win nsis 配置不同，BE 扫描发现） | CON-R-packaging-004/005/006 | PK1/PK2 | PRD FR-4/FR-5 |
+| # | 子需求 | 验收标准（可测试） | 规则绑定 | 依赖 | 来源 PRD | ticket |
+|:--|:-------|:-------------------|:---------|:-----|:---------|:-------|
+| PK1 | electron-builder 配置 + 三平台 target 打包 | mac dmg+zip / win nsis+portable / linux AppImage+deb 出包成功；**Windows 打包需 Windows 环境**（nsis 不能 mac 交叉，BE 扫描发现） | CON-R-packaging-001/002/007 | 无 | PRD FR-1/FR-2 | t100089 |
+| PK2 | 三端捆绑 node（fetch-node 按平台 + extractNode 承接） | 三端包内 node 就位；全新环境 dsh 首装不依赖用户 node；**fetch-node.mjs 扩展按平台下载**（现只 darwin-arm64，win 需 zip/exe、linux 需 tar.xz，格式不同，BE 扫描发现） | CON-R-packaging-003/008 | PK1 | PRD FR-3 | t100090 |
+| PK3 | 三端自动更新 + 平台适配验证 | electron-updater 三端检测/下载/安装；spawn/托盘/路径三端验证；**electron-updater 三端更新机制差异**（mac zip / win nsis 配置不同，BE 扫描发现） | CON-R-packaging-004/005/006 | PK1/PK2 | PRD FR-4/FR-5 | t100091 |
 
 ## 15. 附录
 
