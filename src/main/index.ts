@@ -387,13 +387,17 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   // 未安装引导态：异步解析将装版本（channelService.resolveTarget → latest/pinned）拼进文案；
   // registry 不可达/解析失败 → 纯文案兜底（不阻塞引导态显示）
   const showNotInstalled = (message = 'dsh 尚未安装，点击「安装 dsh」开始安装'): void => {
-    winMgr.showPlaceholder('not-installed', message);
+    // 引导提示：当前包管理器非 pnpm 时，提示切 pnpm 安装更快（pnpm 冷装 ~30s vs npm ~28min，实测）
+    const isPnpm = settings.getSettings().packageManager === 'pnpm';
+    const hint = isPnpm ? '' : '（提示：在设置页切到 pnpm，安装速度会快很多）';
+    const msg = message + hint;
+    winMgr.showPlaceholder('not-installed', msg);
     void channelService
       .resolveTarget()
       .then((v) => {
         if (quitting) return;
         if (!v) return;
-        winMgr.showPlaceholder('not-installed', `${message}（将安装 dsh@${v}）`);
+        winMgr.showPlaceholder('not-installed', `${msg}（将安装 dsh@${v}）`);
       })
       .catch(() => {
         /* registry 不可达 → 保持纯文案，不阻塞 */
