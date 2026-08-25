@@ -1,6 +1,10 @@
 # CI 发布链（cicd C1~C4，演进自 S5 契约 #6 mac-only 版本）
 # 触发：workflow_dispatch 手动（branch + version 三档 + release_notes），CON-R-cicd-003
-# 流程：bump（commit+tag+push）→ 多端 matrix 构建发布（mac arm64+x64 / win / linux）→ release-body 标注
+# 三阶段（方案 A，修正 bump 先于 build 的实现偏离）：
+#   build    → 读分支当前 version，三端 matrix 打包验证（--publish never，零污染）
+#   release  → build 全成功后：打 tag v<当前version> + 建 GitHub Release + 上传各平台产物
+#   bump     → 发布成功后：version +1（patch/minor/major）写回 package.json + commit + push
+# 失败语义：build/release 任一失败 → 不 bump，main 版本线零污染，可无限重试
 # GH_TOKEN：仓库 Secrets（fine-grained PAT，Contents+Actions 写权限，S5 契约已就绪）
 # permissions: contents: write（bump push + 建 Release，最小化）
 # 并发锁按版本线分组（CON-R-cicd-003/Q-058）：同 branch 发布串行，异 branch 并行
@@ -33,51 +37,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # C2 版本 bump：bump → commit → tag → push（先于 build，产物版本=bump 后 tag）
-  bump:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    outputs:
-      version: ${{ steps.bump.outputs.version }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: ${{ inputs.branch }}
-          fetch-depth: 0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 24
-          cache: npm
-
-      - name: Bump version
-        id: bump
-        env:
-          BUMP: ${{ inputs.version }}
-        run: |
-          NEXT=$(node scripts/bump-version.mjs --bump "$BUMP")
-          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
-
-      - name: Commit + tag + push
-        env:
-          VERSION: ${{ steps.bump.outputs.version }}
-          BRANCH: ${{ inputs.branch }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package.json
-          git commit -m "chore: release v${VERSION} [skip ci]"
-          git tag "v${VERSION}"
-          git push origin "$BRANCH"
-          git push origin "v${VERSION}"
-
-  # C1/C3 多端 matrix 构建发布（mac 双架构决策 6 / C7 前置门禁 / C8 失败隔离）
+  # 阶段 1：读版本 + 三端 matrix 打包验证（--publish never，失败零污染）
   build:
-    needs: bump
     runs-on: ${{ matrix.os }}
     permissions:
-      contents: write
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -111,18 +75,20 @@ jobs:
       - name: Build (C7 前置门禁)
         run: npm run build
 
-      - name: Package & publish (C3，发布 GitHub Releases + latest 元数据)
-        run: npx electron-builder --publish always --${{ matrix.arch }}
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      - name: Package (C3，打包当前 version，--publish never 零污染)
+        run: npx electron-builder --publish never --${{ matrix.arch }}
 
-  # C4 失败隔离可观察性（Q-060）：release body 标注各平台
-  # 双通道：① workflow 结论页 job 红绿（matrix 天然可见）② release body 资产驱动标注
-  # 成功才发布资产 → 用 gh release view 读真实资产按存在性标注，天然准确
-  release-body:
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dist-${{ matrix.platform }}
+          path: release/*
+          if-no-files-found: error
+
+  # 阶段 2：build 全成功后打 tag + 建 Release + 上传各平台产物
+  release:
     needs: build
     runs-on: ubuntu-latest
-    if: always()
     permissions:
       contents: write
     steps:
@@ -131,26 +97,97 @@ jobs:
           ref: ${{ inputs.branch }}
           fetch-depth: 0
 
-      - name: Update release body (asset-driven platform status)
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+
+      - name: Read current version
+        id: version
+        run: |
+          VER=$(node -p "require('./package.json').version")
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: dist-artifacts
+          merge-multiple: true
+
+      - name: Create tag
         env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BRANCH: ${{ inputs.branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null; then
+            echo "tag v${VERSION} 已存在，跳过创建"
+          else
+            git tag "v${VERSION}"
+            git push origin "v${VERSION}"
+          fi
+
+      - name: Create GitHub Release + upload assets
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
           RELEASE_NOTES: ${{ inputs.release_notes }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          VER=$(node -p "require('./package.json').version")
-          ASSETS=$(gh release view "v$VER" --json assets --jq '.assets[].name' 2>/dev/null || echo "")
+          # 建 release（若已存在则复用）+ 上传所有平台产物 + latest-*.yml 元数据
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            echo "release v${VERSION} 已存在，跳过创建"
+          else
+            gh release create "v${VERSION}" \
+              --title "v${VERSION}" \
+              --notes "${RELEASE_NOTES:-}" || echo "release create skipped"
+          fi
+          gh release upload "v${VERSION}" dist-artifacts/* --clobber || echo "upload failed"
 
+      - name: Update release body (asset-driven platform status, Q-060)
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          ASSETS=$(gh release view "v${VERSION}" --json assets --jq '.assets[].name' 2>/dev/null || echo "")
           # 按真实资产存在性标注各平台（成功才发布资产）
           CHECK() { printf '%s' "$ASSETS" | grep -qi "$1" && echo "✅" || echo "❌"; }
           MAC_ARM=$(CHECK "arm64-mac.zip")
           MAC_X64=$(CHECK "x64-mac.zip")
           WIN=$(CHECK "Setup.*exe\|portable.*exe" || CHECK "nsis")
           LINUX=$(CHECK "AppImage")
-
-          gh release edit "v$VER" --notes "${RELEASE_NOTES:-}
-
-          ## 构建状态（资产驱动）
+          gh release edit "v${VERSION}" --notes "## 构建状态（资产驱动）
           - macOS arm64: $MAC_ARM
           - macOS x64: $MAC_X64
           - Windows: $WIN
           - Linux: $LINUX
-          " || echo "release edit skipped (version $VER)"
+          " || echo "release edit skipped"
+
+  # 阶段 3：发布成功后 version +1（bump 是事后动作，失败不执行 → 版本线零污染）
+  bump:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.branch }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Bump version (发布成功后才执行)
+        env:
+          BUMP: ${{ inputs.version }}
+          BRANCH: ${{ inputs.branch }}
+        run: |
+          NEXT=$(node scripts/bump-version.mjs --bump "$BUMP")
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "chore: bump version to ${NEXT} after release [skip ci]"
+          git push origin "$BRANCH"
+          echo "bumped to ${NEXT}"

@@ -81,7 +81,7 @@
 
 ## 4. 关键机制实现形态
 
-### 4.1 workflow 骨架（C1）
+### 4.1 workflow 骨架（C1，三阶段方案 A）
 
 ```yaml
 name: Release
@@ -95,11 +95,8 @@ concurrency:
   group: release-${{ inputs.branch }}     # 按版本线分组（Q-058）
   cancel-in-progress: false
 jobs:
-  bump:                                    # C2：bump + commit + tag（先于 build）
-    runs-on: ubuntu-latest
-    steps: [checkout branch, node, bump-version.mjs, git commit, git tag v<ver>, push]
-  build:                                   # C1/C3：多端 matrix（mac 拆 arm64+x64 双包，决策 6）
-    needs: bump
+  # 阶段 1：读分支当前 version，三端 matrix 打包验证（--publish never，失败零污染）
+  build:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false                     # 单平台失败不阻塞（CON-R-cicd-008）
@@ -113,16 +110,33 @@ jobs:
       - checkout ${{ inputs.branch }}      # 各端同 branch（Q-058）
       - fetch-node --platform ${{ matrix.platform }}   # C3：按平台生成 node
       - typecheck + build                  # C7：前置门禁
-      - electron-builder --publish always  # C3：发布 GitHub Releases（arch 由 matrix.arch 传）
-  release-body:                            # C4：汇总标注各平台成功/失败（Q-060）
+      - electron-builder --publish never   # 只打包验证，零污染
+      - upload-artifact                    # 各平台产物跨 job 传递
+  # 阶段 2：build 全成功后打 tag + 建 Release + 上传各平台产物
+  release:
     needs: build
     runs-on: ubuntu-latest
-    steps: [收集 build 结果, 更新 release body]
+    steps:
+      - checkout + 读当前 version（不 bump）
+      - download-artifact（merge 各平台产物）
+      - git tag v<当前version> + push
+      - gh release create + upload dist-artifacts/*
+      - release body 资产驱动标注各平台（Q-060）
+  # 阶段 3：发布成功后 version +1（bump 是事后动作，失败不执行 → 版本线零污染）
+  bump:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - checkout branch
+      - bump-version.mjs --bump <version>  # 读当前 version +1
+      - git commit + push（package.json 新版本回分支）
 ```
 
-- 步骤顺序：**bump → build → publish → release-body**（bump 先于 build，产物版本 = bump 后 tag）
+- 步骤顺序：**build → release → bump**（发布当前分支 version，成功后 bump；失败不 bump，main 版本线零污染可无限重试）
+- **发布 = 当前分支 version**（读 package.json，不先 +1）；bump = 发布成功的事后动作（"下个迭代基线"）
+- **失败语义**：build/release 任一失败 → bump 不执行 → 无 tag 无 release 残留，main 零污染
 - 各端 matrix 各 job 独立 checkout 同一 branch
-- **permissions: contents: write**（bump job 需 git commit + tag + push 到所选分支；build 发布需创建 Release——复用现有 workflow 的 contents: write 权限，最小化不额外开）
+- **permissions**：build=contents: read（仅打包验证）；release/bump=contents: write（打 tag + 建 Release + 推版本）——最小化
 
 ### 4.2 bump-version.mjs（C2）
 

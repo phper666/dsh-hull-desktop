@@ -22,6 +22,7 @@
 | 方案 | 实现 | 处理 |
 |:-----|:-----|:-----|
 | §4.1 matrix status output 聚合 | 改资产驱动标注（gh release view 读真实资产按存在性）——matrix 同名 output 会被最后完成覆盖，不可靠 | 实现细化（更稳） |
+| §4.1 bump 先于 build | 方案 A 三阶段修正：build（--publish never）→ release（打 tag+发布）→ bump（发布后 +1）——原实现 bump 先于 build 导致 CI 失败也 bump（污染版本线 + tag 残留）；改为发布当前分支 version，bump 是发布成功的事后动作，失败零污染 | 实现偏离修正（用户拍板 A） |
 | fetch-node darwin-x64 | 方案未列；实现补注册表（mac Intel 需） | 实现补齐 |
 | electron-builder extraResources | 方案 §4.3 隐式；实现用 `${arch}` 宏（经 deepwiki 确认支持） | 实现细化 |
 
