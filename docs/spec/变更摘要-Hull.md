@@ -3,6 +3,13 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-08-25 Hull 三端打包共识发布 v1.0（新需求 packaging）
+
+- 类型：共识基线发布（新需求建立）+ 登记 CON-R-packaging-001~008
+- 内容：**三端打包（macOS/Windows/Linux）**——electron-builder 三平台 target（mac dmg+zip / win nsis+portable / linux AppImage+deb）；三端捆绑 node（fetch-node 按平台，dsh 不依赖用户 node）；自动更新 electron-updater 延续（三端同一更新源）；暂不签名/公证；CON-R006 平台范围 macOS→三端扩展；3 子需求 PK1（electron-builder 配置+打包）/PK2（捆绑 node）/PK3（自动更新+平台适配）
+- 影响：引入 electron-builder；fetch-node.mjs 扩展按平台下载 node；CON-R006 语义扩展；pkgmgr spawn 跨平台铺垫承接
+- 状态：已发布（2026-08-25，PM）
+
 ## 2026-08-25 pkgmgr 去 yarn（共识 v1.2）——只留 npm/pnpm
 
 - 类型：需求变更（用户拍板，2026-08-25），升共识 v1.2
