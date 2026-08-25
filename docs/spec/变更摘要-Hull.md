@@ -3,6 +3,13 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-08-25 packaging 实现完成——三端打包落地（PK1/PK2/PK3）
+
+- 类型：实现完成（共识 v1.1 落地，CON-R-packaging-001~008 全生效）
+- 内容：**PK1 electron-builder 三平台配置**（mac dmg+zip / win nsis+portable / linux AppImage+deb + extraResources 捆绑 node）；**PK2 fetch-node 平台参数化 + extractNode 解压**（win node.exe/linux bin/node 分支 + 幂等 + 版本文件）；**PK3 自动更新 GitHub Releases**（用户拍板 A，publish 统一 + adapter owner 修正 phper666/dsh-hull-desktop）
+- 影响：electron-builder.yml/package.json（devDep+脚本+repository）；fetch-node.mjs 参数化；extractNode.ts 新建；CON-R006 平台扩展 macOS→三端
+- 状态：已实现（2026-08-25，unit 645 绿 + mac 打包验证 dmg+zip+node 捆绑；win/linux 配置就绪待对应平台实测）
+
 ## 2026-08-25 Hull 三端打包共识发布 v1.0（新需求 packaging）
 
 - 类型：共识基线发布（新需求建立）+ 登记 CON-R-packaging-001~008
