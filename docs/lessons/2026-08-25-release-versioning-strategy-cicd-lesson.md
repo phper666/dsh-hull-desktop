@@ -1,0 +1,19 @@
+# 发版版本策略：分支模型 + semver 三档 + workflow_dispatch 手动触发
+
+| 项 | 内容 |
+|:---|:-----|
+| 背景 | Hull 桌面壳（Electron + electron-builder + electron-updater）要落地 CI/CD 发布链。设计发布流程时对「patch/minor/major 三档怎么用」「旧版本线怎么维护」「分支模型怎么走」反复拉扯，最终定稿一套跨项目可复用的发版版本策略。 |
+| 决策或坑 | ① **patch/minor/major 不是三条并行发布线，是同一个 version 字段的三种递增幅度**——每次发布只走一步，共用 main，不存在三档写 version 冲突。② **自定义语义（贴合单人/小团队）**：patch=小改（bug+小功能随时发）、minor=攒批发布（累计多版本功能发一次，常规节奏非稀有）、major=破坏性重构（页面/架构重构，低频稀有）。③ **版本线维护（backport）独立于档位**：「放弃维护旧版本」是独立 EOL 决策，不绑 minor；main 走远 + 有用户锁旧版 → 从旧 tag 拉 `release/x.y` 只发 patch，修复 cherry-pick 回 main。④ **发版分支自行维护版本和 tag**：workflow 加 `branch` 输入（默认 main），维护线发布选 `release/x.y`，bump 读**所选分支**的 package.json，tag 打所选分支 HEAD。⑤ **并发锁按版本线分组**：`concurrency.group: release-${{ inputs.branch }}`——同线串行、异线并行（main 发 minor 与 release/0.1.x 发 patch 可同时跑）。⑥ **matrix 三端必须同 branch**：三端并行各 runner checkout 同一 branch，否则 mac 发 0.1.1、win 发 0.1.2 乱套。⑦ **自动更新项目旧线 patch 只对锁版用户有效**：electron-updater 永远跳最新，main 已发 0.2.0 时旧线 0.1.1 不会推给自动更新用户。 |
+| 影响 | 不按此策略：三档语义混乱（把 minor 当大版本、把 EOL 绑进档位）、旧线维护无从下手（main 走远不知道 patch 从哪发）、并发发布竞态（tag 冲突 / 版本不一致）、matrix 三端版本漂移。 |
+| 适用范围 | 任何 git + 版本号（semver）+ 自动更新（electron-updater 等）的桌面应用/服务发布。尤其单 main 线起步、将来可能要维护旧版本线的项目。不适用无版本号/无多端发布的项目。 |
+| 来源 | 出生：cicd 需求（2026-08-25，docs/spec/共识-Hull桌面壳-CI发布.md）；引用：CON-R-cicd-003、phper666-git-worktree（维护线）、electron-builder/electron-updater 行为。 |
+| 引用 | 首次引用：本 lesson 出生（2026-08-25）。自证：90 天内除本行外零新增引用 → 删除候选。 |
+
+## 教训（可复用规则）
+
+1. **semver 三档 = 幅度不是通道**：patch/minor/major 共用同一 version 字段、都从 main 发，每次只走一步。自定义语义（patch=bug+小功能 / minor=攒批 / major=重构）对无外部 API 消费者项目成立，但要文档写清。
+2. **版本线维护独立于档位**：EOL 是独立决策不绑 minor；main 走远 + 用户锁旧版 → 从旧 tag 拉 `release/x.y`，只发 patch，cherry-pick 回 main。其他分支只做 bug 修复，永不发 minor/major。
+3. **发版分支自持版本**：workflow `branch` 输入（默认 main），bump 读所选分支 package.json，tag 打所选分支 HEAD——发版分支自行维护版本和 tag。
+4. **并发锁按版本线分组**：`concurrency.group: release-${{ inputs.branch }}`，同线串行异线并行。
+5. **matrix 必须同 branch**：三端并行 checkout 同一 branch，防止版本漂移。
+6. **自动更新项目的旧线 patch 只服务锁版用户**：electron-updater 永远跳最新，旧线 patch 不推给自动更新用户。

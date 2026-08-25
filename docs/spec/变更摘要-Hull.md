@@ -3,6 +3,27 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-08-25 packaging 共识升 v1.2——mac 双架构（cicd 决策 6 传播）
+
+- 类型：跨需求规则变更（cicd 决策 6 传播到 packaging，2026-08-25）
+- 内容：**CON-R-packaging-002 mac 架构扩展**——从「dmg+zip（Apple Silicon）」扩展为「dmg+zip 双架构（arm64 + x64）」，覆盖 Intel + Apple Silicon Mac。触发：cicd 技术方案决策 6（用户拍板 B 双包，各包捆绑对应架构 node，electron-updater 按 arch 选）
+- 影响：mac 打包从单架构（arm64）→ 双架构（arm64 + x64）；CI 矩阵 mac 拆 macos-latest（arm64）+ macos-13（Intel x64）；fetch-node 新增 darwin-x64；electron-builder.yml mac 加 arch
+- 状态：已发布（2026-08-25，PM，cicd 决策 6 回写）
+
+## 2026-08-25 Hull CI/CD 共识升 v1.1——版本策略细化（Q-057/Q-058 回写）
+
+- 类型：共识结论变更（Q-057/Q-058 定案回写，2026-08-25）
+- 内容：**FR-2 版本策略从「version 输入」升级为「branch 输入 + patch/minor/major 三档 bump + 版本线维护」**——workflow_dispatch 带 branch（默认 main）+ version（三档）+ release_notes；bump 读所选分支 package.json 走一步，tag 打所选分支 HEAD，发布版本永远 = bump 后 tag（Q-057 定案：CI 全自动 bump，版本一致性天然解决）；三档自定义语义（patch=bug+小功能 / minor=攒批 / major=重构）；版本线维护独立于档位（main 走远 + 用户锁旧版 → 从旧 tag 拉 release/x.y 只发 patch + cherry-pick 回 main）；并发锁按版本线分组 `concurrency.group: release-${{ inputs.branch }}`（Q-058 定案：同线串行异线并行，解决并发发布竞态）；matrix 三端 checkout 同一 branch 防漂移；自动更新项目旧线 patch 只服务锁版用户
+- 影响：CON-R-cicd-003 语义扩展（version→branch+三档）；PRD FR-2 同步；产出经验文档 docs/lessons/2026-08-25-release-versioning-strategy-cicd-lesson.md（跨项目可复用）
+- 状态：已发布（2026-08-25，PM，Q-057/058 已回写）
+
+## 2026-08-25 Hull CI/CD 发布流程共识发布 v1.0（新需求 cicd，packaging U-2 落地）
+
+- 类型：共识基线发布（新需求建立）+ 登记 CON-R-cicd-001~008
+- 内容：**三端 CI/CD 发布链（macOS/Windows/Linux）**——GitHub Actions 三端 matrix 并行构建（macos-latest/windows-latest/ubuntu-latest）；workflow_dispatch 手动触发（version 默认 package.json + release_notes 输入）；CI 各 runner 跑 fetch-node 生成捆绑 node（win32-x64 CI 补齐）；electron-builder --publish always 发布 GitHub Releases（复用 GH_TOKEN）；latest-mac.yml/latest.yml/latest-linux.yml 更新元数据自动生成；前置门禁 typecheck+build；单平台失败不阻塞（matrix 天然隔离）。演进现有 mac-only release.yml 为三端；packaging 共识 U-2「CI 自动化」从排后转本轮
+- 影响：.github/workflows/release.yml 演进（mac-only → 三端 matrix + workflow_dispatch）；CI 首次实测 win/linux 打包；无新 UI、无代码层改动（纯 CI 层）
+- 状态：已发布（2026-08-25，PM）
+
 ## 2026-08-25 packaging 实现完成——三端打包落地（PK1/PK2/PK3）
 
 - 类型：实现完成（共识 v1.1 落地，CON-R-packaging-001~008 全生效）
