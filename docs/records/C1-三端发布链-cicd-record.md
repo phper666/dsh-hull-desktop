@@ -49,3 +49,12 @@
 - **CI 实测**：workflow 未在 GitHub Actions 实际跑过——mac Intel（macos-13 runner）/ win nsis / linux AppImage 首次实测需等触发一次发布（Q-059/Q-060 覆盖）
 - **macos-13 runner**：GitHub 已公告退役计划（2026 后），后续可能需换 arm64 runner + --x64 交叉
 - **release-body 兜底**：bump 失败时 build 不跑，release-body 静默跳过（`|| echo` 兜底）
+
+## CI 实测发现（2026-08-25，run #1/#2）
+
+| 问题 | 根因 | 处理 |
+|:-----|:-----|:-----|
+| Linux deb 打包失败 | package.json 缺 author.email → deb 无 maintainer | 补 author（commit 1952c27） |
+| macos-13 job 卡住 | GitHub Intel Mac runner 队列枯竭/退役，等不到 runner | matrix 改 macos-latest + --x64 交叉编译（commit 待） |
+| Node 20 弃用警告 | checkout/setup-node/upload-artifact 用 v4（目标 Node 20），被迫 Node 24 跑 | 暂不处理（非阻塞），后续升级 v5 |
+| 三阶段方案 A | bump 先于 build 会污染版本线 | workflow 重构 build→release→bump（commit b6bcb7c） |

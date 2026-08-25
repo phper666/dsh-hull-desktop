@@ -47,7 +47,7 @@ jobs:
       matrix:
         include:
           - { os: macos-latest,   platform: darwin-arm64, arch: arm64 }
-          - { os: macos-13,       platform: darwin-x64,   arch: x64 }   # Intel Mac（决策 6）
+          - { os: macos-latest,   platform: darwin-x64,   arch: x64 }   # Intel Mac：ARM runner 交叉编译（macos-13 已退役，决策 6/经验 8）
           - { os: windows-latest, platform: win32-x64,    arch: x64 }
           - { os: ubuntu-latest,  platform: linux-x64,    arch: x64 }
     steps:
