@@ -133,7 +133,7 @@ jobs:
           RELEASE_NOTES: ${{ inputs.release_notes }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          # 建 release（若已存在则复用）+ 上传所有平台产物 + latest-*.yml 元数据
+          # 建 release（若已存在则复用）
           if gh release view "v${VERSION}" >/dev/null 2>&1; then
             echo "release v${VERSION} 已存在，跳过创建"
           else
@@ -141,7 +141,11 @@ jobs:
               --title "v${VERSION}" \
               --notes "${RELEASE_NOTES:-}" || echo "release create skipped"
           fi
-          gh release upload "v${VERSION}" dist-artifacts/* --clobber || echo "upload failed"
+          # 只上传文件（排除 linux-unpacked/ 等目录——gh release upload 不支持目录，撞上会中断整批）
+          # 分批上传避免命令行超长（每批 ~50 文件）
+          find dist-artifacts -maxdepth 1 -type f -print0 | while IFS= read -r -d '' f; do
+            gh release upload "v${VERSION}" "$f" --clobber || echo "upload failed: $f"
+          done
 
       - name: Update release body (asset-driven platform status, Q-060)
         env:
@@ -152,7 +156,12 @@ jobs:
           # 按真实资产存在性标注各平台（成功才发布资产）
           CHECK() { printf '%s' "$ASSETS" | grep -qi "$1" && echo "✅" || echo "❌"; }
           MAC_ARM=$(CHECK "arm64-mac.zip")
-          MAC_X64=$(CHECK "x64-mac.zip")
+          # mac x64 交叉产物无 arch 后缀（-mac.zip）；arm64 有后缀（-arm64-mac.zip）→ 匹配 -mac.zip 且排除 arm64
+          MAC_X64=$(printf '%s' "$ASSETS" | grep -qiE '(^|\s)-mac\.zip|[-_]mac\.zip' && echo "✅" || echo "❌")
+          if [ "$MAC_X64" = "✅" ] && [ "$MAC_ARM" = "✅" ]; then
+            # 若只有 arm64-mac.zip 而无独立 -mac.zip（非 arm64 后缀），x64 视为 ❌
+            printf '%s' "$ASSETS" | grep -qiE '[^-]mac\.zip|[_-]mac\.zip$' || MAC_X64="❌"
+          fi
           WIN=$(CHECK "Setup.*exe\|portable.*exe" || CHECK "nsis")
           LINUX=$(CHECK "AppImage")
           gh release edit "v${VERSION}" --notes "## 构建状态（资产驱动）
