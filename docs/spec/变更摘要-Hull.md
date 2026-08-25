@@ -3,6 +3,13 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-08-25 packaging 共识升 v1.2——mac 双架构（cicd 决策 6 传播）
+
+- 类型：跨需求规则变更（cicd 决策 6 传播到 packaging，2026-08-25）
+- 内容：**CON-R-packaging-002 mac 架构扩展**——从「dmg+zip（Apple Silicon）」扩展为「dmg+zip 双架构（arm64 + x64）」，覆盖 Intel + Apple Silicon Mac。触发：cicd 技术方案决策 6（用户拍板 B 双包，各包捆绑对应架构 node，electron-updater 按 arch 选）
+- 影响：mac 打包从单架构（arm64）→ 双架构（arm64 + x64）；CI 矩阵 mac 拆 macos-latest（arm64）+ macos-13（Intel x64）；fetch-node 新增 darwin-x64；electron-builder.yml mac 加 arch
+- 状态：已发布（2026-08-25，PM，cicd 决策 6 回写）
+
 ## 2026-08-25 Hull CI/CD 共识升 v1.1——版本策略细化（Q-057/Q-058 回写）
 
 - 类型：共识结论变更（Q-057/Q-058 定案回写，2026-08-25）

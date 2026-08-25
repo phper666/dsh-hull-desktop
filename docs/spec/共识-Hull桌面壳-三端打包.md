@@ -1,12 +1,12 @@
 # Hull 桌面壳（三端打包）共识文档
 
-> 版本：v1.1 · 更新：2026-08-25 · 维护者：phper666（PM） · 状态：已发布
+> 版本：v1.2 · 更新：2026-08-25 · 维护者：phper666（PM） · 状态：已发布
 > 数据来源：Hull Packaging PRD v0.1（docs/prd/2026-08-25-hull-packaging-prd.md）
 > 关联：新增需求（Hull 模块构建/分发）；需求标识 `packaging`；B1 范围
 
 ## 1. 文档元信息
 
-- **本版本变更**：v1.1 已发布——BE 扫描结论回写（确认定案，向后兼容）：PK1/PK2/PK3 验收补 3 项 BE 发现——① Windows 打包需 Windows 环境（nsis 不能 mac 交叉）；② fetch-node.mjs 扩展按平台下载 node（现只 darwin-arm64，win 需 zip/exe、linux 需 tar.xz，格式不同）；③ electron-updater 三端更新机制差异（mac zip / win nsis 配置不同）。
+- **本版本变更**：v1.2 已发布——mac 双架构（cicd 需求决策 6 传播）：CON-R-packaging-002 从「macOS = dmg+zip（Apple Silicon）」扩展为「macOS = dmg+zip 双架构（arm64 + x64）」，覆盖 Intel + Apple Silicon Mac。
 - **历史变更摘要**：v1.0 首次建立——从 Hull Packaging PRD v0.1 提取整理为业务事实源；登记 CON-R-packaging-001~008。
 - **历史变更摘要**：无（新需求）。
 - **状态说明**：v1.1 已发布（BE 扫描结论回写）；无未决项、无扫描待确认项。
@@ -36,7 +36,7 @@
 
 ### 4.2 三端 target（FR-2）
 
-- macOS：dmg + zip（Apple Silicon，可选 universal）；
+- macOS：dmg + zip 双架构（arm64 + x64，覆盖 Apple Silicon + Intel，cicd 决策 6）；
 - Windows：nsis（安装）+ portable（便携）；
 - Linux：AppImage + deb。
 
@@ -88,7 +88,7 @@
 | 编号 | 规则 | 来源 | 当前结论 | 变更状态 |
 |:-----|:-----|:-----|:---------|:---------|
 | CON-R-packaging-001 | 打包工具 = electron-builder，配置 electron-builder.yml 三平台 target | PRD FR-1 | 生效 | 稳定 |
-| CON-R-packaging-002 | macOS = dmg+zip（Apple Silicon）；Windows = nsis+portable；Linux = AppImage+deb | PRD FR-2 | 生效 | 稳定 |
+| CON-R-packaging-002 | macOS = dmg+zip 双架构（arm64 + x64）；Windows = nsis+portable；Linux = AppImage+deb | PRD FR-2 | 生效 | v1.2 扩展 |
 | CON-R-packaging-003 | 三端捆绑 node（fetch-node 机制按平台），dsh 不依赖用户 node | PRD FR-3 | 生效 | 稳定 |
 | CON-R-packaging-004 | 自动更新 = electron-updater 延续，三端发同一更新源 | PRD FR-4 | 生效 | 稳定 |
 | CON-R-packaging-005 | 暂不签名/公证（Gatekeeper/SmartScreen 警告接受） | PRD §3 | 生效 | 稳定 |
@@ -135,6 +135,7 @@
 
 | 版本 | 日期 | 变更摘要条目 | 说明 |
 |:-----|:-----|:-------------|:-----|
+| v1.2 | 2026-08-25 | 已登记（已发布） | mac 双架构（cicd 决策 6 传播）：CON-R-packaging-002 扩展 dmg+zip 双架构（arm64+x64） |
 | v1.1 | 2026-08-25 | 已登记（已发布） | BE 扫描结论回写：PK1/PK2/PK3 验收补 3 项（Windows 打包环境/fetch-node 按平台/electron-updater 三端差异） |
 | v1.0 | 2026-08-25 | 已登记（已发布） | 首次建立：从 Hull Packaging PRD v0.1 提取；登记 CON-R-packaging-001~008、U-1~U-3 |
 
