@@ -11,6 +11,7 @@ appId: com.dsh.hull
 productName: Dsh Hull Desktop
 directories:
   output: release
+  buildResources: build   # 图标资源（icon.icns mac / icon.png linux / win ico 由 png 自动生成）
 files:
   - dist/**
   - src/renderer/**

@@ -56,3 +56,7 @@ playwright-report/
 
 # 项目级 opencode 残留（无实际插件代码，仅 SDK 类型依赖空壳；插件走全局配置）
 .opencode/
+
+# 图标生成中间产物（源文件 icon.svg/png/icns 保留）
+build/icon.iconset/
+build/icon.svg.png

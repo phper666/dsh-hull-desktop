@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- 深色圆角底 -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#16233a"/>
+      <stop offset="100%" stop-color="#0a1320"/>
+    </linearGradient>
+    <linearGradient id="hull" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4fd1c5"/>
+      <stop offset="100%" stop-color="#2b8f84"/>
+    </linearGradient>
+    <linearGradient id="mast" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e8f6f5"/>
+      <stop offset="100%" stop-color="#8fcbc5"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1024" height="1024" rx="200" fill="url(#bg)"/>
+
+  <!-- 水面线 -->
+  <ellipse cx="512" cy="680" rx="360" ry="24" fill="#1c2f4a" opacity="0.8"/>
+
+  <!-- 船体（Hull）——亮色弧线船壳 -->
+  <path d="M 512 560
+           C 620 560, 720 600, 768 680
+           L 256 680
+           C 304 600, 404 560, 512 560 Z"
+        fill="url(#hull)"/>
+
+  <!-- 船底高光 -->
+  <path d="M 512 560
+           C 620 560, 720 600, 768 680
+           L 512 680 Z"
+        fill="#5fe0d4" opacity="0.35"/>
+
+  <!-- 船舷线 -->
+  <path d="M 512 560 C 620 560, 720 600, 768 680" fill="none" stroke="#aef3ec" stroke-width="10" stroke-linecap="round"/>
+
+  <!-- 桅杆 -->
+  <rect x="504" y="300" width="16" height="270" rx="8" fill="url(#mast)"/>
+
+  <!-- 帆（右） -->
+  <path d="M 520 320
+           C 620 360, 660 470, 520 540 Z"
+        fill="#e8f6f5" opacity="0.92"/>
+
+  <!-- 帆（左） -->
+  <path d="M 504 340
+           C 420 380, 400 470, 504 530 Z"
+        fill="#bfe9e5" opacity="0.85"/>
+
+  <!-- 桅顶球 -->
+  <circle cx="512" cy="290" r="18" fill="#7ee8dd"/>
+
+  <!-- 底部文字弧：Hull -->
+  <text x="512" y="800" text-anchor="middle" font-family="'SF Pro Display','Helvetica Neue',Arial,sans-serif" font-size="96" font-weight="600" fill="#8aa4c8" letter-spacing="12">HULL</text>
+</svg>
