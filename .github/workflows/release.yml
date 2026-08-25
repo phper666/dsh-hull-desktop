@@ -156,12 +156,9 @@ jobs:
           # 按真实资产存在性标注各平台（成功才发布资产）
           CHECK() { printf '%s' "$ASSETS" | grep -qi "$1" && echo "✅" || echo "❌"; }
           MAC_ARM=$(CHECK "arm64-mac.zip")
-          # mac x64 交叉产物无 arch 后缀（-mac.zip）；arm64 有后缀（-arm64-mac.zip）→ 匹配 -mac.zip 且排除 arm64
-          MAC_X64=$(printf '%s' "$ASSETS" | grep -qiE '(^|\s)-mac\.zip|[-_]mac\.zip' && echo "✅" || echo "❌")
-          if [ "$MAC_X64" = "✅" ] && [ "$MAC_ARM" = "✅" ]; then
-            # 若只有 arm64-mac.zip 而无独立 -mac.zip（非 arm64 后缀），x64 视为 ❌
-            printf '%s' "$ASSETS" | grep -qiE '[^-]mac\.zip|[_-]mac\.zip$' || MAC_X64="❌"
-          fi
+          # mac x64 交叉产物 = 独立 -mac.zip（无 arm64 前缀）：
+          # 先取 .zip 结尾资产 → 排除 arm64-mac.zip → 剩余若有 -mac.zip 即 x64 存在
+          MAC_X64=$(printf '%s\n' "$ASSETS" | grep -E '\.zip$' | grep -v 'arm64-mac\.zip$' | grep -qE 'mac\.zip$' && echo "✅" || echo "❌")
           WIN=$(CHECK "Setup.*exe\|portable.*exe" || CHECK "nsis")
           LINUX=$(CHECK "AppImage")
           gh release edit "v${VERSION}" --notes "## 构建状态（资产驱动）
