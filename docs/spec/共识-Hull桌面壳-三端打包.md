@@ -1,14 +1,15 @@
 # Hull 桌面壳（三端打包）共识文档
 
-> 版本：v1.0 · 更新：2026-08-25 · 维护者：phper666（PM） · 状态：已发布
+> 版本：v1.1 · 更新：2026-08-25 · 维护者：phper666（PM） · 状态：已发布
 > 数据来源：Hull Packaging PRD v0.1（docs/prd/2026-08-25-hull-packaging-prd.md）
 > 关联：新增需求（Hull 模块构建/分发）；需求标识 `packaging`；B1 范围
 
 ## 1. 文档元信息
 
-- **本版本变更**：v1.0 首次建立——从 Hull Packaging PRD v0.1 提取整理为业务事实源；登记 CON-R-packaging-001~008。
+- **本版本变更**：v1.1 已发布——BE 扫描结论回写（确认定案，向后兼容）：PK1/PK2/PK3 验收补 3 项 BE 发现——① Windows 打包需 Windows 环境（nsis 不能 mac 交叉）；② fetch-node.mjs 扩展按平台下载 node（现只 darwin-arm64，win 需 zip/exe、linux 需 tar.xz，格式不同）；③ electron-updater 三端更新机制差异（mac zip / win nsis 配置不同）。
+- **历史变更摘要**：v1.0 首次建立——从 Hull Packaging PRD v0.1 提取整理为业务事实源；登记 CON-R-packaging-001~008。
 - **历史变更摘要**：无（新需求）。
-- **状态说明**：v1.0 已发布；无未决项、无扫描待确认项。
+- **状态说明**：v1.1 已发布（BE 扫描结论回写）；无未决项、无扫描待确认项。
 
 ## 2. 文档结构总览
 
@@ -80,7 +81,7 @@
 
 ## 9. 扫描待确认项
 
-> 本需求 v1.0 尚未扫描，待 BE/FE/QA 扫描产出。
+> 本需求 v1.1 扫描完成（BE/FE/QA）：无新增 Q-items（共识 PK1~PK3 已覆盖方向），3 项 BE 发现回写 PK1~PK3 验收细化（Windows 打包环境/fetch-node 按平台/electron-updater 三端差异）。
 
 ## 10. 规则编号（CON-R-packaging-001~008）
 
@@ -120,9 +121,9 @@
 
 | # | 子需求 | 验收标准（可测试） | 规则绑定 | 依赖 | 来源 PRD |
 |:--|:-------|:-------------------|:---------|:-----|:---------|
-| PK1 | electron-builder 配置 + 三平台 target 打包 | mac dmg+zip / win nsis+portable / linux AppImage+deb 出包成功 | CON-R-packaging-001/002/007 | 无 | PRD FR-1/FR-2 |
-| PK2 | 三端捆绑 node（fetch-node 按平台 + extractNode 承接） | 三端包内 node 就位；全新环境 dsh 首装不依赖用户 node | CON-R-packaging-003/008 | PK1 | PRD FR-3 |
-| PK3 | 三端自动更新 + 平台适配验证 | electron-updater 三端检测/下载/安装；spawn/托盘/路径三端验证 | CON-R-packaging-004/005/006 | PK1/PK2 | PRD FR-4/FR-5 |
+| PK1 | electron-builder 配置 + 三平台 target 打包 | mac dmg+zip / win nsis+portable / linux AppImage+deb 出包成功；**Windows 打包需 Windows 环境**（nsis 不能 mac 交叉，BE 扫描发现） | CON-R-packaging-001/002/007 | 无 | PRD FR-1/FR-2 |
+| PK2 | 三端捆绑 node（fetch-node 按平台 + extractNode 承接） | 三端包内 node 就位；全新环境 dsh 首装不依赖用户 node；**fetch-node.mjs 扩展按平台下载**（现只 darwin-arm64，win 需 zip/exe、linux 需 tar.xz，格式不同，BE 扫描发现） | CON-R-packaging-003/008 | PK1 | PRD FR-3 |
+| PK3 | 三端自动更新 + 平台适配验证 | electron-updater 三端检测/下载/安装；spawn/托盘/路径三端验证；**electron-updater 三端更新机制差异**（mac zip / win nsis 配置不同，BE 扫描发现） | CON-R-packaging-004/005/006 | PK1/PK2 | PRD FR-4/FR-5 |
 
 ## 15. 附录
 
@@ -134,6 +135,7 @@
 
 | 版本 | 日期 | 变更摘要条目 | 说明 |
 |:-----|:-----|:-------------|:-----|
+| v1.1 | 2026-08-25 | 已登记（已发布） | BE 扫描结论回写：PK1/PK2/PK3 验收补 3 项（Windows 打包环境/fetch-node 按平台/electron-updater 三端差异） |
 | v1.0 | 2026-08-25 | 已登记（已发布） | 首次建立：从 Hull Packaging PRD v0.1 提取；登记 CON-R-packaging-001~008、U-1~U-3 |
 
 ### 15.3 后续规划
