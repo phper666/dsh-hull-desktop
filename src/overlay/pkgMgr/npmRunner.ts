@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join } from 'node:path';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { NOOP_LOGGER, type ChildLike, type RuntimeLogger } from '../../shared/types';
 import { INSTALL_ERRORS } from '../OverlayManager';
@@ -110,8 +111,8 @@ export abstract class BasePkgMgrRunner implements PkgMgrRunner {
     }
   }
 
-  /** 单次 spawn 到 exit（无超时/取消/逐行回调；rebuild 短命令用） */
-  private spawnOnce(command: string, args: string[], cwd: string): Promise<number> {
+  /** 单次 spawn 到 exit（无超时/取消/逐行回调；rebuild/peer-fixup 短命令用） */
+  protected spawnOnce(command: string, args: string[], cwd: string): Promise<number> {
     return new Promise<number>((resolve) => {
       let child: ChildLike;
       try {
@@ -186,8 +187,12 @@ export abstract class BasePkgMgrRunner implements PkgMgrRunner {
           return;
         }
         if (code === 0 || this.isBenignExit(code ?? -1, seenLines)) {
-          // P3：主 install 成功（含良性 exit，如 pnpm ignored-builds）→ 追加原生依赖 rebuild；失败告警不阻断
-          void this.runRebuild(stagingDir).then(() => settle({ ok: true }));
+          // P3：主 install 成功（含良性 exit，如 pnpm ignored-builds）→ 追加原生依赖 rebuild + peer fixup；失败告警不阻断
+          void (async () => {
+            await this.runRebuild(stagingDir);
+            await this.runPeerFixup(stagingDir);
+            settle({ ok: true });
+          })();
           return;
         }
         if (pkgErrorCode && this.isNetworkError(pkgErrorCode)) {
@@ -264,6 +269,26 @@ export abstract class BasePkgMgrRunner implements PkgMgrRunner {
       // Y-2：SIGKILL 后不等待 exit——exit 事件随后在 event loop 触发，由 install() 的 exit 监听 settle()，无泄漏
     }
   }
+
+  // ===== peer dependencies fixup（dsh-app-boot peer 缺 → 显式 add，修复 ERR_MODULE_NOT_FOUND）=====
+
+  /** 子类钩子：装后需补的 peer 命令（默认 npm 无需——npm 自动装 peer；pnpm 覆写） */
+  protected peerFixupCommands(_stagingDir: string): Array<{ command: string; args: string[] }> {
+    return [];
+  }
+
+  /** 执行 peer fixup（安装成功后调用，对称 runRebuild）：失败告警不阻断 */
+  private async runPeerFixup(stagingDir: string): Promise<void> {
+    const cmds = this.peerFixupCommands(stagingDir);
+    for (const cmd of cmds) {
+      try {
+        const code = await this.spawnOnce(cmd.command, cmd.args, stagingDir);
+        if (code !== 0) this.logger.warn(`${this.label()} peer fixup 失败（exit=${code}）: ${cmd.args.join(' ')}`);
+      } catch (err) {
+        this.logger.warn(`${this.label()} peer fixup 失败: ${(err as Error).message}`);
+      }
+    }
+  }
 }
 
 /** npm 实现（迁移自原 src/overlay/npmRunner.ts——命令/错误解析/取消行为不变） */
@@ -317,6 +342,14 @@ export class PnpmRunner extends BasePkgMgrRunner {
     _env: NodeJS.ProcessEnv
   ): { command: string; args: string[] } {
     this.writePkgJson(stagingDir); // pnpm --prefix 需指向含 package.json 的目录
+    // peer 自动安装（CON-R-pkgmgr 补充：pnpm 默认 auto-install-peers=false → dsh-app-boot 的
+    // peer deps（cordis-plugin-group 等 9 个）不装 → dsh 启动 ERR_MODULE_NOT_FOUND）：
+    // 装前写 .npmrc 强制 auto-install-peers（fresh install 生效；既有 lockfile 不重算由装后 peer fixup 兜底）
+    try {
+      writeFileSync(join(stagingDir, '.npmrc'), 'auto-install-peers=true\n', 'utf8');
+    } catch {
+      /* .npmrc 写失败不阻断（peer fixup 兜底） */
+    }
     return {
       command: this.corepackBin(),
       args: [
@@ -356,6 +389,48 @@ export class PnpmRunner extends BasePkgMgrRunner {
    *  A 方案：同走 corepack（cwd=stagingDir 已由 runRebuild 注入） */
   protected override rebuildCommand(stagingDir: string): { command: string; args: string[] } | null {
     return { command: this.corepackBin(), args: [`pnpm@${COREPACK_PNPM_VERSION}`, 'rebuild', ...NATIVE_DEP_PKGS] };
+  }
+
+  // ===== peer dependencies fixup（dsh-app-boot peer 缺 → 显式 add，修复 ERR_MODULE_NOT_FOUND）=====
+
+  /**
+   * 读 @deepseek-ai/dsh-app-boot 的 peerDependencies（createRequire 沿 stagingDir 解析）。
+   * - 包不存在/读失败 → {}（无 peer 需补）
+   * - 返回 { name: versionRange }（如 { '@deepseek-ai/cordis-plugin-group': '^1.0.1' }）
+   * 子类/测试可覆写（seam 注入）。
+   */
+  protected resolveBootPeerDeps(stagingDir: string): Record<string, string> {
+    try {
+      const req = createRequire(join(stagingDir, 'package.json'));
+      const pkgJsonPath = req.resolve('@deepseek-ai/dsh-app-boot/package.json');
+      const pkg = JSON.parse(readFileSync(pkgJsonPath, 'utf8')) as { peerDependencies?: Record<string, string> };
+      return pkg.peerDependencies ?? {};
+    } catch {
+      return {}; // dsh-app-boot 未装/读失败 → 无 peer 需补
+    }
+  }
+
+  /** 顶层 node_modules/@deepseek-ai/<name> 存在性（peer 是否已链接）。子类/测试可覆写。 */
+  protected isPeerPresent(stagingDir: string, name: string): boolean {
+    return existsSync(join(stagingDir, 'node_modules', name));
+  }
+
+  /**
+   * 装后 peer fixup：dsh-app-boot 的 peer 在顶层 node_modules 缺失的 → 返回 pnpm add 命令（逐缺补装）。
+   * - 无 peerDeps / 全存在 → []
+   * - 缺的 → [{ command: corepack, args: [pnpm@<ver>, add, <name>@<range>] }]
+   */
+  protected override peerFixupCommands(stagingDir: string): Array<{ command: string; args: string[] }> {
+    const peers = this.resolveBootPeerDeps(stagingDir);
+    const missing: Array<{ command: string; args: string[] }> = [];
+    for (const [name, range] of Object.entries(peers)) {
+      if (this.isPeerPresent(stagingDir, name)) continue;
+      missing.push({
+        command: this.corepackBin(),
+        args: [`pnpm@${COREPACK_PNPM_VERSION}`, 'add', `${name}@${range}`],
+      });
+    }
+    return missing;
   }
 }
 

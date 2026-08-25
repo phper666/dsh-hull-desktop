@@ -221,3 +221,79 @@ test('pnpm ⑧ spawn 失败 → npm-install-failed', async () => {
   equal(r.code, 'npm-install-failed');
   ok(r.error?.includes('spawn 失败'));
 });
+
+// ===== peer dependencies fixup（dsh-app-boot peer 缺 → 显式 add，修复 ERR_MODULE_NOT_FOUND）=====
+
+class PeerTestRunner extends PnpmRunner {
+  peerDeps: Record<string, string> = {};
+  present: string[] = [];
+  constructor() {
+    super({
+      nodePath: '/usr/local/fake-node/bin/node',
+      spawnFn: () => ({}) as never,
+      writePkgJson: () => {}, // 隔离真实 fs（buildArgs 写 package.json）
+    });
+  }
+  // 覆写读 peerDeps seam（基类签名 resolveBootPeerDeps(stagingDir)）
+  protected override resolveBootPeerDeps(_stagingDir: string): Record<string, string> {
+    return this.peerDeps;
+  }
+  // 覆写顶层存在性 seam（基类签名 isPeerPresent(stagingDir, name)）
+  protected override isPeerPresent(_stagingDir: string, name: string): boolean {
+    return this.present.includes(name);
+  }
+  // public 包装（protected peerFixupCommands 测试外部访问用）
+  peers(stagingDir = '/tmp/staging'): Array<{ command: string; args: string[] }> {
+    return this.peerFixupCommands(stagingDir);
+  }
+}
+
+test('pnpm peer-① 缺 peer → peerFixupCommands 返回对应 pnpm add 命令（含版本）', () => {
+  const r = new PeerTestRunner();
+  r.peerDeps = {
+    '@deepseek-ai/cordis-plugin-group': '^1.0.1',
+    '@deepseek-ai/cordis': '^4.0.1',
+  };
+  r.present = ['@deepseek-ai/cordis']; // 只装了 cordis
+  const cmds = r.peers();
+  equal(cmds.length, 1);
+  equal(cmds[0].command, '/usr/local/fake-node/bin/corepack');
+  ok(cmds[0].args.includes('add'));
+  ok(cmds[0].args.includes('@deepseek-ai/cordis-plugin-group@^1.0.1'));
+});
+
+test('pnpm peer-② 全部 peer 存在 → peerFixupCommands 返回空', () => {
+  const r = new PeerTestRunner();
+  r.peerDeps = { '@deepseek-ai/cordis-plugin-group': '^1.0.1', '@deepseek-ai/cordis': '^4.0.1' };
+  r.present = ['@deepseek-ai/cordis-plugin-group', '@deepseek-ai/cordis'];
+  equal(r.peers().length, 0);
+});
+
+test('pnpm peer-③ 无 peerDeps（dsh-app-boot 读不到）→ 空命令', () => {
+  const r = new PeerTestRunner();
+  r.peerDeps = {};
+  r.present = [];
+  equal(r.peers().length, 0);
+});
+
+test('pnpm peer-④ 安装成功（含良性退出）→ 触发 peer fixup（runPeerFixup 执行缺的 add）', async () => {
+  let spawns: Array<{ cmd: string; args: string[] }> = [];
+  const children: FakeChild[] = [];
+  const r = new PeerTestRunner();
+  r.peerDeps = { '@deepseek-ai/cordis-plugin-group': '^1.0.1' };
+  r.present = [];
+  // 每次 spawn 返回新 FakeChild（主 install / rebuild / peer fixup 各自独立）
+  (r as unknown as { spawnFn: (cmd: string, args: string[]) => unknown }).spawnFn = (cmd, args) => {
+    spawns.push({ cmd, args: [...args] });
+    const c = new FakeChild();
+    children.push(c);
+    // 异步 emit exit 0（确保 listener 已注册，避免竞态丢事件）
+    setImmediate(() => c.emit('exit', 0));
+    return c;
+  };
+  const p = r.install('/tmp/staging', '1.0.0', { registry: '', onLine: () => {} });
+  const res = await p;
+  equal(res.ok, true);
+  // fixup add 命令应执行（spawns 里含 pnpm add @deepseek-ai/cordis-plugin-group）
+  ok(spawns.some((s) => s.args.includes('add') && s.args.some((a) => a.includes('cordis-plugin-group'))), `fixup 未执行 add: ${JSON.stringify(spawns)}`);
+});
