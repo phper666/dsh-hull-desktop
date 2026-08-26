@@ -17,6 +17,9 @@
 
   <rect x="0" y="0" width="1024" height="1024" rx="200" fill="url(#bg)"/>
 
+  <!-- 内容 80% 居中（mac 应用图标安全边距：避免 dock 圆角遮罩切边，规范内容占画布 ~80%） -->
+  <g transform="translate(102.4,102.4) scale(0.8)">
+
   <!-- 水面线 -->
   <ellipse cx="512" cy="680" rx="360" ry="24" fill="#1c2f4a" opacity="0.8"/>
 
@@ -54,4 +57,6 @@
 
   <!-- 底部文字：DHD（Dsh Hull Desktop 缩写） -->
   <text x="512" y="800" text-anchor="middle" font-family="'SF Pro Display','Helvetica Neue',Arial,sans-serif" font-size="100" font-weight="700" fill="#8aa4c8" letter-spacing="14">DHD</text>
+
+  </g>
 </svg>
