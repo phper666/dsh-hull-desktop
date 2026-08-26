@@ -141,15 +141,33 @@ jobs:
           fi
           LOG=$(git log "$RANGE" --no-merges --pretty=format:'%s' 2>/dev/null | grep -E '^(feat|fix|refactor|docs|chore|perf|style|test):' | head -30 || true)
           # 分组：feat → 新增，fix → 修复，其余 → 其他
-          FEATS=$(printf '%s\n' "$LOG" | grep -E '^feat:' | sed 's/^feat: *//' || true)
-          FIXES=$(printf '%s\n' "$LOG" | grep -E '^fix:' | sed 's/^fix: *//' || true)
-          OTHERS=$(printf '%s\n' "$LOG" | grep -vE '^(feat|fix):' | sed -E 's/^[a-z]+: *//' | head -10 || true)
-          BODY="## 更新内容
-          $(if [ -n "$FEATS" ]; then echo "### ✨ 新增"; printf '%s\n' "$FEATS" | sed 's/^/- /'; fi)
-          $(if [ -n "$FIXES" ]; then echo "### 🐛 修复"; printf '%s\n' "$FIXES" | sed 's/^/- /'; fi)
-          $(if [ -n "$OTHERS" ]; then echo "### 🔧 其他"; printf '%s\n' "$OTHERS" | sed 's/^/- /'; fi)
-          $(if [ -z "$FEATS" ] && [ -z "$FIXES" ] && [ -z "$OTHERS" ]; then echo "- 无显著变更"; fi)"
-          echo "changelog=$BODY" >> "$GITHUB_OUTPUT"
+          FEATS=$(printf '%s\n' "$LOG" | grep -E '^feat:' | sed 's/^feat: *//' 2>/dev/null || true)
+          FIXES=$(printf '%s\n' "$LOG" | grep -E '^fix:' | sed 's/^fix: *//' 2>/dev/null || true)
+          OTHERS=$(printf '%s\n' "$LOG" | grep -vE '^(feat|fix):' | sed -E 's/^[a-z]+: *//' | head -10 2>/dev/null || true)
+          # 组装 changelog（多行）
+          {
+            echo "## 更新内容"
+            if [ -n "$FEATS" ]; then
+              echo "### ✨ 新增"
+              printf '%s\n' "$FEATS" | sed 's/^/- /'
+            fi
+            if [ -n "$FIXES" ]; then
+              echo "### 🐛 修复"
+              printf '%s\n' "$FIXES" | sed 's/^/- /'
+            fi
+            if [ -n "$OTHERS" ]; then
+              echo "### 🔧 其他"
+              printf '%s\n' "$OTHERS" | sed 's/^/- /'
+            fi
+            if [ -z "$FEATS" ] && [ -z "$FIXES" ] && [ -z "$OTHERS" ]; then
+              echo "- 无显著变更"
+            fi
+          } > /tmp/changelog-body.txt
+          BODY=$(cat /tmp/changelog-body.txt)
+          # ⚠️ $GITHUB_OUTPUT 多行值必须用 heredoc 格式（直接 echo "key=多行" 会报 Invalid format）
+          echo "changelog<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$BODY" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release + upload assets
         env:
