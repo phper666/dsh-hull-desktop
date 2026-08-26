@@ -127,19 +127,47 @@ jobs:
             git push origin "v${VERSION}"
           fi
 
+      - name: Generate changelog (git log Conventional Commits)
+        id: changelog
+        env:
+          BRANCH: ${{ inputs.branch }}
+        run: |
+          # 上 tag 到 HEAD 的提交 → 自动 changelog（feat/fix/refactor/docs 分组）
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            RANGE="HEAD"
+          else
+            RANGE="${PREV_TAG}..HEAD"
+          fi
+          LOG=$(git log "$RANGE" --no-merges --pretty=format:'%s' 2>/dev/null | grep -E '^(feat|fix|refactor|docs|chore|perf|style|test):' | head -30 || true)
+          # 分组：feat → 新增，fix → 修复，其余 → 其他
+          FEATS=$(printf '%s\n' "$LOG" | grep -E '^feat:' | sed 's/^feat: *//' || true)
+          FIXES=$(printf '%s\n' "$LOG" | grep -E '^fix:' | sed 's/^fix: *//' || true)
+          OTHERS=$(printf '%s\n' "$LOG" | grep -vE '^(feat|fix):' | sed -E 's/^[a-z]+: *//' | head -10 || true)
+          BODY="## 更新内容
+          $(if [ -n "$FEATS" ]; then echo "### ✨ 新增"; printf '%s\n' "$FEATS" | sed 's/^/- /'; fi)
+          $(if [ -n "$FIXES" ]; then echo "### 🐛 修复"; printf '%s\n' "$FIXES" | sed 's/^/- /'; fi)
+          $(if [ -n "$OTHERS" ]; then echo "### 🔧 其他"; printf '%s\n' "$OTHERS" | sed 's/^/- /'; fi)
+          $(if [ -z "$FEATS" ] && [ -z "$FIXES" ] && [ -z "$OTHERS" ]; then echo "- 无显著变更"; fi)"
+          echo "changelog=$BODY" >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release + upload assets
         env:
           VERSION: ${{ steps.version.outputs.version }}
           RELEASE_NOTES: ${{ inputs.release_notes }}
+          CHANGELOG: ${{ steps.changelog.outputs.changelog }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          # 建 release（若已存在则复用）
+          # 建 release（若已存在则复用）：notes = 手动说明（若有）+ 自动 changelog
+          NOTES="${RELEASE_NOTES:-}
+
+          ${CHANGELOG}"
           if gh release view "v${VERSION}" >/dev/null 2>&1; then
             echo "release v${VERSION} 已存在，跳过创建"
           else
             gh release create "v${VERSION}" \
               --title "v${VERSION}" \
-              --notes "${RELEASE_NOTES:-}" || echo "release create skipped"
+              --notes "${NOTES}" || echo "release create skipped"
           fi
           # 只上传文件（排除 linux-unpacked/ 等目录——gh release upload 不支持目录，撞上会中断整批）
           # 分批上传避免命令行超长（每批 ~50 文件）
@@ -147,9 +175,10 @@ jobs:
             gh release upload "v${VERSION}" "$f" --clobber || echo "upload failed: $f"
           done
 
-      - name: Update release body (asset-driven platform status, Q-060)
+      - name: Update release body (changelog + asset-driven platform status, Q-060)
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          CHANGELOG: ${{ steps.changelog.outputs.changelog }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           ASSETS=$(gh release view "v${VERSION}" --json assets --jq '.assets[].name' 2>/dev/null || echo "")
@@ -161,7 +190,10 @@ jobs:
           MAC_X64=$(printf '%s\n' "$ASSETS" | grep -E '\.zip$' | grep -v 'arm64-mac\.zip$' | grep -qE 'mac\.zip$' && echo "✅" || echo "❌")
           WIN=$(CHECK "Setup.*exe\|portable.*exe" || CHECK "nsis")
           LINUX=$(CHECK "AppImage")
-          gh release edit "v${VERSION}" --notes "## 构建状态（资产驱动）
+          # 合并：自动 changelog + 构建状态（不覆盖 changelog）
+          gh release edit "v${VERSION}" --notes "${CHANGELOG}
+
+          ## 构建状态（资产驱动）
           - macOS arm64: $MAC_ARM
           - macOS x64: $MAC_X64
           - Windows: $WIN
