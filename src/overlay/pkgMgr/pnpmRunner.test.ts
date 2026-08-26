@@ -58,8 +58,10 @@ test('pnpm ① 参数串：corepack pnpm@<固定版本> add / --prefix / prefer-
   const { runner, getChild, getSpawn, getSpawns, writes, runOpts } = makeRunner();
   const p = runner.install('/tmp/staging', '1.0.0', runOpts);
   const s = getSpawn();
-  equal(s!.cmd, COREPACK_BIN); // corepack 从 nodePath 推导（捆绑 node 同 bin 目录）
-  deepEqual(s!.args, [
+  // ⚠️ corepack 用捆绑 node 显式跑（nodePath + corepackBin）——corepack shebang env node，打包无 PATH node
+  equal(s!.cmd, '/usr/local/fake-node/bin/node');
+  equal(s!.args[0], COREPACK_BIN);
+  deepEqual(s!.args.slice(1), [
     `pnpm@${COREPACK_PNPM_VERSION}`,
     'add',
     '@deepseek-ai/dsh@1.0.0',
@@ -73,8 +75,9 @@ test('pnpm ① 参数串：corepack pnpm@<固定版本> add / --prefix / prefer-
   // P3：安装成功后追加 rebuild（第二次 spawn，同样走 corepack）
   const rebuild = getSpawns()[1];
   ok(rebuild, '安装成功后应追加 rebuild spawn');
-  equal(rebuild.cmd, COREPACK_BIN);
-  deepEqual(rebuild.args, [`pnpm@${COREPACK_PNPM_VERSION}`, 'rebuild', ...NATIVE_DEP_PKGS]);
+  equal(rebuild.cmd, '/usr/local/fake-node/bin/node');
+  equal(rebuild.args[0], COREPACK_BIN);
+  deepEqual(rebuild.args.slice(1), [`pnpm@${COREPACK_PNPM_VERSION}`, 'rebuild', ...NATIVE_DEP_PKGS]);
   getChild().emit('exit', 0, null); // rebuild 成功
   const r = await p;
   equal(r.ok, true);
@@ -117,8 +120,9 @@ test('pnpm ①d ERR_PNPM_IGNORED_BUILDS exit 1 → 视为成功（良性退出�
   // 应视为成功 → 触发 rebuild
   const rebuild = getSpawns()[1];
   ok(rebuild, 'ignored-builds exit 1 应视为成功并触发 rebuild');
-  equal(rebuild.cmd, COREPACK_BIN);
-  deepEqual(rebuild.args, [`pnpm@${COREPACK_PNPM_VERSION}`, 'rebuild', ...NATIVE_DEP_PKGS]);
+  equal(rebuild.cmd, '/usr/local/fake-node/bin/node');
+  equal(rebuild.args[0], COREPACK_BIN);
+  deepEqual(rebuild.args.slice(1), [`pnpm@${COREPACK_PNPM_VERSION}`, 'rebuild', ...NATIVE_DEP_PKGS]);
   getChild().emit('exit', 0, null); // rebuild 成功
   const r = await p;
   equal(r.ok, true, 'ERR_PNPM_IGNORED_BUILDS 不应判为安装失败');
@@ -257,7 +261,9 @@ test('pnpm peer-① 缺 peer → peerFixupCommands 返回对应 pnpm add 命令�
   r.present = ['@deepseek-ai/cordis']; // 只装了 cordis
   const cmds = r.peers();
   equal(cmds.length, 1);
-  equal(cmds[0].command, '/usr/local/fake-node/bin/corepack');
+  // corepack 用捆绑 node 显式跑（command=node, args[0]=corepack）
+  equal(cmds[0].command, '/usr/local/fake-node/bin/node');
+  equal(cmds[0].args[0], COREPACK_BIN);
   ok(cmds[0].args.includes('add'));
   ok(cmds[0].args.includes('@deepseek-ai/cordis-plugin-group@^1.0.1'));
 });

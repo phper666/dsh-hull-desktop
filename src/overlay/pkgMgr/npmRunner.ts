@@ -351,8 +351,11 @@ export class PnpmRunner extends BasePkgMgrRunner {
       /* .npmrc 写失败不阻断（peer fixup 兜底） */
     }
     return {
-      command: this.corepackBin(),
+      // ⚠️ 用捆绑 node 显式跑 corepack（不直接 spawn corepack）——corepack.js shebang 是 `#!/usr/bin/env node`，
+      // 打包环境（Electron app 不继承 shell PATH）无 node → 直接 spawn corepack 会 127（command not found）
+      command: this.nodePath,
       args: [
+        this.corepackBin(),
         `pnpm@${COREPACK_PNPM_VERSION}`,
         'add',
         `@deepseek-ai/dsh@${targetVersion}`,
@@ -386,9 +389,9 @@ export class PnpmRunner extends BasePkgMgrRunner {
   }
 
   /** P3：pnpm 11 默认忽略 build scripts（ERR_PNPM_IGNORED_BUILDS）→ 装后显式 rebuild 原生依赖（CON-R-pkgmgr-003）。
-   *  A 方案：同走 corepack（cwd=stagingDir 已由 runRebuild 注入） */
+   *  A 方案：同走 corepack（cwd=stagingDir 已由 runRebuild 注入）；node 显式跑（corepack shebang env node，打包无 PATH node） */
   protected override rebuildCommand(stagingDir: string): { command: string; args: string[] } | null {
-    return { command: this.corepackBin(), args: [`pnpm@${COREPACK_PNPM_VERSION}`, 'rebuild', ...NATIVE_DEP_PKGS] };
+    return { command: this.nodePath, args: [this.corepackBin(), `pnpm@${COREPACK_PNPM_VERSION}`, 'rebuild', ...NATIVE_DEP_PKGS] };
   }
 
   // ===== peer dependencies fixup（dsh-app-boot peer 缺 → 显式 add，修复 ERR_MODULE_NOT_FOUND）=====
@@ -426,8 +429,9 @@ export class PnpmRunner extends BasePkgMgrRunner {
     for (const [name, range] of Object.entries(peers)) {
       if (this.isPeerPresent(stagingDir, name)) continue;
       missing.push({
-        command: this.corepackBin(),
-        args: [`pnpm@${COREPACK_PNPM_VERSION}`, 'add', `${name}@${range}`],
+        // node 显式跑 corepack（同 buildArgs：corepack shebang env node，打包无 PATH node）
+        command: this.nodePath,
+        args: [this.corepackBin(), `pnpm@${COREPACK_PNPM_VERSION}`, 'add', `${name}@${range}`],
       });
     }
     return missing;
