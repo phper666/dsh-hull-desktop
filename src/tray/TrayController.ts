@@ -18,7 +18,7 @@ import type { UpgradeQueue } from '../updater/UpgradeQueue';
  * ⚠️ 真实图标资产后续补（S2 打包期），届时替换此常量即可。
  */
 const TRAY_ICON_PNG_BASE64 =
-  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAEKADAAQAAAABAAAAEAAAAAA0VXHyAAACBklEQVQ4EY2TwWsTQRTGvzfduE1aSyqlCI0lhAgeS/HiybOXgB6CBf8PBcGbJ/HPELwJsQf/AEHwJAUPYogecvFgk5jgutndGb83m4mmtWCW3TeZeb/vffN2R8Bfu30nHrvTu8biqRO0nHWcdXBuNWou5waAfTyKf75Cv59Ko3GrOo/dS8B0nC3OQUGEeiqpCoAImNvblM37URq7jhC2hP3ivyoTUi+67kfWqkhnaqedtY363jFX6v8NqwMV8tHeNBA0L9qzJhVaTQH14KEw5jzQNBfBRZZjZ+8qWjfayLL5GbgU0QKGK6Wds9EIug/u4fmzJ9jd3UFRsMELF2U/fFNgQpdD9HapLATW12O4nCDdOBe2UjYzFI7CQOMSZk71+j7eDPo4SaaotBq4dDLjVjI2X1Rh6Vqu7B8qWcJcEl7btw94H0IqEWpbW4grFUzffsCnF8fI8/kSVtfegecJqwOsGYzefwQ+f0Nt4zKyKMJk/B0/JqfgV7oCa+GohIMDWssz2DRBaiow8xzCZqaTMe+RH5d1mL+oKtvXDr5Qthk6rC78xfdvF43z2+bWFPrTbP1nvxop3CP9thUMsB9zzoiBMXzT52DmEmHGQ1MztZ4eDH9ASn/egRf5q+JqZdLW9Wbxr9dmOHyXjKtJl4fpiNBANcj5R4BC1FkrbiDOHc3q0sVwmPwGrcu1XmEnbqgAAAAASUVORK5CYII=';
+  'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABmJLR0QA/wD/AP+gvaeTAAABJ0lEQVRYhe2WMU7DQBBFHxFCcnIAKKCwFDhCOAG5By0cxCeAlhzBipCDcoNwhASJAopwAKACUzCuohmPN5s09pNGsna//nzLu96Fjo62c2DMpcAa+JbnMTACLoAEeAfuRHsLnIp2CTwDc+BVtCfy3IgEeAIegVKpHyltvhCPpGnziqlh7q0itHkaoXlVqdakZwQYhyZv4mUFuIwYQPWyAgwjBjgPCTBwGH/wv1Xr6IcEeHMYPwATh87jtcEV+h5fAxlwJJXJmPavCFqEFqVzbCty6vd3JlWny7Umh0aAM0fIa3xvrnpZAT4dxscODcCXNmGtgRenuYdVSIBFxABBXns5jOooIjQ3j2PrEyQyPzM0v1IaM/FQLyTbXsnuRXvDDq5kHR3t4A91tqBfHfm3SAAAAABJRU5ErkJggg==';
 
 export interface TrayControllerOptions {
   runtime: RuntimeManager;
@@ -65,6 +65,7 @@ export class TrayController {
   create(): Tray {
     if (this.tray) return this.tray;
     const image = nativeImage.createFromDataURL(`data:image/png;base64,${TRAY_ICON_PNG_BASE64}`);
+    image.setTemplateImage(true); // mac 模板图（纯黑+透明）：系统自动反色适配明暗菜单栏
     const tray = new Tray(image);
     this.tray = tray;
     tray.setToolTip('Dsh Hull Desktop');
