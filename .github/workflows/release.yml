@@ -79,7 +79,7 @@ jobs:
         run: npx electron-builder --publish never --${{ matrix.arch }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7 (node24)
         with:
           name: dist-${{ matrix.platform }}
           path: release/*
@@ -108,7 +108,7 @@ jobs:
           echo "version=$VER" >> "$GITHUB_OUTPUT"
 
       - name: Download all platform artifacts
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317 # v7 (node24)
         with:
           path: dist-artifacts
           merge-multiple: true
