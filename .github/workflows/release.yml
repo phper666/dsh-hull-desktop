@@ -111,7 +111,11 @@ jobs:
         uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317 # v7 (node24)
         with:
           path: dist-artifacts
-          merge-multiple: true
+          # ⚠️ 不用 merge-multiple：mac arm64+x64 各自生成 latest-mac.yml（同名），merge 覆盖只剩一个架构
+          # → 对端 electron-updater 按 process.arch 匹配不到 → "No files provided"。保留目录结构后合并。
+
+      - name: Merge latest-mac.yml (dual-arch arm64+x64, 修复 No files provided)
+        run: node scripts/merge-latest-mac.mjs dist-artifacts
 
       - name: Create tag
         env:
@@ -187,9 +191,9 @@ jobs:
               --title "v${VERSION}" \
               --notes "${NOTES}" || echo "release create skipped"
           fi
-          # 只上传文件（排除 linux-unpacked/ 等目录——gh release upload 不支持目录，撞上会中断整批）
+          # 只上传文件（递归子目录——mac 各架构 artifact 按目录存放，非顶层；排除 linux-unpacked/ 等目录）
           # 分批上传避免命令行超长（每批 ~50 文件）
-          find dist-artifacts -maxdepth 1 -type f -print0 | while IFS= read -r -d '' f; do
+          find dist-artifacts -type f ! -path '*/linux-unpacked/*' -print0 | while IFS= read -r -d '' f; do
             gh release upload "v${VERSION}" "$f" --clobber || echo "upload failed: $f"
           done
 
