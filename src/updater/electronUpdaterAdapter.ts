@@ -40,7 +40,9 @@ export function createElectronUpdaterAdapter(options: ElectronUpdaterAdapterOpti
   return {
     checkForUpdates: async () => {
       const result = await autoUpdater.checkForUpdates();
-      if (!result?.updateInfo) return null;
+      // ⚠️ 必须检查 isUpdateAvailable：electron-updater 同版本时也返回 updateInfo（isUpdateAvailable=false），
+      // 只查 updateInfo 会导致同版本误报"发现新版本"（如 0.1.0 显示有 0.1.0 更新）
+      if (!result?.isUpdateAvailable || !result?.updateInfo) return null;
       return {
         version: result.updateInfo.version,
         releaseNotes: result.updateInfo.releaseNotes as string | undefined,
