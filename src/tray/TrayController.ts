@@ -117,12 +117,12 @@ export class TrayController {
     const h = this.hullSnapshot;
     if (h && h.phase !== HullUpdatePhase.Idle) {
       const pct = h.phase === HullUpdatePhase.Downloading ? ` ${h.pct}%` : '';
-      this.tray.setToolTip(`Hull — 自更新中（${h.phase}${pct}）`);
+      this.tray.setToolTip(`Dsh Hull Desktop — 自更新中（${h.phase}${pct}）`);
       return;
     }
     const up = this.upgradeSnapshot;
     if (up && up.phase !== UpgradePhase.Idle) {
-      this.tray.setToolTip(`Hull — 升级中（${up.phase} ${up.pct}%）`);
+      this.tray.setToolTip(`Dsh Hull Desktop — 升级中（${up.phase} ${up.pct}%）`);
       return;
     }
     const rs = this.runtimeSnapshot;
@@ -132,9 +132,9 @@ export class TrayController {
     }
     if (rs.phase === RuntimePhase.Ready && rs.url) {
       const version = this.options.getDshVersion ? this.options.getDshVersion() : null;
-      this.tray.setToolTip(`Hull — dsh 运行中 · v${version ?? 'unknown'} · ${rs.url}`);
+      this.tray.setToolTip(`Dsh Hull Desktop — dsh 运行中 · v${version ?? 'unknown'} · ${rs.url}`);
       return;
     }
-    this.tray.setToolTip(`Hull — ${rs.phase}`);
+    this.tray.setToolTip(`Dsh Hull Desktop — ${rs.phase}`);
   }
 }
