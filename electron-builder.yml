@@ -24,7 +24,9 @@ mac:
   category: public.app-category.developer-tools
   identity: null   # CON-R-packaging-005：暂不签名/公证
   # cicd 决策 6：mac 双架构产物命名统一带 arch（arm64-mac / x64-mac）
-  artifactName: ${productName}-${version}-${arch}-mac.${ext}
+  # ⚠️ 显式去空格命名（BUG 修复）：productName 含空格 → electron-builder 写 latest-*.yml url 空格转连字符，
+  #   但 GitHub 存资产时空格转点号 → yml 广告名 ≠ 资产名 → 更新下载 404。硬编码连字符名保证三处一致。
+  artifactName: Dsh-Hull-Desktop-${version}-${arch}-mac.${ext}
   extraResources:
     # cicd 决策 6：mac 双架构（arm64+x64），${arch} 宏按构建架构选 node
     # fetch-node 产物 vendor/node-24.10.0-darwin-{arm64|x64} 匹配 ${arch}
@@ -42,11 +44,16 @@ linux:
     - AppImage
     - deb
   category: Development
+  # 显式去空格命名（同 mac，修复更新 404）：AppImage/deb 扩展名不同不冲突
+  artifactName: Dsh-Hull-Desktop-${version}.${ext}
   extraResources:
     - from: vendor/node-24.10.0-linux-x64
       to: node
 nsis:
   oneClick: false  # 安装引导（非一键）
+  artifactName: Dsh-Hull-Desktop-Setup-${version}.${ext}
+portable:
+  artifactName: Dsh-Hull-Desktop-${version}.${ext}
 publish:
   provider: github  # PK3 定案（用户拍板 A）：GitHub Releases 更新源；electron-builder 自动生成 latest 元数据
   owner: phper666
