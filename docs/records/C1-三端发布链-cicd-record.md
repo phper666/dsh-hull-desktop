@@ -44,17 +44,27 @@
 - **release body 资产驱动**（gh release view）而非 matrix output 聚合（不可靠）
 - **并发锁按版本线分组**（concurrency.group: release-${{ inputs.branch }}）解决并发发布竞态（Q-058）
 
-## 遗留/待拍板
+## 遗留/待拍板（2026-08-27 全部闭环）
 
-- **CI 实测**：workflow 未在 GitHub Actions 实际跑过——mac Intel（macos-13 runner）/ win nsis / linux AppImage 首次实测需等触发一次发布（Q-059/Q-060 覆盖）
-- **macos-13 runner**：GitHub 已公告退役计划（2026 后），后续可能需换 arm64 runner + --x64 交叉
-- **release-body 兜底**：bump 失败时 build 不跑，release-body 静默跳过（`|| echo` 兜底）
+- ~~**CI 实测**~~：✅ 已实测（0.1.1~0.1.4 经 CI 发布，三端资产齐全，见下节）
+- ~~**macos-13 runner 退役**~~：✅ 已落地——matrix 改 macos-latest + `--x64` 交叉编译（workflow 当前态，Intel Mac 走 ARM runner 交叉）
+- ~~**Node 20 弃用警告**~~：✅ 已升级——checkout/setup-node v5 + upload/download-artifact v7（node24，用户确认发版无告警）
+- **release-body 兜底**：bump 失败时 build 不跑，release-body 静默跳过（`|| echo` 兜底）——保留（低风险）
 
 ## CI 实测发现（2026-08-25，run #1/#2）
 
 | 问题 | 根因 | 处理 |
 |:-----|:-----|:-----|
 | Linux deb 打包失败 | package.json 缺 author.email → deb 无 maintainer | 补 author（commit 1952c27） |
-| macos-13 job 卡住 | GitHub Intel Mac runner 队列枯竭/退役，等不到 runner | matrix 改 macos-latest + --x64 交叉编译（commit 待） |
-| Node 20 弃用警告 | checkout/setup-node/upload-artifact 用 v4（目标 Node 20），被迫 Node 24 跑 | 暂不处理（非阻塞），后续升级 v5 |
+| macos-13 job 卡住 | GitHub Intel Mac runner 队列枯竭/退役，等不到 runner | matrix 改 macos-latest + --x64 交叉编译（已提交） |
+| Node 20 弃用警告 | checkout/setup-node/upload-artifact 用 v4（目标 Node 20），被迫 Node 24 跑 | 已升级 v5/v7（node24） |
 | 三阶段方案 A | bump 先于 build 会污染版本线 | workflow 重构 build→release→bump（commit b6bcb7c） |
+
+## 复测发现（2026-08-27，0.1.2 用户实测更新 404）
+
+| 问题 | 根因 | 处理 |
+|:-----|:-----|:-----|
+| **更新下载 404（全平台，0.1.1 起）** | `productName: Dsh Hull Desktop` 含空格 → electron-builder 写 `latest-*.yml` url 空格转连字符（`Dsh-Hull-Desktop-...`），GitHub 存资产时空格转点号（`Dsh.Hull.Desktop-...`）→ yml 广告名 ≠ 资产名 → 更新必 404。linux deb 用 package name（无空格）幸免 | 三平台显式硬编码连字符 `artifactName`（electron-builder.yml），保证文件名==yml url==资产名（PR #2，commit 7fb9281） |
+| v0.1.4 release 混入 200+ 垃圾资产 | 上传 glob `release/*` 把解包 `.app`/`*-unpacked`/`node` 内容也传进 artifact | build 上传 + release 上传改扩展名白名单（PR #2，commit 7fb9281） |
+| v0.1.4 缺 win/linux 安装包 | 部分发布（仅 mac 资产） | 0.1.5 完整三端发布验证 |
+| **经验教训** | 产物命名含空格 = 三处命名链（磁盘文件名/yml url/GitHub 资产名）不一致，静默 404 | 沉淀 docs/lessons/2026-08-27-electron-builder-artifact-name-space-404-lesson.md |
