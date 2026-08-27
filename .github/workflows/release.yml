@@ -93,6 +93,8 @@ jobs:
             release/**/*.yml
             release/**/*.yaml
             release/**/*.blockmap
+            !release/**/*unpacked*/**
+            !release/**/*.app/**
           if-no-files-found: error
 
   # 阶段 2：build 全成功后打 tag + 建 Release + 上传各平台产物
@@ -205,7 +207,8 @@ jobs:
           # 分批上传避免命令行超长（每批 ~50 文件）
           find dist-artifacts -type f \( -name '*.zip' -o -name '*.dmg' -o -name '*.exe' \
             -o -name '*.AppImage' -o -name '*.deb' -o -name '*.yml' -o -name '*.yaml' \
-            -o -name '*.blockmap' \) -print0 | while IFS= read -r -d '' f; do
+            -o -name '*.blockmap' \) ! -path '*unpacked*' ! -path '*.app/*' \
+            -print0 | while IFS= read -r -d '' f; do
             gh release upload "v${VERSION}" "$f" --clobber || echo "upload failed: $f"
           done
 
