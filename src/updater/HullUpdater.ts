@@ -1,11 +1,12 @@
 import { EventEmitter } from 'node:events';
+import { CancellationToken } from 'builder-util-runtime';
 
 import { HullError } from '../shared/errors';
 import { HullUpdatePhase, NOOP_LOGGER, type HullUpdateStatus, type RuntimeLogger } from '../shared/types';
 import { RuntimeManager } from '../runtime/RuntimeManager';
 import { SettingsProvider } from '../settings/SettingsProvider';
 import { UpgradeQueue } from './UpgradeQueue';
-import type { ElectronUpdaterAdapter, UpdateCancellationToken } from './electronUpdaterAdapter';
+import type { ElectronUpdaterAdapter } from './electronUpdaterAdapter';
 
 /** HULL_UPDATE_ERRORS（契约 S5 §错误集 五码） */
 export const HULL_UPDATE_ERRORS = {
@@ -69,7 +70,7 @@ export class HullUpdater extends EventEmitter {
   private queueHeld = false;
   private cancelled = false;
   private quitAndInstallMode = false;
-  private cancellationToken: UpdateCancellationToken | null = null;
+  private cancellationToken: CancellationToken | null = null;
   private readonly adapter: ElectronUpdaterAdapter;
   private readonly queue: UpgradeQueue;
   private readonly runtime: RuntimeManager;
@@ -176,7 +177,7 @@ export class HullUpdater extends EventEmitter {
     if (this.phase !== HullUpdatePhase.Confirm) return this.snapshot(); // 冲突
     this.cancelled = false;
     this.transition(HullUpdatePhase.Downloading, '正在下载更新…');
-    this.cancellationToken = { cancel: () => this.cancelled = true };
+    this.cancellationToken = new CancellationToken(); // 真实 CancellationToken（electron-updater 需要 createPromise/cancelled，最小接口报错）
     try {
       await this.adapter.downloadUpdate(this.cancellationToken);
       if (!this.isDownloading()) return this.snapshot(); // 已取消/error 事件已处理
@@ -210,7 +211,8 @@ export class HullUpdater extends EventEmitter {
   /** 取消下载（契约 #5）：仅 downloading 阶段可取消；installAndRestart 阶段不可取消 */
   cancel(): HullUpdateStatus {
     if (this.phase !== HullUpdatePhase.Downloading) return this.snapshot();
-    this.cancellationToken?.cancel();
+    this.cancelled = true; // 置本地标志（download catch 判断 this.cancelled）
+    this.cancellationToken?.cancel(); // 通知真实 token（electron-updater 感知取消，emit cancel）
     return this.snapshot();
   }
 

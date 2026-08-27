@@ -1,4 +1,5 @@
 import { autoUpdater } from 'electron-updater';
+import { CancellationToken } from 'builder-util-runtime';
 
 /** 更新信息（adapter 返回；releaseNotes 缺失降级为纯版本对比） */
 export interface UpdateInfo {
@@ -10,10 +11,8 @@ export interface DownloadProgress {
   percent: number;
 }
 
-/** 取消令牌（最小结构；electron-updater CancellationToken 结构兼容） */
-export interface UpdateCancellationToken {
-  cancel(): void;
-}
+/** 取消令牌 = builder-util-runtime 真实 CancellationToken（electron-updater 需要 createPromise/cancelled/onCancel，最小接口会报错） */
+export type UpdateCancellationToken = CancellationToken;
 
 /**
  * electron-updater 抽象（S5 设计 D2 DI 注入点）：
