@@ -82,7 +82,17 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7 (node24)
         with:
           name: dist-${{ matrix.platform }}
-          path: release/*
+          # ⚠️ 白名单 glob（修复 v0.1.4 垃圾资产污染）：release/* 会把解包 .app/win-unpacked/linux-unpacked/node 内容
+          # 也传进 artifact → 发布时 200+ 垃圾文件混入 release。只传安装包/更新元数据/blockmap。
+          path: |
+            release/**/*.zip
+            release/**/*.dmg
+            release/**/*.exe
+            release/**/*.AppImage
+            release/**/*.deb
+            release/**/*.yml
+            release/**/*.yaml
+            release/**/*.blockmap
           if-no-files-found: error
 
   # 阶段 2：build 全成功后打 tag + 建 Release + 上传各平台产物
@@ -191,9 +201,11 @@ jobs:
               --title "v${VERSION}" \
               --notes "${NOTES}" || echo "release create skipped"
           fi
-          # 只上传文件（递归子目录——mac 各架构 artifact 按目录存放，非顶层；排除 linux-unpacked/ 等目录）
+          # 只上传安装包/更新元数据（扩展名白名单，排除解包 .app/win-unpacked/linux-unpacked/node 目录内容）
           # 分批上传避免命令行超长（每批 ~50 文件）
-          find dist-artifacts -type f ! -path '*/linux-unpacked/*' -print0 | while IFS= read -r -d '' f; do
+          find dist-artifacts -type f \( -name '*.zip' -o -name '*.dmg' -o -name '*.exe' \
+            -o -name '*.AppImage' -o -name '*.deb' -o -name '*.yml' -o -name '*.yaml' \
+            -o -name '*.blockmap' \) -print0 | while IFS= read -r -d '' f; do
             gh release upload "v${VERSION}" "$f" --clobber || echo "upload failed: $f"
           done
 
