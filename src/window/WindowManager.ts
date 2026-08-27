@@ -171,7 +171,7 @@ export class WindowManager {
   /** 状态订阅：标题 + 视图状态切换 + hull:status 推送 */
   private onStatus(s: RuntimeSnapshot): void {
     if (!this.win || this.win.isDestroyed()) return;
-    this.win.setTitle(`Hull — ${s.phase}`);
+    this.win.setTitle(`Dsh Hull Desktop — ${s.phase}`);
     if (s.phase === RuntimePhase.Ready && s.url) {
       this.loadOfficialUrl(s.url);
     } else if (s.phase === RuntimePhase.Failed) {
