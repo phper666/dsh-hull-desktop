@@ -5,11 +5,13 @@
  */
 import { test } from 'node:test';
 import { deepEqual, equal, ok } from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { SkillsScanner } from './SkillsScanner';
+import { computeGitBlobSignature, gitBlobSha1, type TreeEntry } from './gitTree';
+import { createNodeFsOps } from './SkillFsOps';
 import type { SkillEntry } from './types';
 
 const tempDirs: string[] = [];
@@ -54,27 +56,21 @@ test('六目录扫描聚合：全局判定 + scoped 判定 + 平台徽标（T1/T
   const alpha = byName(snap.entries, 'alpha');
   equal(alpha.scope, 'global'); // ~/.agents = universal
   deepEqual([...alpha.platforms].sort(), [
-    'claude-code',
     'cline',
     'codex',
-    'continue',
     'cursor',
     'devin',
     'dsh',
     'gemini-cli',
-    'harness',
     'opencode',
-    'qoder',
-    'reasonix',
     'roo',
-    'trae',
     'warp',
     'windsurf',
   ]);
 
   const beta = byName(snap.entries, 'beta');
   equal(beta.scope, 'scoped');
-  deepEqual(beta.platforms, ['claude-code', 'opencode']); // ~/.claude 被 opencode 同时读取
+  deepEqual(beta.platforms, ['claude-code', 'cursor', 'opencode', 'warp']); // ~/.claude 被 opencode/cursor/warp 同时读取（排序）
 
   const gamma = byName(snap.entries, 'gamma');
   deepEqual(gamma.platforms, ['opencode']); // ~/.config/opencode 专属
@@ -98,17 +94,12 @@ test('realpath 同源去重：symlink 指向 shared 只计一条，paths 保留�
     'claude-code',
     'cline',
     'codex',
-    'continue',
     'cursor',
     'devin',
     'dsh',
     'gemini-cli',
-    'harness',
     'opencode',
-    'qoder',
-    'reasonix',
     'roo',
-    'trae',
     'warp',
     'windsurf',
   ]);
@@ -180,8 +171,10 @@ test('来源三级降级：metadata.source 采用；无来源 source=null（T8/T
   const home = makeHome();
   makeSkill(home, '.claude/skills', 'withsrc', { source: 'https://github.com/o/r' });
   makeSkill(home, '.claude/skills', 'nosrc');
-  const s = new SkillsScanner({ homeDir: home, userDataPath: join(home, 'ud') });
+  // withsrc 触发 P0-1 梯子 pending → 注入 stub fetchTree 保证测试离线封闭（不触真实网络）
+  const s = new SkillsScanner({ homeDir: home, userDataPath: join(home, 'ud'), fetchTree: async () => [] });
   await s.scan();
+  await s.waitForPrefetch();
   equal(byName(s.snapshot().entries, 'withsrc').source, 'https://github.com/o/r');
   equal(byName(s.snapshot().entries, 'nosrc').source, null);
 });
@@ -309,4 +302,152 @@ test('getStatus 计数派生（T15）：total/upgradable/disabled/global', async
   equal(counts.total, 2);
   equal(counts.global, 1);
   equal(counts.disabled, 0); // S1 恒 enabled
+});
+
+// ─────────────────────────── P0-1 后台预取 + P0-2 lint（设计 SK-1） ───────────────────────────
+
+/** P0-1 预取测试专用：可门控的 fetchTree（resolve 前断言同步态） */
+function gatedFetch(entries: TreeEntry[]): { fetchTree: (o: string, r: string, b: string) => Promise<TreeEntry[]>; gate: (v: TreeEntry[]) => void } {
+  let resolveGate: (v: TreeEntry[]) => void;
+  const gate = new Promise<TreeEntry[]>((res) => {
+    resolveGate = res;
+  });
+  return {
+    fetchTree: async () => gate.then(() => entries),
+    gate: (v) => resolveGate!(v),
+  };
+}
+
+test('P0-1 后台预取：同步扫描不应用远端签名（unknown）→ 预取后本地==远端 → latest + 缓存落盘', async () => {
+  const home = makeHome();
+  const dir = makeSkill(home, '.claude/skills', 'ghskill', { source: 'https://github.com/o/r/tree/main' });
+  writeFileSync(join(dir, 'extra.txt'), 'x\n');
+  // 与 makeSkill 写入 SKILL.md 完全一致的字节 → 本地 blob sha == 远端 tree sha → latest
+  const fmContent = ['---', 'name: ghskill', 'description: ghskill 描述', 'metadata:', '  source: https://github.com/o/r/tree/main', '---', '# ghskill'].join('\n');
+  const entries: TreeEntry[] = [
+    { path: 'SKILL.md', type: 'blob', sha: gitBlobSha1(fmContent) },
+    { path: 'extra.txt', type: 'blob', sha: gitBlobSha1('x\n') },
+  ];
+  const g = gatedFetch(entries);
+  const s = new SkillsScanner({ homeDir: home, userDataPath: join(home, 'ud'), fetchTree: g.fetchTree });
+  await s.scan();
+  equal(s.snapshot().status, 'ready');
+  equal(byName(s.snapshot().entries, 'ghskill').upgradable, 'unknown', '同步未应用远端签名（<2s 不阻塞）');
+  g.gate(entries); // 放行预取
+  await s.waitForPrefetch();
+  const after = byName(s.snapshot().entries, 'ghskill');
+  equal(after.upgradable, 'latest', '两端签名一致 → latest');
+  ok(after.remoteHash, '远端哈希已回填');
+  ok(existsSync(join(home, 'ud', 'skills', 'remote-sig-cache.json')), '预取写缓存落盘');
+});
+
+test('P0-1 预取后本地≠远端 → upgradable（可升级）', async () => {
+  const home = makeHome();
+  makeSkill(home, '.claude/skills', 'gh2', { source: 'https://github.com/o/r/tree/main' });
+  const s = new SkillsScanner({
+    homeDir: home,
+    userDataPath: join(home, 'ud'),
+    fetchTree: async () => [{ path: 'SKILL.md', type: 'blob', sha: 'd'.repeat(40) }], // 远端内容不同
+  });
+  await s.scan();
+  await s.waitForPrefetch();
+  const e = byName(s.snapshot().entries, 'gh2');
+  equal(e.upgradable, 'upgradable');
+  ok(e.remoteHash && /^[0-9a-f]{64}$/.test(e.remoteHash), '远端签名为 64 位 hex（非原始 blob sha）');
+});
+
+test('P0-1 同 {owner,repo,branch} 合并一次 tree 请求（subPath 各自算签名）', async () => {
+  const home = makeHome();
+  makeSkill(home, '.claude/skills', 'ga', { source: 'https://github.com/o/r/tree/main/a' });
+  makeSkill(home, '.claude/skills', 'gb', { source: 'https://github.com/o/r/tree/main/b' });
+  let calls = 0;
+  const s = new SkillsScanner({
+    homeDir: home,
+    userDataPath: join(home, 'ud'),
+    fetchTree: async () => {
+      calls++;
+      return [];
+    },
+  });
+  await s.scan();
+  await s.waitForPrefetch();
+  equal(calls, 1, '同 repo 共享一次 tree 请求');
+});
+
+test('P0-1 lock 命中 → 不进预取（② 跳过，避免重复网络请求）', async () => {
+  const home = makeHome();
+  makeSkill(home, '.claude/skills', 'locked2', { source: 'https://github.com/o/r/tree/main' });
+  let fetched = 0;
+  const s = new SkillsScanner({
+    homeDir: home,
+    userDataPath: join(home, 'ud'),
+    lockProvider: () => ({ locked2: { hash: 'z'.repeat(64) } }),
+    fetchTree: async () => {
+      fetched++;
+      return [];
+    },
+  });
+  await s.scan();
+  await s.waitForPrefetch();
+  equal(fetched, 0);
+  equal(byName(s.snapshot().entries, 'locked2').remoteHash, 'z'.repeat(64));
+});
+
+test('P0-1 预取失败 → 静默降级 unknown（下次扫描重试）', async () => {
+  const home = makeHome();
+  makeSkill(home, '.claude/skills', 'gh3', { source: 'https://github.com/o/r' });
+  const s = new SkillsScanner({
+    homeDir: home,
+    userDataPath: join(home, 'ud'),
+    fetchTree: async () => {
+      throw new Error('boom');
+    },
+  });
+  await s.scan();
+  await s.waitForPrefetch();
+  const e = byName(s.snapshot().entries, 'gh3');
+  equal(e.upgradable, 'unknown');
+  equal(e.remoteHash, null);
+  equal(s.snapshot().refreshing, false);
+});
+
+test('P0-1 缓存命中（决策 4）：扫描即 latest，不触发预取', async () => {
+  const home = makeHome();
+  const dir = makeSkill(home, '.claude/skills', 'ghc', { source: 'https://github.com/o/r/tree/main' });
+  writeFileSync(join(dir, 'extra.txt'), 'x\n');
+  // 预热：先扫一次（pending→预取写缓存 + gitblob 签名），再手动把远端签名写成与本地 git 签名一致 → 二次扫描缓存命中即 latest
+  const s1 = new SkillsScanner({ homeDir: home, userDataPath: join(home, 'ud'), fetchTree: async () => [] });
+  await s1.scan();
+  await s1.waitForPrefetch();
+  const cacheFile = join(home, 'ud', 'skills', 'remote-sig-cache.json');
+  const localGitSig = await computeGitBlobSignature(createNodeFsOps(), dir);
+  writeFileSync(cacheFile, JSON.stringify({ version: 1, entries: { 'o/r#main#': { sig: localGitSig, at: Date.now() } } }));
+  // 二次扫描：缓存命中 → 同步即 latest，无预取
+  let fetched = 0;
+  const s2 = new SkillsScanner({
+    homeDir: home,
+    userDataPath: join(home, 'ud'),
+    fetchTree: async () => {
+      fetched++;
+      return [];
+    },
+  });
+  await s2.scan();
+  equal(byName(s2.snapshot().entries, 'ghc').upgradable, 'latest', '缓存命中同步即 latest');
+  equal(fetched, 0, '缓存命中不触发预取');
+  equal(s2.snapshot().refreshing, undefined, '无预取 → 无 refreshing 标志');
+});
+
+test('P0-2 lint 标注：健康条目无 lint 字段；缺 SKILL.md 条目带 warn lint', async () => {
+  const home = makeHome();
+  makeSkill(home, '.claude/skills', 'okskill', { source: 'https://github.com/o/r' }); // 健康（name+desc+https source）
+  mkdirSync(join(home, '.claude/skills', 'nolintok'), { recursive: true }); // 无 SKILL.md → warn
+  const s = new SkillsScanner({ homeDir: home, userDataPath: join(home, 'ud'), fetchTree: async () => [] });
+  await s.scan();
+  const okSkill = byName(s.snapshot().entries, 'okskill');
+  equal(okSkill.lint, undefined, '健康条目不标注');
+  const bad = byName(s.snapshot().entries, 'nolintok');
+  equal(bad.lint?.level, 'warn');
+  ok(bad.lint!.issues.length >= 2);
+  ok(bad.lint!.issues.some((i) => i.includes('name')));
 });

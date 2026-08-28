@@ -48,6 +48,10 @@ async function makeFixture(lockHash?: string, opsOverride?: SkillFsOps): Promise
     homeDir: home,
     userDataPath: join(home, 'ud'),
     lockProvider: () => lock,
+    // app1 带 GitHub source：无 lockHash 时触发 P0-1 预取 → 注入离线 stub（throw）保证测试封闭且保持 unknown 语义
+    fetchTree: async () => {
+      throw new Error('offline');
+    },
   });
   await scanner.scan();
   let runners: UpgradeRunners | undefined;
