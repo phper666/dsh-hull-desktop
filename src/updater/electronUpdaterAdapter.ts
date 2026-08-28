@@ -9,6 +9,12 @@ export interface UpdateInfo {
 
 export interface DownloadProgress {
   percent: number;
+  /** 已下载字节 */
+  transferred: number;
+  /** 总字节（未知 = 0） */
+  total: number;
+  /** 下载速度 字节/秒 */
+  bytesPerSecond: number;
 }
 
 /** 取消令牌 = builder-util-runtime 真实 CancellationToken（electron-updater 需要 createPromise/cancelled/onCancel，最小接口会报错） */
@@ -56,7 +62,15 @@ export function createElectronUpdaterAdapter(options: ElectronUpdaterAdapterOpti
     },
     on: (event: string, cb: (arg: any) => void) => {
       if (event === 'download-progress') {
-        autoUpdater.on('download-progress', (p) => (cb as (p: DownloadProgress) => void)({ percent: p.percent }));
+        // 透传全量进度字段（percent + transferred/total/bytesPerSecond——UI 详情展示数据源）
+        autoUpdater.on('download-progress', (p) =>
+          (cb as (p: DownloadProgress) => void)({
+            percent: p.percent,
+            transferred: p.transferred,
+            total: p.total,
+            bytesPerSecond: p.bytesPerSecond,
+          })
+        );
       } else if (event === 'error') {
         autoUpdater.on('error', (err) => (cb as (err: Error) => void)(err));
       }

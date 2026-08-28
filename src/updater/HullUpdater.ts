@@ -66,6 +66,10 @@ export class HullUpdater extends EventEmitter {
   private changeNotes: string | null = null;
   private error: string | null = null;
   private pct = 0;
+  /** 下载详情（transferred/total/bytesPerSecond；S6 下载中展示，非下载态 0） */
+  private transferred = 0;
+  private total = 0;
+  private bytesPerSecond = 0;
   private message = '未开始';
   private queueHeld = false;
   private cancelled = false;
@@ -92,6 +96,9 @@ export class HullUpdater extends EventEmitter {
     // 下载进度透传（tooltip/S6 进度条数据源）
     this.adapter.on('download-progress', (p) => {
       this.pct = Math.round(p.percent);
+      this.transferred = p.transferred ?? 0;
+      this.total = p.total ?? 0;
+      this.bytesPerSecond = p.bytesPerSecond ?? 0;
       this.emit('status', this.snapshot());
     });
     // 🟡-2：adapter error 事件订阅（防静默错误 + unhandled；映射 check/download 失败语义）
@@ -126,6 +133,9 @@ export class HullUpdater extends EventEmitter {
       changeNotes: this.changeNotes,
       error: this.error,
       pct: this.pct,
+      transferred: this.transferred,
+      total: this.total,
+      bytesPerSecond: this.bytesPerSecond,
       message: this.message,
     };
   }
@@ -176,6 +186,10 @@ export class HullUpdater extends EventEmitter {
   async download(): Promise<HullUpdateStatus> {
     if (this.phase !== HullUpdatePhase.Confirm) return this.snapshot(); // 冲突
     this.cancelled = false;
+    this.pct = 0;
+    this.transferred = 0;
+    this.total = 0;
+    this.bytesPerSecond = 0;
     this.transition(HullUpdatePhase.Downloading, '正在下载更新…');
     this.cancellationToken = new CancellationToken(); // 真实 CancellationToken（electron-updater 需要 createPromise/cancelled，最小接口报错）
     try {

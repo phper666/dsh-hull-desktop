@@ -120,6 +120,12 @@ export interface HullUpdateStatus {
   error: string | null;
   /** 下载进度 0-100（adapter download-progress 透传） */
   pct: number;
+  /** 已下载字节（下载详情展示；非下载态 0） */
+  transferred: number;
+  /** 总字节（未知 = 0） */
+  total: number;
+  /** 下载速度 字节/秒 */
+  bytesPerSecond: number;
   /** 状态说明（用户可见） */
   message: string;
 }
