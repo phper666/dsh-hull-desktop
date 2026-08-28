@@ -49,7 +49,14 @@ async function makeFixture(lockMode: 'none' | 'local' | 'remote'): Promise<Fixtu
   );
 
   // 先无 lock 扫一次拿 localHash（供 'local' 模式）
-  const probe = new SkillsScanner({ homeDir: home, userDataPath: join(home, 'ud'), lockProvider: () => ({}) });
+  const probe = new SkillsScanner({
+    homeDir: home,
+    userDataPath: join(home, 'ud'),
+    lockProvider: () => ({}),
+    fetchTree: async () => {
+      throw new Error('offline');
+    },
+  });
   await probe.scan();
   const localHash = probe.snapshot().entries[0]!.localHash!;
 
@@ -59,6 +66,10 @@ async function makeFixture(lockMode: 'none' | 'local' | 'remote'): Promise<Fixtu
     homeDir: home,
     userDataPath: join(home, 'ud'),
     lockProvider: () => lock,
+    // up1 带 GitHub source：无 lockHash 时触发 P0-1 预取 → 离线 stub（throw）保持 unknown/undetectable 语义
+    fetchTree: async () => {
+      throw new Error('offline');
+    },
   });
   await scanner.scan();
 

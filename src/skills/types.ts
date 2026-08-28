@@ -30,6 +30,8 @@ export interface SkillEntry {
   upgradable: UpgradableState;
   /** 聚合展示态：S1 阶段恒 true（S2 禁用后由目录实际位置推导） */
   enabled: boolean;
+  /** P0-2 SKILL.md 健康度标注（只读；健康条目缺省 undefined；设计决策 6） */
+  lint?: { level: 'warn' | 'info' | null; issues: string[] };
 }
 
 /** 远程 marketplace 条目（searchRemote 结果，仅浏览） */
@@ -49,6 +51,8 @@ export interface ScanSnapshot {
   entries: SkillEntry[];
   lastScanAt: string | null;
   error: string | null;
+  /** P0-1 后台 tree 预取进行中（renderer 轮询持续直到 false；可选，向后兼容——既有快照通知机制复用） */
+  refreshing?: boolean;
 }
 
 /** 状态栏计数（getStatus 响应，快照派生） */
