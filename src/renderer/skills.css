@@ -75,6 +75,16 @@
 .sk-badge.latest { background: var(--hull-success-soft); color: var(--hull-success-light); }
 .sk-badge.unknown { background: var(--hull-hover); color: var(--hull-text-muted); }
 .sk-badge.notinstalled { background: var(--hull-danger-soft); color: var(--hull-danger); }
+/* P0-2 SKILL.md 健康度徽标：warn 醒目（警告色）/ info 弱化（灰） */
+.sk-badge.lint.warn { background: var(--hull-warning-faint); color: var(--hull-warning-light); }
+.sk-badge.lint.info { background: var(--hull-hover); color: var(--hull-text-muted); }
+/* P0-2 详情弹窗健康度列表 */
+.sk-detail-lint { margin-top: 8px; padding: 8px 10px; border-radius: 8px; font-size: 12px; }
+.sk-detail-lint.warn { background: var(--hull-warning-faint); color: var(--hull-warning-light); }
+.sk-detail-lint.info { background: var(--hull-hover); color: var(--hull-text-note); }
+.sk-detail-lint h4 { margin: 0 0 4px; font-size: 12px; }
+.sk-detail-lint ul { margin: 0; padding-left: 16px; }
+.sk-detail-lint li { margin: 2px 0; }
 .sk-source { color: var(--hull-info); cursor: pointer; text-decoration: none; word-break: break-all; }
 .sk-source:hover { text-decoration: underline; }
 .sk-source.none { color: var(--hull-text-sub); cursor: default; }
@@ -164,3 +174,22 @@
 }
 .sk-detail-path code { flex: 1; min-width: 0; font-size: 11px; color: var(--hull-text-note); word-break: break-all; line-height: 1.5; }
 .sk-detail-path .sk-btn { flex-shrink: 0; padding: 3px 10px; font-size: 11px; }
+
+/* ── 平台筛选反馈：作用域徽标（全局/专属）+ 状态栏平台高亮 + 路径平台徽标 ── */
+.sk-badge.scoped { background: var(--hull-purple-soft); color: var(--hull-purple); }
+.sk-badge.plat { background: var(--hull-hover); color: var(--hull-text-note); }
+.sk-hl { color: var(--hull-accent); font-weight: 700; }
+
+/* ① 平台读取目录说明行（扫描归属透明化；空内容不占位） */
+.sk-scaninfo {
+  display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  padding: 5px 14px; background: var(--hull-panel); border-bottom: 1px solid var(--hull-border);
+  font-size: 11px; color: var(--hull-text-note);
+}
+.sk-scaninfo:empty { display: none; }
+.sk-scaninfo-label { color: var(--hull-text-muted); font-weight: 600; margin-right: 2px; }
+.sk-scaninfo-dir b { color: var(--hull-text-dim); font-weight: 600; }
+.sk-scaninfo-sep { color: var(--hull-text-sub); margin: 0 2px; }
+
+/* ③ 下拉「未安装」平台置灰（仍可选——共享池依旧可见） */
+.sk-opt-uninst { color: var(--hull-text-sub); }

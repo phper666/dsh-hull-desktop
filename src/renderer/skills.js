@@ -29,7 +29,7 @@
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const $ = (sel) => root.querySelector(sel);
-  const PLATFORMS = ['claude-code', 'opencode', 'codex', 'gemini-cli', 'cursor', 'windsurf', 'warp', 'trae', 'cline', 'roo', 'continue', 'devin', 'dsh', 'harness', 'qoder', 'reasonix'];
+  const PLATFORMS = ['claude-code', 'opencode', 'codex', 'gemini-cli', 'cursor', 'windsurf', 'warp', 'trae', 'cline', 'roo', 'continue', 'devin', 'dsh', 'qoder', 'reasonix'];
   const upgNames = { latest: '最新', upgradable: '▲ 可升级', unknown: '无法检测版本' };
   /** 升级按钮 tooltip：区分升级通道（无 source → 走 npx 官方通道，不依赖来源链接；有 source → git 轨可兜底） */
   const upgradeTitle = (e) =>
@@ -53,6 +53,7 @@
 
   // ── 渲染 ──
   function render() {
+    const pc = platformCounts();
     root.innerHTML = `
       <div class="sk-toolbar">
         <div class="sk-tabs">
@@ -64,8 +65,8 @@
         ${tab === 'local' ? `
         <select id="sk-platform" class="sk-select" aria-label="平台筛选">
           <option value="all">全部平台</option>
-          ${PLATFORMS.map((p) => `<option value="${p}" ${platform === p ? 'selected' : ''}>${p}</option>`).join('')}
-          <option value="global" ${platform === 'global' ? 'selected' : ''}>全局（shared）</option>
+          ${PLATFORMS.map((p) => `<option value="${p}" ${platform === p ? 'selected' : ''}${(pc.scoped[p] ?? 0) > 0 ? '' : ' class="sk-opt-uninst"'}>${p}（专属 ${pc.scoped[p] ?? 0}）${(pc.scoped[p] ?? 0) > 0 ? '' : ' · 未安装'}</option>`).join('')}
+          <option value="global" ${platform === 'global' ? 'selected' : ''}>全局（shared · ${pc.global}）</option>
         </select>
         <label class="sk-toggle"><input type="checkbox" id="sk-upg" ${onlyUpgradable ? 'checked' : ''} />仅看可升级</label>
         <label class="sk-toggle"><input type="checkbox" id="sk-dis" ${onlyDisabled ? 'checked' : ''} />仅看已禁用</label>
@@ -81,6 +82,7 @@
         </div>
       </div>
       <div class="sk-statusbar" id="sk-statusbar"></div>
+      <div class="sk-scaninfo" id="sk-scaninfo"></div>
       <div class="sk-list" id="sk-list"></div>
       <div id="sk-trash-panel" class="sk-trash-panel hidden"></div>
     `;
@@ -96,31 +98,103 @@
     const state =
       snapshot.status === 'scanning'
         ? '<span class="sk-scanstate">扫描中…</span>'
-        : snapshot.status === 'error'
-          ? `<span class="sk-scanstate error">扫描出错：${esc(snapshot.error || '')}</span>`
-          : '';
-    el.innerHTML = tab === 'remote'
-      ? `<span>来源 <b>skills.sh 市场</b>（全球社区技能，可搜索并安装）</span>
+        : snapshot.refreshing
+          ? '<span class="sk-scanstate">版本刷新中…</span>'
+          : snapshot.status === 'error'
+            ? `<span class="sk-scanstate error">扫描出错：${esc(snapshot.error || '')}</span>`
+            : '';
+    if (tab === 'remote') {
+      el.innerHTML = `<span>来源 <b>skills.sh 市场</b>（全球社区技能，可搜索并安装）</span>
          ${remoteError ? '<span class="sk-scanstate error">搜索出错：' + esc(remoteError) + '</span>' : ''}
-         ${remoteEntries ? `<span class="sk-spacer"></span><span>${remoteEntries.length} 条结果</span>` : ''}`
-      : `
+         ${remoteEntries ? `<span class="sk-spacer"></span><span>${remoteEntries.length} 条结果</span>` : ''}`;
+      return;
+    }
+    // 平台筛选反馈：选中平台高亮 + 共享/专属数量拆分（解决「切平台没变化」）
+    const pc = platformCounts();
+    const visible = snapshot.entries.filter(matchesLocal).length;
+    const filt =
+      platform === 'global'
+        ? `<span>全局 <b>${visible}</b> 项</span>`
+        : platform !== 'all'
+          ? `<span>平台 <b class="sk-hl">${esc(platform)}</b>：共享 <b>${pc.global}</b> · 专属 <b>${pc.scoped[platform] ?? 0}</b>，当前显示 <b>${visible}</b></span>`
+          : '';
+    el.innerHTML = `
       <span>共 <b>${counts.total}</b> 个 skill</span>
       <span>可升级 <b>${counts.upgradable}</b></span>
       <span>已禁用 <b>${counts.disabled}</b></span>
       <span>全局 <b>${counts.global}</b></span>
+      ${filt}
       ${state}
       ${snapshot.lastScanAt ? `<span class="sk-spacer"></span><span>上次扫描 ${esc(new Date(snapshot.lastScanAt).toLocaleTimeString())}</span>` : ''}
     `;
   }
 
+  /** 每平台专属计数 + 共享（全局）总数（下拉选项 / 状态栏用） */
+  function platformCounts() {
+    const scoped = {};
+    let global = 0;
+    for (const e of snapshot.entries) {
+      if (e.scope === 'global') global++;
+      else for (const p of e.platforms) scoped[p] = (scoped[p] ?? 0) + 1;
+    }
+    return { scoped, global };
+  }
+
+  /**
+   * 平台 X 读取的目录（①）：snapshot 路径 affectedPlatforms 反推（路径 → 生效平台）→ 过滤出含 X 的目录。
+   * 派生自实装数据，无 IPC 依赖；空目录（存在但无 skill）无法反推——预留主进程 skills:getRegistry
+   * 落地后替换（可补目录存在性），见实现记录改动点清单。
+   */
+  function dirsForPlatform(entries, target) {
+    const dirMap = new Map(); // dir -> { platforms:Set, count }
+    for (const e of entries) {
+      for (const p of e.paths) {
+        const dir = p.path.replace(/[\\/][^\\/]+$/, '');
+        let m = dirMap.get(dir);
+        if (!m) { m = { platforms: new Set(), count: 0 }; dirMap.set(dir, m); }
+        for (const pl of p.affectedPlatforms) m.platforms.add(pl);
+        m.count++;
+      }
+    }
+    const out = [];
+    for (const [dir, m] of dirMap) {
+      if (!m.platforms.has(target)) continue;
+      out.push({ dir, platforms: [...m.platforms], count: m.count });
+    }
+    // 共享目录置顶，其余按目录名
+    out.sort((a, b) => {
+      const as = isSharedDir(a.dir) ? 0 : 1;
+      const bs = isSharedDir(b.dir) ? 0 : 1;
+      return as - bs || a.dir.localeCompare(b.dir);
+    });
+    return out;
+  }
+
+  /** ① 平台读取目录说明行（非 all/global 才显示；无数据容错为不显示） */
+  function scanInfoHtml() {
+    if (platform === 'all' || platform === 'global') return '';
+    const dirs = dirsForPlatform(snapshot.entries, platform);
+    if (dirs.length === 0) return '';
+    const chips = dirs
+      .map((d) => {
+        const kind = isSharedDir(d.dir)
+          ? '共享'
+          : d.platforms.length === 1
+            ? '专属'
+            : d.platforms.join(' · ');
+        return `<span class="sk-scaninfo-dir">${esc(d.dir)}（<b>${esc(kind)}</b> · ${d.count} 项）</span>`;
+      })
+      .join('<span class="sk-scaninfo-sep">·</span>');
+    return `<span class="sk-scaninfo-label">${esc(platform)} 读取：</span>${chips}`;
+  }
+
   function matchesLocal(e) {
     if (onlyUpgradable && e.upgradable !== 'upgradable') return false;
     if (onlyDisabled && e.enabled) return false;
-    // 平台筛选只看该平台专属（scoped）skill；全局 skill 是独立类别（选「全局」才出现）
-    if (platform !== 'all') {
-      if (platform === 'global') { if (e.scope !== 'global') return false; }
-      else if (e.scope !== 'scoped' || !e.platforms.includes(platform)) return false;
-    }
+    // 平台筛选 = 「该平台可读的全部」：共享（全局）skill 任何平台都可用，始终展示；
+    // 另附该平台专属（scoped）skill。选「全局」则只看共享目录。
+    if (platform === 'global') { if (e.scope !== 'global') return false; }
+    else if (platform !== 'all' && e.scope !== 'global' && !(e.scope === 'scoped' && e.platforms.includes(platform))) return false;
     if (query) {
       const q = query.toLowerCase();
       const hay = `${e.name} ${e.description || ''} ${e.source || ''}`.toLowerCase();
@@ -141,14 +215,45 @@
     return m ? `https://github.com/${m[1]}` : null;
   }
 
-  /** 路径行：启用开关（Q-031 按物理路径粒度真禁用） */
-  function pathRow(path, isDisabled) {
+  /** 作用域徽标：全局（共享）/ 专属（scoped）——平台筛选下每条来源一目了然 */
+  const scopeBadge = (scope) =>
+    scope === 'global'
+      ? '<span class="sk-badge global">全局</span>'
+      : '<span class="sk-badge scoped">专属</span>';
+
+  /** P0-2 SKILL.md 健康度徽标（warn 醒目 / info 弱化，沿用 sk-badge 体系；tooltip 列 issues） */
+  const lintBadge = (e) => {
+    if (!e.lint || !e.lint.level) return '';
+    const warn = e.lint.level === 'warn';
+    return `<span class="sk-badge lint ${warn ? 'warn' : 'info'}" title="${esc(e.lint.issues.join('；'))}">${warn ? '健康度警告' : '健康度提示'}</span>`;
+  };
+
+  /** 共享目录判定（~/.agents/skills）：路径含共享目录段即共享（registry SHARED_DIR 约定，不依赖 affectedPlatforms 计数） */
+  const isSharedDir = (p) => /[\\/]\.agents[\\/]skills[\\/]/.test(String(p ?? ''));
+
+  /** 路径归属平台徽标：注册表 dir → affectedPlatforms（~/.claude/skills 显示 claude-code · opencode；
+      ~/.agents/skills → 显示「共享」；数据驱动，不硬编码目录字符串） */
+  function pathBadge(path, affectedPlatforms) {
+    const plats = Array.isArray(affectedPlatforms) ? affectedPlatforms : [];
+    if (plats.length === 0) return '';
+    if (isSharedDir(path)) return '<span class="sk-badge global" title="共享目录 ~/.agents/skills，所有平台可用">共享</span>';
+    const readers = esc(plats.join(' · '));
+    // 专属 = 单一平台读取；多平台共读（如 claude-code · opencode）不标「专属」，避免误导
+    const tip = plats.length === 1
+      ? `此目录被 ${readers} 读取（该平台专属）`
+      : `此目录被 ${readers} 读取`;
+    return `<span class="sk-badge plat" title="${tip}">${readers}</span>`;
+  }
+
+  /** 路径行：启用开关（Q-031 按物理路径粒度真禁用）+ 路径归属平台徽标 */
+  function pathRow(path, isDisabled, affectedPlatforms) {
     return `<div class="sk-path-row">
       <button class="sk-switch ${isDisabled ? 'off' : ''}" data-toggle-path="${esc(path)}" data-next="${isDisabled ? 'true' : 'false'}"
         title="${isDisabled ? '点击启用（恢复到 agent 目录）' : '点击禁用（移出 agent 目录，真生效）'}"
         aria-label="${esc(path)} ${isDisabled ? '已禁用' : '已启用'}"><i></i></button>
       <span class="sk-path ${isDisabled ? 'disabled' : ''}" title="${esc(path)}">${esc(path)}</span>
       <span class="sk-badge ${isDisabled ? 'notinstalled' : 'latest'}">${isDisabled ? '已禁用' : '启用中'}</span>
+      ${pathBadge(path, affectedPlatforms)}
     </div>`;
   }
 
@@ -159,8 +264,9 @@
     return `<div class="sk-row" data-name="${esc(e.name)}">
       <div class="sk-main">
         <div class="sk-name">${esc(e.name)}
-          ${e.scope === 'global' ? '<span class="sk-badge global">全局</span>' : ''}
+          ${scopeBadge(e.scope)}
           <span class="sk-badge ${e.upgradable}">${upgNames[e.upgradable] || e.upgradable}</span>
+          ${lintBadge(e)}
         </div>
         <div class="sk-desc">${e.description ? esc(e.description) : '<i>无描述</i>'}</div>
         <div class="sk-meta">
@@ -168,8 +274,8 @@
           ${sourceHtml(e.source)}
         </div>
         <div class="sk-paths">
-          ${e.paths.map((p) => pathRow(p.path, false)).join('')}
-          ${disabledPaths.map((d) => pathRow(d.originalPath, true)).join('')}
+          ${e.paths.map((p) => pathRow(p.path, false, p.affectedPlatforms)).join('')}
+          ${disabledPaths.map((d) => pathRow(d.originalPath, true, d.affectedPlatforms)).join('')}
         </div>
       </div>
       <div class="sk-side">
@@ -185,28 +291,31 @@
     const disabledPaths = disabledList.filter((d) => d.skillName === e.name && !activePaths.includes(d.originalPath));
     const canUpgrade = e.upgradable === 'upgradable';
     return `<div class="sk-card" data-name="${esc(e.name)}">
-      <div class="sk-name">${esc(e.name)}
-        ${e.scope === 'global' ? '<span class="sk-badge global">全局</span>' : ''}
-        <span class="sk-badge ${e.upgradable}">${upgNames[e.upgradable] || e.upgradable}</span>
-      </div>
-      <div class="sk-desc">${e.description ? esc(e.description) : '<i>无描述</i>'}</div>
-      <div class="sk-meta">
-        ${e.platforms.map((p) => `<span class="sk-badge">${esc(p)}</span>`).join('')}
-        ${sourceHtml(e.source)}
-      </div>
-      <div class="sk-paths">
-        ${e.paths.map((p) => pathRow(p.path, false)).join('')}
-        ${disabledPaths.map((d) => pathRow(d.originalPath, true)).join('')}
-      </div>
-      <div class="sk-card-ops">
-        <button class="sk-btn sk-danger-btn" data-remove="${esc(e.name)}">移除</button>
-        ${canUpgrade ? `<button class="sk-btn sk-primary-btn" data-upgrade="${esc(e.name)}" title="${esc(upgradeTitle(e))}">升级</button>` : ''}
-      </div>
+        <div class="sk-name">${esc(e.name)}
+          ${scopeBadge(e.scope)}
+          <span class="sk-badge ${e.upgradable}">${upgNames[e.upgradable] || e.upgradable}</span>
+          ${lintBadge(e)}
+        </div>
+        <div class="sk-desc">${e.description ? esc(e.description) : '<i>无描述</i>'}</div>
+        <div class="sk-meta">
+          ${e.platforms.map((p) => `<span class="sk-badge">${esc(p)}</span>`).join('')}
+          ${sourceHtml(e.source)}
+        </div>
+        <div class="sk-paths">
+          ${e.paths.map((p) => pathRow(p.path, false, p.affectedPlatforms)).join('')}
+          ${disabledPaths.map((d) => pathRow(d.originalPath, true, d.affectedPlatforms)).join('')}
+        </div>
+        <div class="sk-card-ops">
+          <button class="sk-btn sk-danger-btn" data-remove="${esc(e.name)}">移除</button>
+          ${canUpgrade ? `<button class="sk-btn sk-primary-btn" data-upgrade="${esc(e.name)}" title="${esc(upgradeTitle(e))}">升级</button>` : ''}
+        </div>
     </div>`;
   }
 
   function renderLocal() {
     const list = $('#sk-list');
+    const info = $('#sk-scaninfo');
+    if (info) info.innerHTML = scanInfoHtml();
     list.classList.toggle('card', viewMode === 'card');
     if (snapshot.status === 'scanning' && snapshot.entries.length === 0) {
       list.innerHTML = Array.from({ length: 6 }, () => '<div class="sk-skeleton"></div>').join('');
@@ -214,10 +323,28 @@
     }
     const visible = snapshot.entries.filter(matchesLocal);
     if (visible.length === 0) {
-      list.innerHTML = '<div class="sk-empty"><h2>未找到匹配的 skill</h2><p>试试调整搜索词或筛选条件</p></div>';
+      list.innerHTML = emptyStateHtml();
       return;
     }
     list.innerHTML = visible.map(viewMode === 'card' ? entryCard : entryRow).join('');
+  }
+
+  /** 空态文案：区分「该平台无专属 skill」vs「筛选 / 搜索无匹配」，不白屏 */
+  function emptyStateHtml() {
+    const hasGlobal = snapshot.entries.some((e) => e.scope === 'global');
+    if (platform === 'global') {
+      return '<div class="sk-empty"><h2>全局（共享）目录为空</h2><p>没有 skill 安装在 ~/.agents/skills 共享目录</p></div>';
+    }
+    if (platform !== 'all' && !hasGlobal && !snapshot.entries.some((e) => e.scope === 'scoped' && e.platforms.includes(platform))) {
+      return `<div class="sk-empty"><h2>该平台暂无可用 skill</h2><p>「${esc(platform)}」本机没有专属 skill，共享（全局）目录也为空</p></div>`;
+    }
+    if (query) {
+      return `<div class="sk-empty"><h2>未找到匹配的 skill</h2><p>没有名称 / 描述 / 来源包含「${esc(query)}」的结果，试试其他关键词</p></div>`;
+    }
+    const unfilter = [];
+    if (onlyUpgradable) unfilter.push('「仅看可升级」');
+    if (onlyDisabled) unfilter.push('「仅看已禁用」');
+    return `<div class="sk-empty"><h2>筛选无匹配</h2><p>${unfilter.length ? `取消${unfilter.join('、')}后重试，` : ''}或调整平台 / 搜索条件</p></div>`;
   }
 
   function renderRemote() {
@@ -277,10 +404,12 @@
       .join('');
     const m = modal(`${esc(entry.name)}`, `
       <div class="sk-detail-head">
-        ${entry.scope === 'global' ? '<span class="sk-badge global">全局</span>' : ''}
+        ${scopeBadge(entry.scope)}
         <span class="sk-badge ${entry.upgradable}">${esc(upgText)}</span>
+        ${lintBadge(entry)}
       </div>
       ${entry.description ? `<div class="sk-detail-desc">${esc(entry.description)}</div>` : ''}
+      ${entry.lint && entry.lint.issues.length ? `<div class="sk-detail-lint ${entry.lint.level === 'warn' ? 'warn' : 'info'}"><h4>健康度</h4><ul>${entry.lint.issues.map((i) => `<li>${esc(i)}</li>`).join('')}</ul></div>` : ''}
       <div class="sk-detail-meta">${platforms.map((p) => `<span class="sk-badge">${esc(p)}</span>`).join('')}</div>
       ${entry.source ? `<div class="sk-detail-source">来源：${sourceHtml(entry.source)}</div>` : `<div class="sk-detail-source">来源：<span class="sk-source none">未知</span><button class="sk-btn" id="sk-set-source" title="填写来源">填写</button></div>`}
       ${entry.upgradable === 'upgradable' && !entry.source ? '<div class="sk-detail-source sk-muted">升级通道：npx 官方通道（skills update，无需来源链接）</div>' : ''}
@@ -334,7 +463,7 @@
 
   /** 选 agent 安装弹窗：确认目标 agent 后调 skills:installRemote（O-3） */
   function promptInstall(ref) {
-    const agents = ['claude-code', 'opencode', 'codex', 'gemini-cli', 'cursor', 'windsurf', 'warp', 'trae', 'cline', 'roo', 'continue', 'devin', 'dsh', 'harness', 'qoder', 'reasonix'];
+    const agents = ['claude-code', 'opencode', 'codex', 'gemini-cli', 'cursor', 'windsurf', 'warp', 'trae', 'cline', 'roo', 'continue', 'devin', 'dsh', 'qoder', 'reasonix'];
     const m = modal('安装 skill', `
       <p>安装 <b>${esc(ref)}</b> 到哪个 agent？</p>
       <div class="sk-f"><label>目标 agent</label><select id="sk-install-agent" class="sk-select">${agents.map((a) => `<option>${a}</option>`).join('')}</select></div>
@@ -470,7 +599,7 @@
     $('#sk-trash').addEventListener('click', () => void toggleTrashPanel());
     const platSel = $('#sk-platform');
     if (platSel)
-      platSel.addEventListener('change', () => { platform = platSel.value; renderLocal(); });
+      platSel.addEventListener('change', () => { platform = platSel.value; renderStatusbar(); renderLocal(); });
     const upg = $('#sk-upg');
     if (upg) upg.addEventListener('change', () => { onlyUpgradable = upg.checked; renderLocal(); });
     const dis = $('#sk-dis');
@@ -585,7 +714,7 @@
           renderStatusbar();
           if (tab === 'local') renderLocal();
         }
-        if (snapshot.status === 'scanning') setTimeout(tick, 300);
+        if (snapshot.status === 'scanning' || snapshot.refreshing) setTimeout(tick, 300); // refreshing：P0-1 后台预取进行中，持续轮询至完成
         else {
           polling = false;
           await refreshMeta(); // 就绪后拉取禁用映射（路径开关态）
