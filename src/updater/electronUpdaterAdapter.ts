@@ -43,6 +43,8 @@ export interface ElectronUpdaterAdapterOptions {
  *  HULL_UPDATE_FEED_URL 覆盖为 generic provider（本地/自定义更新源测试，如本地 mock 服务器） */
 export function createElectronUpdaterAdapter(options: ElectronUpdaterAdapterOptions): ElectronUpdaterAdapter {
   if (process.env.HULL_UPDATE_FEED_URL) {
+    // dev（unpacked）模式 electron-updater 默认跳过更新检查——forceDevUpdateConfig 放行（仅测试/本地 mock 源用）
+    autoUpdater.forceDevUpdateConfig = true;
     autoUpdater.setFeedURL({ provider: 'generic', url: process.env.HULL_UPDATE_FEED_URL });
   } else {
     autoUpdater.setFeedURL({ provider: 'github', owner: options.owner, repo: options.repo });
