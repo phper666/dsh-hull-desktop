@@ -60,3 +60,6 @@ playwright-report/
 # 图标生成中间产物（源文件 icon.svg/png/icns 保留）
 build/icon.iconset/
 build/icon.svg.png
+
+# 本地更新源测试配置（HULL_UPDATE_FEED_URL 场景；electron-updater dev 模式读取）
+dev-app-update.yml

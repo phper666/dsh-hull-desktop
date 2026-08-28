@@ -9,6 +9,7 @@
 
 appId: com.dsh.hull
 productName: Dsh Hull Desktop
+afterPack: scripts/adhoc-sign.mjs  # mac ad-hoc 签名（CON-R-packaging-005 修订，Squirrel.Mac 需签名才能装更新）
 directories:
   output: release
   buildResources: build   # 图标资源（icon.icns mac / icon.png linux / win ico 由 png 自动生成）
@@ -22,7 +23,7 @@ mac:
     - dmg
     - zip          # zip 供 electron-updater 更新（PK3）
   category: public.app-category.developer-tools
-  identity: null   # CON-R-packaging-005：暂不签名/公证
+  identity: null   # 签名在 afterPack 钩子做 ad-hoc（CON-R-packaging-005 修订 2026-08-28：Squirrel.Mac 需签名才能装更新）
   # cicd 决策 6：mac 双架构产物命名统一带 arch（arm64-mac / x64-mac）
   # ⚠️ 显式去空格命名（BUG 修复）：productName 含空格 → electron-builder 写 latest-*.yml url 空格转连字符，
   #   但 GitHub 存资产时空格转点号 → yml 广告名 ≠ 资产名 → 更新下载 404。硬编码连字符名保证三处一致。

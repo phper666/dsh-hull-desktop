@@ -3,6 +3,14 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-08-28 mac 签名策略修订：暂不签名 → ad-hoc 签名（CON-R-packaging-005）
+
+- 类型：共识规则修订（mac 自动更新实测发现，2026-08-28）
+- 内容：**mac 从「暂不签名」改为「ad-hoc 签名」**——Squirrel.Mac（electron-updater mac 安装器）要求运行中的应用有代码签名才能安装更新，未签名报 `Could not get code signature for running application`，mac 自动更新安装被彻底阻断。ad-hoc（`codesign --sign -`，Signature=adhoc）无开发者证书的自分发方案，Squirrel 可识别，解锁 mac 更新安装。公证仍不做（U-1 排后），Gatekeeper 警告接受。
+- 实现：**afterPack 钩子**（scripts/adhoc-sign.mjs，打包后 zip 前 adhoc 签名）——afterSign 仅在发生签名时调用（未签名被跳过），故用 afterPack；electron-builder.yml `afterPack` + `identity: null` 保持
+- 影响：electron-builder.yml + scripts/adhoc-sign.mjs（新）；mac 自动更新安装解锁；已用本地 mock 更新源实测：下载/进度/校验态/取消全部正常，签名错误为 Squirrel 对未签名 app 的硬性要求
+- 状态：已实现（2026-08-28，ad-hoc 签名 codesign 验证通过：Signature=adhoc）
+
 ## 2026-08-26 pkgmgr 共识升 v1.3——pnpm peer deps 需显式 fixup（cicd 首次实测）
 
 - 类型：共识结论变更（cicd 首次实测发现 dsh 启动失败，2026-08-26）
