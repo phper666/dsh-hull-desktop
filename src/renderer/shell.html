@@ -198,7 +198,30 @@
   .ver .box .v { font-size: 15px; font-weight: 700; }
   .ver .box .k { font-size: 11px; color: var(--hull-text-dim); }
   .ver .arrow { font-size: 16px; color: var(--hull-text-dim); }
-  .notes { font-size: 12px; color: var(--hull-text); background: var(--hull-bg); border: 1px solid var(--hull-border); border-radius: 10px; padding: 10px 12px; margin-top: 10px; line-height: 1.6; max-height: 140px; overflow-y: auto; }
+  /* A/C：releaseNotes（GitHub markdown 渲染 HTML）富文本排版 + 滚动（长 changelog 不撑爆卡片） */
+  .notes { font-size: 12px; color: var(--hull-text); background: var(--hull-bg); border: 1px solid var(--hull-border); border-radius: 10px; padding: 10px 12px; margin-top: 10px; line-height: 1.7; max-height: 220px; overflow-y: auto; }
+  .notes > b { display: block; font-size: 11px; font-weight: 700; color: var(--hull-text-sub); text-transform: uppercase; letter-spacing: 0.05em; padding-bottom: 6px; margin-bottom: 8px; border-bottom: 1px solid var(--hull-border); }
+  .notes h1, .notes h2, .notes h3, .notes h4 { font-size: 13px; font-weight: 700; color: var(--hull-text); margin: 12px 0 6px; line-height: 1.4; }
+  .notes h1:first-child, .notes h2:first-child, .notes h3:first-child, .notes h4:first-child { margin-top: 0; }
+  .notes p { color: var(--hull-text-dim); font-size: 12px; line-height: 1.7; margin: 0 0 8px; word-break: break-word; }
+  .notes ul, .notes ol { margin: 0 0 8px; padding-left: 20px; }
+  .notes li { color: var(--hull-text-dim); margin: 2px 0; }
+  .notes li::marker { color: var(--hull-text-sub); }
+  .notes code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: 4px; padding: 1px 4px; color: var(--hull-info); }
+  .notes pre { background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: 8px; padding: 8px 10px; margin: 0 0 8px; overflow-x: auto; }
+  .notes pre code { background: none; border: none; padding: 0; color: var(--hull-text-dim); white-space: pre-wrap; word-break: break-word; }
+  .notes a { color: var(--hull-info); text-decoration: none; }
+  .notes a:hover { text-decoration: underline; }
+  .notes hr { border: none; border-top: 1px solid var(--hull-border); margin: 10px 0; }
+  .notes blockquote { margin: 0 0 8px; padding: 2px 0 2px 10px; border-left: 3px solid var(--hull-border); color: var(--hull-text-muted); }
+  .notes table { border-collapse: collapse; margin: 0 0 8px; max-width: 100%; }
+  .notes th, .notes td { border: 1px solid var(--hull-border); padding: 4px 8px; }
+  .notes th { background: var(--hull-panel); color: var(--hull-text-dim); }
+  .notes img { max-width: 100%; border-radius: 8px; }
+  .notes::-webkit-scrollbar { width: 8px; }
+  .notes::-webkit-scrollbar-thumb { background: var(--hull-border); border-radius: 4px; }
+  .notes::-webkit-scrollbar-thumb:hover { background: var(--hull-text-sub); }
+  .notes::-webkit-scrollbar-track { background: transparent; }
   /* 升级反馈：融入 scard，不再是独立卡片 */
   .ucard { border-top: 1px solid var(--hull-border); background: var(--hull-bg); }
   .ucard h3 { display: none; }
@@ -219,6 +242,8 @@
   .up-progress { margin: 8px 0; }
   .up-progress .bar { width: 100%; height: 6px; margin: 8px 0 4px; }
   .up-progress .bar i { display: block; height: 100%; width: 0; background: var(--hull-primary); border-radius: 999px; transition: width 0.3s; }
+  /* B：下载详情行（已下载 X / 共 Y · Z MB/s），与 .bar 体系统一 */
+  .up-progress .detail { font-size: 12px; color: var(--hull-text-dim); margin-top: 6px; }
   /* 改进 3：升级输出框（npm 实时输出，等宽 + 滚动，最新在最下） */
   .up-output { margin: 0 16px 16px; max-height: 140px; overflow-y: auto; background: var(--hull-bg); border: 1px solid var(--hull-border); border-radius: 8px; padding: 8px 10px; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; line-height: 1.5; color: var(--hull-text-dim); white-space: pre-wrap; word-break: break-all; }
   .up-output .line { display: block; }
@@ -549,6 +574,14 @@
   // ── S8' S6'/S3'：设置 + 升级视图渲染（settings.html 逻辑迁移） ──
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const badge = (text, kind) => `<span class="badge ${kind}">${esc(text)}</span>`;
+  // B：字节格式化（MB/GB 自适应，一位小数；速度复用同函数 + "/s" → "12.5 MB/s"）
+  const fmtBytes = (b) => {
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    if (!Number.isFinite(b) || b < 0) return '0 B';
+    let n = b, i = 0;
+    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+    return n.toFixed(i ? 1 : 0) + ' ' + units[i];
+  };
   const setError = (el, msg) => {
     if (!el) return;
     if (msg) {
@@ -964,13 +997,21 @@
     if (h.phase !== 'idle') {
       // checking 无真实进度，不渲染进度条（否则空进度条 + 0% 误导）；downloading 有 pct
       const progress = ['downloading'].includes(h.phase);
+      // B：下载完成（pct>=100 或 transferred>=total）但 phase 仍 downloading → sha512 校验段，诚实文案（否则「100% 下载中」误导）
+      const verifying = h.phase === 'downloading' && (pct >= 100 || (h.total > 0 && h.transferred >= h.total));
+      // B：字节/速度详情行（仅 downloading 且 total>0；校验段无速度，0 B/s 是噪声）
+      const dlDetail = h.phase === 'downloading' && h.total > 0
+        ? `<div class="detail">已下载 ${fmtBytes(h.transferred || 0)} / 共 ${fmtBytes(h.total)}${verifying ? '' : ' · ' + fmtBytes(h.bytesPerSecond || 0) + '/s'}</div>`
+        : '';
       // checking 时 h.message（HullUpdater「正在检查更新…」）与 badge 相同 → 去重只显示 badge
       const msgHtml = h.phase === 'checking'
         ? ''
         : `<div class="up-msg">${esc(h.message || '')}</div>`;
+      const pctText = verifying ? '下载完成，正在校验文件…' : `${pct}%`;
+      const phaseName = verifying ? '校验中' : (hullPhaseNames[h.phase] || h.phase);
       body.innerHTML = `
-        <div class="urow"><div class="info"><div class="label">状态</div></div><div class="badges">${badge(hullPhaseNames[h.phase] || h.phase, 'warn')}</div></div>
-        ${progress ? `<div class="up-progress"><div class="bar"><i style="width:${pct}%"></i></div><span class="up-msg">${pct}%</span></div>` : ''}
+        <div class="urow"><div class="info"><div class="label">状态</div></div><div class="badges">${badge(phaseName, verifying ? 'ok' : 'warn')}</div></div>
+        ${progress ? `<div class="up-progress"><div class="bar"><i style="width:${Math.min(pct, 100)}%"></i></div><span class="up-msg">${pctText}</span>${dlDetail}</div>` : ''}
         ${msgHtml}
         ${h.phase === 'downloading' ? '<div class="urow"><div><button id="up-hull-cancel" class="sbtn">取消</button></div></div>' : ''}`;
       const cancelBtn = document.getElementById('up-hull-cancel');
