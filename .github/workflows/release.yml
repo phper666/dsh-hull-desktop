@@ -155,11 +155,11 @@ jobs:
           else
             RANGE="${PREV_TAG}..HEAD"
           fi
-          LOG=$(git log "$RANGE" --no-merges --pretty=format:'%s' 2>/dev/null | grep -E '^(feat|fix|refactor|docs|chore|perf|style|test):' | grep -viE 'bump version|version .*→|version .*->' | head -30 || true)
-          # 分组：feat → 新增，fix → 修复，其余 → 其他
-          FEATS=$(printf '%s\n' "$LOG" | grep -E '^feat:' | sed 's/^feat: *//' 2>/dev/null || true)
-          FIXES=$(printf '%s\n' "$LOG" | grep -E '^fix:' | sed 's/^fix: *//' 2>/dev/null || true)
-          OTHERS=$(printf '%s\n' "$LOG" | grep -vE '^(feat|fix):' | sed -E 's/^[a-z]+: *//' | head -10 2>/dev/null || true)
+          LOG=$(git log "$RANGE" --no-merges --pretty=format:'%s' 2>/dev/null | grep -E '^(feat|fix|refactor|docs|chore|perf|style|test)(\([^)]*\))?:' | grep -viE 'bump version|version .*→|version .*->' | head -30 || true)
+          # 分组：feat → 新增，fix → 修复，其余 → 其他（支持 scope：fix(skills): …）
+          FEATS=$(printf '%s\n' "$LOG" | grep -E '^feat(\([^)]*\))?:' | sed -E 's/^feat(\([^)]*\))?: *//' 2>/dev/null || true)
+          FIXES=$(printf '%s\n' "$LOG" | grep -E '^fix(\([^)]*\))?:' | sed -E 's/^fix(\([^)]*\))?: *//' 2>/dev/null || true)
+          OTHERS=$(printf '%s\n' "$LOG" | grep -vE '^(feat|fix)(\([^)]*\))?:' | sed -E 's/^[a-z]+(\([^)]*\))?: *//' | head -10 2>/dev/null || true)
           # 组装 changelog（多行）
           {
             echo "## 更新内容"
