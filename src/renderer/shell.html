@@ -1013,7 +1013,7 @@
         <div class="urow"><div class="info"><div class="label">状态</div></div><div class="badges">${badge(phaseName, verifying ? 'ok' : 'warn')}</div></div>
         ${progress ? `<div class="up-progress"><div class="bar"><i style="width:${Math.min(pct, 100)}%"></i></div><span class="up-msg">${pctText}</span>${dlDetail}</div>` : ''}
         ${msgHtml}
-        ${h.phase === 'downloading' ? '<div class="urow"><div><button id="up-hull-cancel" class="sbtn">取消</button></div></div>' : ''}`;
+        ${h.phase === 'downloading' && !verifying ? '<div class="urow"><div><button id="up-hull-cancel" class="sbtn">取消</button></div></div>' : ''}`;
       const cancelBtn = document.getElementById('up-hull-cancel');
       if (cancelBtn) cancelBtn.addEventListener('click', async () => { try { await bridge.cancelHullUpdate(); } catch {} });
       return;

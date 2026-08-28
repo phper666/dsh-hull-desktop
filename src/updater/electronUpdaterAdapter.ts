@@ -39,9 +39,14 @@ export interface ElectronUpdaterAdapterOptions {
   repo: string;
 }
 
-/** 默认实现：electron-updater autoUpdater（GitHub provider；latest-mac.yml 由 electron-builder 生成） */
+/** 默认实现：electron-updater autoUpdater（GitHub provider；latest-mac.yml 由 electron-builder 生成）
+ *  HULL_UPDATE_FEED_URL 覆盖为 generic provider（本地/自定义更新源测试，如本地 mock 服务器） */
 export function createElectronUpdaterAdapter(options: ElectronUpdaterAdapterOptions): ElectronUpdaterAdapter {
-  autoUpdater.setFeedURL({ provider: 'github', owner: options.owner, repo: options.repo });
+  if (process.env.HULL_UPDATE_FEED_URL) {
+    autoUpdater.setFeedURL({ provider: 'generic', url: process.env.HULL_UPDATE_FEED_URL });
+  } else {
+    autoUpdater.setFeedURL({ provider: 'github', owner: options.owner, repo: options.repo });
+  }
   return {
     checkForUpdates: async () => {
       const result = await autoUpdater.checkForUpdates();
