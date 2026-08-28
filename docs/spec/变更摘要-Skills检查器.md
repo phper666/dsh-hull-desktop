@@ -3,6 +3,13 @@
 > Skills 检查器模块（壳内独立视图：统一扫描/全局 vs 平台判定/来源跳转/升级检测/搜索/禁用/移除）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-Skills检查器.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-08-27 注册表 affectedPlatforms 校正（CON-R-skills-001/002 数据修正，官方文档/源码逐平台校验）
+
+- 类型：规则数据修正（对照官方文档/源码，2026-08-27；调研见 docs/research/2026-08-27-skills管理调研.md 及补证）
+- 内容：① **claude-code/codex 目录加 cursor+warp**（官方声明 cursor 读 ~/.claude/skills、~/.codex/skills；warp 源码全局解析读两者；codex 目录官方标注 deprecated）；② **windsurf/devin 同产品互读**（Cognition 合并，docs.devin.ai）；③ **shared（~/.agents/skills）从「全部平台」收缩为 10 个确认读者**（opencode/codex/gemini/cursor/windsurf/warp/cline/roo/devin/dsh；claude-code/continue 确认不读——官方 repo 0 命中/源码无 agents 目录；trae/qoder/reasonix 官方未声明不列入）；④ **删除 harness 条目**（本地无 ~/.harness 目录 + 无主流平台对应 + 与 dsh 概念重叠）
+- 影响：registry.ts（新增 SHARED_DIR_READERS 常量）；skills.js 前端 PLATFORMS/agents 去 harness + 共享判定改路径检测（isSharedDir，不再用计数启发式）；registry/SkillsScanner 测试同步；检查器平台归属判定从此基于官方实证
+- 状态：已实现（2026-08-27，unit 649 绿）
+
 ## 2026-08-24 平台扩展续（v1.6）——注册表新增 4 平台（dsh/harness/qoder/reasonix）
 
 - 类型：规则描述扩展（CON-R-skills-001/002，向后兼容），升共识 v1.6
