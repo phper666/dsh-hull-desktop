@@ -191,10 +191,10 @@
   function matchesLocal(e) {
     if (onlyUpgradable && e.upgradable !== 'upgradable') return false;
     if (onlyDisabled && e.enabled) return false;
-    // 平台筛选 = 「该平台可读的全部」：共享（全局）skill 任何平台都可用，始终展示；
-    // 另附该平台专属（scoped）skill。选「全局」则只看共享目录。
+    // 平台筛选 = 「该平台可读的全部」：数据驱动——entry.platforms 已编码「谁可读此 skill」
+    // （global=共享目录确认读者集；scoped=该目录 affectedPlatforms）。非共享读者平台（如 claude-code/continue）不显示共享池。
     if (platform === 'global') { if (e.scope !== 'global') return false; }
-    else if (platform !== 'all' && e.scope !== 'global' && !(e.scope === 'scoped' && e.platforms.includes(platform))) return false;
+    else if (platform !== 'all' && !e.platforms.includes(platform)) return false;
     if (query) {
       const q = query.toLowerCase();
       const hay = `${e.name} ${e.description || ''} ${e.source || ''}`.toLowerCase();
@@ -329,14 +329,14 @@
     list.innerHTML = visible.map(viewMode === 'card' ? entryCard : entryRow).join('');
   }
 
-  /** 空态文案：区分「该平台无专属 skill」vs「筛选 / 搜索无匹配」，不白屏 */
+  /** 空态文案：区分「平台无可读 skill」vs「筛选 / 搜索无匹配」，不白屏 */
   function emptyStateHtml() {
-    const hasGlobal = snapshot.entries.some((e) => e.scope === 'global');
     if (platform === 'global') {
       return '<div class="sk-empty"><h2>全局（共享）目录为空</h2><p>没有 skill 安装在 ~/.agents/skills 共享目录</p></div>';
     }
-    if (platform !== 'all' && !hasGlobal && !snapshot.entries.some((e) => e.scope === 'scoped' && e.platforms.includes(platform))) {
-      return `<div class="sk-empty"><h2>该平台暂无可用 skill</h2><p>「${esc(platform)}」本机没有专属 skill，共享（全局）目录也为空</p></div>`;
+    // 平台筛选：该平台不在任何 entry 的 platforms（无专属目录 + 非共享读者）→ 无可读 skill
+    if (platform !== 'all' && !snapshot.entries.some((e) => e.platforms.includes(platform))) {
+      return `<div class="sk-empty"><h2>「${esc(platform)}」无可读 skill</h2><p>本机无该平台专属目录，且该平台不读取共享（~/.agents/skills）目录（官方声明）</p></div>`;
     }
     if (query) {
       return `<div class="sk-empty"><h2>未找到匹配的 skill</h2><p>没有名称 / 描述 / 来源包含「${esc(query)}」的结果，试试其他关键词</p></div>`;
