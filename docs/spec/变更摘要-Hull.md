@@ -3,6 +3,14 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-08-28 CON-R-packaging-005 二次修正：ad-hoc 签名不可行 → 自签名证书方案
+
+- 类型：共识规则再修正（0.1.2→0.1.3 实测 ad-hoc 仍失败，2026-08-28）
+- 内容：**ad-hoc 签名路线废弃，改自签名证书**——实测 0.1.2（ad-hoc 签名）升级 0.1.3 仍报 `Could not get code signature`。根因（Squirrel.Mac 源码级）：安装时提取**运行中 app 的 designated requirement** 并要求更新包满足；ad-hoc 的 DR=`cdhash H"..."` **钉死二进制哈希**，任何新版本二进制必变 → 校验数学上必失败。**自签名证书的 DR=`identifier + certificate leaf 指纹`（可移植），同证书跨版本校验通过**（本地实验证实，不需要 Apple 信任链）
+- 实现：钥匙串创建自签名代码签名证书「Dsh Hull Code Signing」（openssl + security import + add-trusted-cert）；electron-builder `identity: "Dsh Hull Code Signing"`；CI 走 `CSC_LINK`/`CSC_KEY_PASSWORD` secrets（p12 + 密码，electron-builder 原生支持）；**所有版本必须同证书签名**（DR 钉证书指纹）；删除 afterPack ad-hoc 钩子
+- 限制：新用户首次安装 dmg 需 Gatekeeper 手动放行（无公证）；已装 0.1.0~0.1.2（未签名/ad-hoc）的用户无法自动更新（DR 不匹配），需手动安装 0.1.4+ 一次
+- 状态：已实现（2026-08-28，证书签名本地验证通过：真实证书身份非 adhoc）
+
 ## 2026-08-28 mac 签名策略修订：暂不签名 → ad-hoc 签名（CON-R-packaging-005）
 
 - 类型：共识规则修订（mac 自动更新实测发现，2026-08-28）
