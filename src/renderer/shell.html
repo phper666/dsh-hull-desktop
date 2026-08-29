@@ -851,6 +851,50 @@
     dshOutputAtBottom: true,
   };
   function upCard(targetId) { return document.getElementById(targetId); }
+  // 吞点击修复：设置页 250ms tick 无条件重建升级卡 innerHTML → 按钮节点每秒被替换 4 次，
+  // 逐渲染绑定的监听器随旧节点被丢弃，mousedown 与 click 跨重建时点击落在已脱离文档的节点上被吞
+  // （实测：Hull 下载中「取消」按钮点了没反应）。改为容器级事件委托，绑定一次、节点重建不影响监听。
+  function bindUpgradeCardActions(containerId, actions) {
+    document.getElementById(containerId).addEventListener('click', async (e) => {
+      const btn = e.target instanceof Element ? e.target.closest('button') : null;
+      const action = btn && actions[btn.id];
+      if (action) await action();
+    });
+  }
+  bindUpgradeCardActions('up-dsh-body', {
+    'up-dsh-yes': async () => { try { await bridge.upgradeDsh(up.dshConfirmLatest); } catch {} },
+    'up-dsh-no': async () => { try { await bridge.dismissDshUpdate(); toast('已稍后再说（当日不再提示）'); } catch {} },
+    'up-dsh-cancel': async () => { try { await bridge.cancelDshUpgrade(); } catch {} },
+    'up-dsh-recheck': async () => {
+      try {
+        const res = await bridge.checkDshUpdate();
+        // Bug 修复：取消后 queue 未释放（升级收尾中）→ check 返回 queueBusy → toast 明确反馈，非静默
+        if (res && res.error === 'queue-busy') {
+          toast('升级正在收尾，请稍候再试');
+          return;
+        }
+        if (res && res.hasUpdate === false && res.error) {
+          toast(res.error === 'check-failed' ? '检查失败，请稍后再试' : (res.error || '检查失败'));
+          return;
+        }
+      } catch (err) { toast(err.message || '检查失败'); }
+    },
+  });
+  bindUpgradeCardActions('up-hull-body', {
+    'up-hull-yes': async () => { try { await bridge.downloadHullUpdate(); } catch {} },
+    'up-hull-no': async () => { try { await bridge.dismissHullUpdate(); toast('已稍后再说（当日不再提示）'); } catch {} },
+    'up-hull-cancel': async () => { try { await bridge.cancelHullUpdate(); } catch {} },
+    'up-hull-recheck': async () => {
+      try {
+        const res = await bridge.checkHullUpdate();
+        // Bug 修复：queue 占用/检查失败 → toast 明确反馈（HullUpdater.check 返回 error 码）
+        if (res && res.error) {
+          toast(res.error === 'queue-busy' ? '更新正在收尾，请稍候再试' : (res.error === 'check-failed' ? '检查失败，请稍后再试' : '检查失败'));
+          return;
+        }
+      } catch (err) { toast(err.message || '检查失败'); }
+    },
+  });
   // dsh 通道确认卡片（hull:status upgrade.phase=confirm → 渲染；立即升级 → hull:upgradeDsh）
   function renderDshUpgrade(u, dshStatus) {
     const body = upCard('up-dsh-body');
@@ -872,15 +916,6 @@
           <button id="up-dsh-yes" class="sbtn primary">立即升级</button>
           <button id="up-dsh-no" class="sbtn">稍后再说</button>
         </div></div>`;
-      document.getElementById('up-dsh-yes').addEventListener('click', async () => {
-        try { await bridge.upgradeDsh(up.dshConfirmLatest); } catch {}
-      });
-      document.getElementById('up-dsh-no').addEventListener('click', async () => {
-        try {
-          await bridge.dismissDshUpdate();
-          toast('已稍后再说（当日不再提示）');
-        } catch {}
-      });
       return;
     }
     // 非 confirm：进度/失败/回滚结果/空闲
@@ -922,8 +957,6 @@
         ${progress ? `<div class="up-progress"><div class="bar"><i style="width:${pct}%"></i></div><span class="up-msg">${esc(stageText)}</span></div>` : ''}
         ${msgHtml}
         ${u.phase === 'installing' ? '<div class="urow"><div><button id="up-dsh-cancel" class="sbtn">取消</button></div></div>' : ''}`;
-      const cancelBtn = document.getElementById('up-dsh-cancel');
-      if (cancelBtn) cancelBtn.addEventListener('click', async () => { try { await bridge.cancelDshUpgrade(); } catch {} });
       return;
     }
     // idle：失败/回滚结果/空闲
@@ -931,20 +964,6 @@
       body.innerHTML = `
         <div class="up-error">${esc(u.message || u.error)}</div>
         <div class="urow"><div class="up-error retry"><button id="up-dsh-recheck" class="sbtn">重新检查</button></div></div>`;
-      document.getElementById('up-dsh-recheck').addEventListener('click', async () => {
-        try {
-          const res = await bridge.checkDshUpdate();
-          // Bug 修复：取消后 queue 未释放（升级收尾中）→ check 返回 queueBusy → toast 明确反馈，非静默
-          if (res && res.error === 'queue-busy') {
-            toast('升级正在收尾，请稍候再试');
-            return;
-          }
-          if (res && res.hasUpdate === false && res.error) {
-            toast(res.error === 'check-failed' ? '检查失败，请稍后再试' : (res.error || '检查失败'));
-            return;
-          }
-        } catch (err) { toast(err.message || '检查失败'); }
-      });
       return;
     }
     if (u.message && u.message.startsWith('已回滚')) {
@@ -983,15 +1002,6 @@
       // 滚动位置恢复：重建后恢复 scrollTop（若用户已在浏览变更说明）
       const newNotes = body.querySelector('.notes');
       if (newNotes && prevScroll > 0) newNotes.scrollTop = prevScroll;
-      document.getElementById('up-hull-yes').addEventListener('click', async () => {
-        try { await bridge.downloadHullUpdate(); } catch {}
-      });
-      document.getElementById('up-hull-no').addEventListener('click', async () => {
-        try {
-          await bridge.dismissHullUpdate();
-          toast('已稍后再说（当日不再提示）');
-        } catch {}
-      });
       return;
     }
     if (h.phase !== 'idle') {
@@ -1014,24 +1024,12 @@
         ${progress ? `<div class="up-progress"><div class="bar"><i style="width:${Math.min(pct, 100)}%"></i></div><span class="up-msg">${pctText}</span>${dlDetail}</div>` : ''}
         ${msgHtml}
         ${h.phase === 'downloading' && !verifying ? '<div class="urow"><div><button id="up-hull-cancel" class="sbtn">取消</button></div></div>' : ''}`;
-      const cancelBtn = document.getElementById('up-hull-cancel');
-      if (cancelBtn) cancelBtn.addEventListener('click', async () => { try { await bridge.cancelHullUpdate(); } catch {} });
       return;
     }
     if (h.error) {
       body.innerHTML = `
         <div class="up-error">${esc(h.message || h.error)}</div>
         <div class="urow"><div class="up-error retry"><button id="up-hull-recheck" class="sbtn">重新检查</button></div></div>`;
-      document.getElementById('up-hull-recheck').addEventListener('click', async () => {
-        try {
-          const res = await bridge.checkHullUpdate();
-          // Bug 修复：queue 占用/检查失败 → toast 明确反馈（HullUpdater.check 返回 error 码）
-          if (res && res.error) {
-            toast(res.error === 'queue-busy' ? '更新正在收尾，请稍候再试' : (res.error === 'check-failed' ? '检查失败，请稍后再试' : '检查失败'));
-            return;
-          }
-        } catch (err) { toast(err.message || '检查失败'); }
-      });
       return;
     }
     body.innerHTML = '<div class="up-msg">无进行中的 Hull 更新</div>';
