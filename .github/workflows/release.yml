@@ -90,8 +90,10 @@ jobs:
           security import "$P12" -k "$KC" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s -k hullci "$KC" >/dev/null
           # 自签名证书自身即根：p12 导入只落证书+私钥，不带信任 → find-identity -v 全过滤
-          # （CSSMERR_TP_NOT_TRUSTED，v0.1.6 CI 实测）→ 必须显式加入受信根
-          openssl pkcs12 -in "$P12" -passin "pass:$CSC_KEY_PASSWORD" -nokeys -clcerts -out "$CER"
+          # （CSSMERR_TP_NOT_TRUSTED，v0.1.6 CI 实测）→ 必须显式加入受信根。
+          # 证书导出用 security 不用 openssl pkcs12：该 p12 是 RC2-40-CBC 旧加密，
+          # runner 的 OpenSSL 3.x 默认 provider 拒解（unsupported RC2-40-CBC，二次实测）
+          security find-certificate -c "Dsh Hull Code Signing" -p "$KC" > "$CER"
           sudo security add-trusted-cert -d -r trustRoot "$CER"
           echo "--- 可用签名身份（断言 1 valid identities found）---"
           security find-identity -v -p codesigning "$KC"
