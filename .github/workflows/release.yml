@@ -86,15 +86,21 @@ jobs:
           KC="$RUNNER_TEMP/hull-signing.keychain"
           base64 -D -o "$P12" <<< "$CSC_LINK"
           security create-keychain -p hullci "$KC"
+          # 新建 keychain 默认数分钟自动锁——Package 步（rebuild+下载 electron 数分钟后）才 codesign，
+          # 锁住的 keychain 搜身份返回空 → codesign 报 "no identity found"（CI 实测）。拉到 6h 不自动锁
+          security set-keychain-settings -lut 21600 "$KC"
           security unlock-keychain -p hullci "$KC"
           security import "$P12" -k "$KC" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s -k hullci "$KC" >/dev/null
           # 自签名证书自身即根：p12 导入只落证书+私钥，不带信任 → find-identity -v 全过滤
-          # （CSSMERR_TP_NOT_TRUSTED，v0.1.6 CI 实测）→ 必须显式加入受信根。
+          # （CSSMERR_TP_NOT_TRUSTED，CI 实测）→ 必须显式加入受信根。
           # 证书导出用 security 不用 openssl pkcs12：该 p12 是 RC2-40-CBC 旧加密，
-          # runner 的 OpenSSL 3.x 默认 provider 拒解（unsupported RC2-40-CBC，二次实测）
+          # runner 的 OpenSSL 3.x 默认 provider 拒解（unsupported RC2-40-CBC，实测）
           security find-certificate -c "Dsh Hull Code Signing" -p "$KC" > "$CER"
           sudo security add-trusted-cert -d -r trustRoot "$CER"
+          # codesign --sign 按名解析身份走 keychain search list（--keychain 参数不等价，
+          # 实测 find-identity 列得到但 codesign 报 no identity found）→ 显式加入 search list
+          security list-keychain -d user -s "$KC" $(security list-keychain -d user | tr -d '"')
           echo "--- 可用签名身份（断言 1 valid identities found）---"
           security find-identity -v -p codesigning "$KC"
 
