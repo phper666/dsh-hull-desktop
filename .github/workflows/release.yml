@@ -75,14 +75,35 @@ jobs:
       - name: Build (C7 前置门禁)
         run: npm run build
 
+      - name: Setup mac signing keychain (自签名证书：导入≠受信，需显式 add-trusted-cert)
+        if: startsWith(matrix.platform, 'darwin')
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          P12="$RUNNER_TEMP/hull-signing.p12"
+          CER="$RUNNER_TEMP/hull-signing.cer"
+          KC="$RUNNER_TEMP/hull-signing.keychain"
+          base64 -D -o "$P12" <<< "$CSC_LINK"
+          security create-keychain -p hullci "$KC"
+          security unlock-keychain -p hullci "$KC"
+          security import "$P12" -k "$KC" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k hullci "$KC" >/dev/null
+          # 自签名证书自身即根：p12 导入只落证书+私钥，不带信任 → find-identity -v 全过滤
+          # （CSSMERR_TP_NOT_TRUSTED，v0.1.6 CI 实测）→ 必须显式加入受信根
+          openssl pkcs12 -in "$P12" -passin "pass:$CSC_KEY_PASSWORD" -nokeys -clcerts -out "$CER"
+          sudo security add-trusted-cert -d -r trustRoot "$CER"
+          echo "--- 可用签名身份（断言 1 valid identities found）---"
+          security find-identity -v -p codesigning "$KC"
+
       - name: Package (C3，打包当前 version，--publish never 零污染)
         env:
-          # mac 签名证书 secrets 仅注入 darwin 腿（win/linux 不签名，避免 CSC_LINK 被误用于 win signing）。
-          # 缺此 env 时 electron-builder 无证书可用 → 配合 mac.forceCodeSigning=true 构建直接失败，
-          # 不再静默跳签发布无签名包（v0.1.4/v0.1.5 踩坑：运行中 app 无签名 → Squirrel.Mac 拒装更新
-          # "Could not get code signature for running application"，已装用户只能手动重装）。
-          CSC_LINK: ${{ startsWith(matrix.platform, 'darwin') && secrets.CSC_LINK || '' }}
-          CSC_KEY_PASSWORD: ${{ startsWith(matrix.platform, 'darwin') && secrets.CSC_KEY_PASSWORD || '' }}
+          # mac 签名：用 Setup 步准备好的受信 keychain。electron-builder 26 无 CSC_LINK 时走
+          # CSC_KEYCHAIN 分支（macPackager codeSigningInfo），不自建临时 keychain——它 import p12
+          # 不带信任，find-identity -v 过滤后 0 身份 → forceCodeSigning 门禁构建失败（v0.1.6 实测）。
+          # win/linux 不读此变量；历史坑：v0.1.4/v0.1.5 连 CSC_LINK env 都没传 → 静默跳签发无签名包
+          # （Squirrel.Mac 拒装更新 "Could not get code signature for running application"）。
+          CSC_KEYCHAIN: ${{ runner.temp }}/hull-signing.keychain
         run: npx electron-builder --publish never --${{ matrix.arch }}
 
       - name: Verify mac code signature (发布门禁：产物必须带有效签名)
