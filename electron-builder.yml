@@ -22,6 +22,11 @@ mac:
     - dmg
     - zip          # zip 供 electron-updater 更新（PK3）
   category: public.app-category.developer-tools
+  # 门禁：找不到签名身份（CSC_LINK secrets / 本地 keychain 证书均无）时构建直接失败，
+  # 禁止静默跳签发布无签名包（v0.1.4/v0.1.5 踩坑：无签名产物 → Squirrel.Mac
+  # "Could not get code signature for running application"，已装用户永远无法自更新）。
+  # mac 级作用域：win/linux 不签名不受影响。显式 identity 时此门禁不生效（走 not-found 静默路径），勿回加 identity。
+  forceCodeSigning: true
   # 签名 identity 不显式指定（electron-builder 解析顺序：CI=CSC_LINK/CSC_KEY_PASSWORD secrets 用 p12 →
   # 本地=keychain 里「Dsh Hull Code Signing」自签名证书 → 都无=跳过签名并警告）。
   # 依据 CON-R-packaging-005 修订 2026-08-28：Squirrel.Mac 需有效证书签名才能装更新；

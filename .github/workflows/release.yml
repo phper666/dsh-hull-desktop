@@ -76,7 +76,23 @@ jobs:
         run: npm run build
 
       - name: Package (C3，打包当前 version，--publish never 零污染)
+        env:
+          # mac 签名证书 secrets 仅注入 darwin 腿（win/linux 不签名，避免 CSC_LINK 被误用于 win signing）。
+          # 缺此 env 时 electron-builder 无证书可用 → 配合 mac.forceCodeSigning=true 构建直接失败，
+          # 不再静默跳签发布无签名包（v0.1.4/v0.1.5 踩坑：运行中 app 无签名 → Squirrel.Mac 拒装更新
+          # "Could not get code signature for running application"，已装用户只能手动重装）。
+          CSC_LINK: ${{ startsWith(matrix.platform, 'darwin') && secrets.CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ startsWith(matrix.platform, 'darwin') && secrets.CSC_KEY_PASSWORD || '' }}
         run: npx electron-builder --publish never --${{ matrix.arch }}
+
+      - name: Verify mac code signature (发布门禁：产物必须带有效签名)
+        if: startsWith(matrix.platform, 'darwin')
+        run: |
+          APP=$(find release -maxdepth 2 -type d -name "*.app" | head -1)
+          test -n "$APP" || { echo "::error::未找到 .app 产物"; exit 1; }
+          codesign --verify --deep --strict "$APP"
+          echo "mac 签名校验通过: $APP"
+          codesign -dvv "$APP" 2>&1 | sed -n '1,8p'
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7 (node24)
