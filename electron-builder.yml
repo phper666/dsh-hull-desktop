@@ -22,7 +22,10 @@ mac:
     - dmg
     - zip          # zip 供 electron-updater 更新（PK3）
   category: public.app-category.developer-tools
-  identity: "Dsh Hull Code Signing"  # 自签名代码签名证书（CON-R-packaging-005 修订 2026-08-28：Squirrel.Mac 需有效证书签名才能装更新；ad-hoc DR 钉死 cdhash 跨版本必失败，证书 DR=证书指纹可移植；CI 用 CSC_LINK+CSC_KEY_PASSWORD secrets）
+  # 签名 identity 不显式指定（electron-builder 解析顺序：CI=CSC_LINK/CSC_KEY_PASSWORD secrets 用 p12 →
+  # 本地=keychain 里「Dsh Hull Code Signing」自签名证书 → 都无=跳过签名并警告）。
+  # 依据 CON-R-packaging-005 修订 2026-08-28：Squirrel.Mac 需有效证书签名才能装更新；
+  # ad-hoc DR 钉死 cdhash 跨版本必失败，证书 DR=证书指纹可移植。显式写 identity 会优先于 CSC_LINK 导致 CI 跳签（已踩坑）。
   # cicd 决策 6：mac 双架构产物命名统一带 arch（arm64-mac / x64-mac）
   # ⚠️ 显式去空格命名（BUG 修复）：productName 含空格 → electron-builder 写 latest-*.yml url 空格转连字符，
   #   但 GitHub 存资产时空格转点号 → yml 广告名 ≠ 资产名 → 更新下载 404。硬编码连字符名保证三处一致。
