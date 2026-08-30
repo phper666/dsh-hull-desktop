@@ -66,7 +66,7 @@
     --hull-accent: #2e8bf5;
     --hull-accent-hover: #1f6fd0;
     --hull-accent-soft: #d3e8fc;
-    --hull-accent-faint: #f0f7ff;
+    --hull-accent-faint: #eef4fd;
     --hull-accent-medium: #d6ebff;
     --hull-primary: #2e8bf5;
     --hull-primary-hover: #1f6fd0;
@@ -115,8 +115,12 @@
     font-size: 13px; cursor: pointer;
   }
   .nav-item:hover { background: var(--hull-border); }
-  /* P0：nav active 减重——用户改选方案 D：fit-content 药丸（底色只包住文字；注意文字较其他项缩进 +4px） */
-  .nav-item.active { background: var(--hull-accent-soft); color: var(--hull-accent-hover); font-weight: 600; width: fit-content; margin: 0 0 2px 8px; padding: 9px 16px; border-radius: 999px; }
+  /* P0：nav active 方案 F（第二批选型拍板）——微蓝底 + 左侧 3×16 圆角短指示条（不满高不碰圆角） */
+  .nav-item.active { background: var(--hull-accent-faint); color: var(--hull-accent-hover); font-weight: 600; }
+  .nav-item.active::before {
+    content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 16px; border-radius: 2px; background: var(--hull-accent);
+  }
   .nav-item[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
   /* 状态区（hull:status 渲染：runtime.phase + currentVersion + hullVersion + upgrade.phase） */
   #nav-status { padding: 12px 16px; border-top: 1px solid var(--hull-border); font-size: 12px; color: var(--hull-text-muted); }
