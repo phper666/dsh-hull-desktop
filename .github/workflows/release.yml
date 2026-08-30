@@ -260,6 +260,7 @@ jobs:
       - name: Update release body (changelog + asset-driven platform status, Q-060)
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
           CHANGELOG: ${{ steps.changelog.outputs.changelog }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
@@ -272,8 +273,12 @@ jobs:
           MAC_X64=$(printf '%s\n' "$ASSETS" | grep -E '\.zip$' | grep -v 'arm64-mac\.zip$' | grep -qE 'mac\.zip$' && echo "✅" || echo "❌")
           WIN=$(CHECK "Setup.*exe\|portable.*exe" || CHECK "nsis")
           LINUX=$(CHECK "AppImage")
-          # 合并：自动 changelog + 构建状态（不覆盖 changelog）
-          gh release edit "v${VERSION}" --notes "${CHANGELOG}
+          # 合并：手动说明（release_notes，若有）+ 自动 changelog + 构建状态
+          # ⚠️ 必须重复带上 RELEASE_NOTES：本步 gh release edit 会整段覆盖 body，
+          # 不带则 Create 步写入的手动说明被冲掉（v0.1.0 实测：功能清单丢失）
+          gh release edit "v${VERSION}" --notes "${RELEASE_NOTES}
+
+          ${CHANGELOG}
 
           ## 构建状态（资产驱动）
           - macOS arm64: $MAC_ARM
