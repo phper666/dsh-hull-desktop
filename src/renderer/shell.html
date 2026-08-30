@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="kanban.css" />
   <link rel="stylesheet" href="skills.css" />
   <link rel="stylesheet" href="tokens.css" />
+  <link rel="stylesheet" href="connections.css" />
 <style>
   /* T1 主题变量（CON-R-theme-002）：暗色默认 + 亮色[data-theme="light"] */
   :root, [data-theme="dark"] {
@@ -296,6 +297,7 @@
       <button id="nav-board" class="nav-item">任务看板</button>
       <button id="nav-skills" class="nav-item">Skills</button>
       <button id="nav-tokens" class="nav-item">Token 消耗</button>
+      <button id="nav-connections" class="nav-item">工作台连接</button>
       <button id="nav-settings" class="nav-item">设置</button>
     </div>
     <div id="nav-status">
@@ -360,6 +362,10 @@
     <!-- T-Token 消耗查看（Skills 之后；数据经 window.tokens 桥，main 只读扫描各平台会话） -->
     <section id="tokens" class="placeholder hidden">
       <div id="tokens-root"></div>
+    </section>
+    <!-- 工作台连接（设置之前；平台凭据经 safeStorage 加密存储，渲染层只接触脱敏视图） -->
+    <section id="connections" class="placeholder hidden">
+      <div id="connections-root"></div>
     </section>
     <!-- S8' S6'：设置视图（D1 迁移自 settings.html，重渲染；持久化走 hull:setSettings，CON-R002 不破）。
          通用/dsh/Hull/诊断 4 卡；dsh/Hull 升级反馈（确认/进度/失败/回滚/重启安装提示）内联各自区块底部 -->
@@ -529,7 +535,7 @@
   const bridge = window.hull;
   const PLACEHOLDER_PREFIX = 'placeholder:';
   // S8' S8'：sections 扩 1（settings）——view 2→3 态（official/board/settings）
-  const sections = ['starting', 'installing', 'failed', 'not-installed', 'board', 'skills', 'tokens', 'settings'];
+  const sections = ['starting', 'installing', 'failed', 'not-installed', 'board', 'skills', 'tokens', 'connections', 'settings'];
 
   // 占位视图切换（view 字段驱动；official → 全隐藏）
   function setView(view) {
@@ -587,6 +593,7 @@
     'placeholder:board': 'nav-board',
     'placeholder:skills': 'nav-skills',
     'placeholder:tokens': 'nav-tokens',
+    'placeholder:connections': 'nav-connections',
     'placeholder:settings': 'nav-settings',
   };
   // 升级进行中例外（M1-重构）：升级已并入 settings 视图——view=placeholder:settings 且 upgrade.phase ∈ 进行中
@@ -1204,6 +1211,12 @@
     if (bridge) await bridge.showTokens(); // main 切 view → placeholder:tokens → section#tokens 显示
     window.__tokensRefresh?.();
   });
+  // 工作台连接（设置之前；进入即刷新列表）
+  document.getElementById('nav-connections').addEventListener('click', async () => {
+    setActive('nav-connections');
+    if (bridge) await bridge.showConnections();
+    window.__connectionsRefresh?.();
+  });
 
   // autoscroll：输出框 scroll 事件维护「是否在底部」标志——用户拉回底部 → 恢复跟随；滚动离开底部 → 停止跟随（保持位置）
   const dshOutputBox = document.getElementById('up-dsh-output');
@@ -1320,5 +1333,6 @@
 <script src="kanban.js"></script>
 <script src="skills.js"></script>
   <script src="tokens.js"></script>
+  <script src="connections.js"></script>
 </body>
 </html>

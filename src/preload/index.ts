@@ -49,6 +49,8 @@ contextBridge.exposeInMainWorld('hull', {
   showSkills: () => ipcRenderer.invoke('hull:showSkills'),
   /** Token 消耗视图（Skills 之后） */
   showTokens: () => ipcRenderer.invoke('hull:showTokens'),
+  /** 工作台连接视图（设置之前） */
+  showConnections: () => ipcRenderer.invoke('hull:showConnections'),
 
   // ─────────── S8' D2：设置页桥 15 方法并入（原 src/preload/settings.ts 删除） ───────────
   /** 读全量设置（settings.json 持久化，CON-R002 走主进程 SettingsProvider） */
@@ -124,6 +126,15 @@ contextBridge.exposeInMainWorld('skills', {
 // ─────────────────────────── B1 看板桥（M2） ───────────────────────────
 /** window.kanban 16 原语（B1 契约 §接口清单）+ B5 导出/导入 2 原语（B2 看板 UI 消费） */
 /** Token 消耗视图桥（tokens:getUsage 单原语） */
+/** 工作台连接桥（凭据经 safeStorage 加密；渲染层只见脱敏视图） */
+contextBridge.exposeInMainWorld('connections', {
+  platforms: () => invoke('connections:platforms'),
+  list: () => invoke('connections:list'),
+  save: (input: unknown) => invoke('connections:save', input),
+  test: (id: string) => invoke('connections:test', id),
+  delete: (id: string) => invoke('connections:delete', id),
+});
+
 contextBridge.exposeInMainWorld('tokens', {
   getUsage: (granularity: string) => invoke('tokens:getUsage', granularity),
 });

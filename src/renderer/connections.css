@@ -1,0 +1,73 @@
+/* T-工作台连接样式——主题变量沿用 shell.html 设计语言（cn-* 前缀） */
+#connections:not(.hidden) { position: absolute; inset: 0; z-index: 10; display: block; }
+#connections-root {
+  width: 100%; height: 100%; display: flex; flex-direction: column;
+  overflow-y: auto; background: var(--hull-bg); color: var(--hull-text); font-size: 13px;
+}
+
+/* 工具条 */
+.cn-toolbar {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+  border-bottom: 1px solid var(--hull-border); background: var(--hull-panel); flex-wrap: wrap;
+  position: sticky; top: 0; z-index: 5;
+}
+.cn-title { font-size: 13px; font-weight: 700; }
+.cn-spacer { flex: 1; }
+.cn-btn { padding: 5px 12px; border-radius: var(--radius-md); border: none; cursor: pointer; font-size: 12px; background: var(--hull-border); color: var(--hull-text-dim); transition: background var(--dur-fast) var(--ease-out); }
+.cn-btn:hover { background: var(--hull-hover); color: var(--hull-text); }
+.cn-btn.primary { background: var(--hull-accent); color: var(--hull-text-inverse); }
+.cn-btn.primary:hover { background: var(--hull-accent-hover); }
+.cn-btn.danger { background: var(--hull-danger-soft); color: var(--hull-danger); }
+.cn-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* 平台选择卡片（新建第一步） */
+.cn-platforms { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; padding: 14px; }
+.cn-platform {
+  text-align: left; padding: 12px 14px; border-radius: var(--radius-lg);
+  background: var(--hull-panel); border: 1px solid var(--hull-border); cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.cn-platform:hover { border-color: var(--hull-accent); transform: translateY(-1px); }
+.cn-platform .name { font-weight: 600; font-size: 13px; }
+.cn-platform .desc { margin-top: 4px; font-size: 11px; color: var(--hull-text-muted); line-height: 1.5; }
+
+/* 连接卡片列表 */
+.cn-list { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
+.cn-card { background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: var(--radius-lg); padding: 12px 14px; }
+.cn-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cn-card-head .name { font-weight: 600; font-size: 13px; }
+.cn-card .plat { font-size: 11px; color: var(--hull-text-muted); }
+.cn-card .fields { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--hull-text-note); font-family: var(--font-mono); word-break: break-all; }
+.cn-card .lasterr { margin-top: 6px; font-size: 11px; color: var(--hull-danger); word-break: break-all; }
+.cn-card-ops { margin-top: 8px; display: flex; gap: 6px; justify-content: flex-end; }
+
+/* 状态徽标 */
+.cn-badge { font-size: 11px; padding: 1px 8px; border-radius: var(--radius-pill); white-space: nowrap; }
+.cn-badge.connected { background: var(--hull-success-soft); color: var(--hull-success); }
+.cn-badge.failed { background: var(--hull-danger-soft); color: var(--hull-danger); }
+.cn-badge.unverified { background: var(--hull-warning-faint); color: var(--hull-warning); }
+.cn-badge.verifying { background: var(--hull-info-soft); color: var(--hull-info); }
+
+/* 表单（schema 驱动） */
+.cn-form { padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 10px; max-width: 560px; }
+.cn-f { display: flex; flex-direction: column; gap: 4px; }
+.cn-f label { font-size: 12px; color: var(--hull-text-dim); }
+.cn-f label .req { color: var(--hull-danger); }
+.cn-f .input { width: 100%; border: 1px solid var(--hull-border); border-radius: var(--radius-md); padding: 7px 10px; font-size: 13px; color: var(--hull-text); background: var(--hull-panel); outline: none; transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.cn-f .input:focus { border-color: var(--hull-accent); box-shadow: 0 0 0 2px var(--hull-accent-soft); }
+.cn-f .hint { font-size: 11px; color: var(--hull-text-sub); }
+.cn-f-row { display: flex; align-items: center; gap: 8px; }
+.cn-switch { position: relative; width: 40px; height: 22px; background: var(--hull-text-sub); border-radius: var(--radius-pill); border: none; cursor: pointer; flex-shrink: 0; transition: background var(--dur-fast) var(--ease-out); }
+.cn-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: var(--hull-text-inverse); border-radius: 50%; transition: left var(--dur-fast) var(--ease-out); box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+.cn-switch[aria-checked="true"] { background: var(--hull-accent); }
+.cn-switch[aria-checked="true"]::after { left: 20px; }
+.cn-form-ops { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.cn-verify-msg { font-size: 12px; }
+.cn-verify-msg.ok { color: var(--hull-success); }
+.cn-verify-msg.err { color: var(--hull-danger); }
+
+/* 空态 */
+.cn-empty { margin: auto; text-align: center; color: var(--hull-text-muted); }
+.cn-empty h2 { font-size: 17px; font-weight: 600; margin: 0 0 8px; color: var(--hull-text); }
+.cn-back { padding: 6px 12px; margin: 0 14px; border-radius: var(--radius-md); border: none; background: var(--hull-border); color: var(--hull-text-dim); cursor: pointer; font-size: 12px; align-self: flex-start; }
+.cn-back:hover { background: var(--hull-hover); }

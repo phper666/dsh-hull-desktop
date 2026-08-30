@@ -1,4 +1,4 @@
-import { app, clipboard, dialog, ipcMain, nativeTheme, shell } from 'electron';
+import { app, clipboard, dialog, ipcMain, nativeTheme, safeStorage, shell } from 'electron';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -15,6 +15,9 @@ import { extractBundledNode, isNodeExtracted } from '../overlay/extractNode';
 import { createPkgMgrRunner, toRunNpmInstall, type PkgMgrRunOptions, type PkgMgrRunner } from '../overlay/pkgMgr';
 import { Updater } from '../updater/Updater';
 import { registerTokenUsageIpc } from '../tokens/TokenUsageIpc';
+import { registerConnectionsIpc } from '../connections/ConnectionsIpc';
+import { ConnectionsStore } from '../connections/ConnectionsStore';
+import { PLATFORM_ADAPTERS } from '../connections/PlatformRegistry';
 import { SwapManager } from '../updater/SwapManager';
 import { UpgradeQueue } from '../updater/UpgradeQueue';
 import { DismissStore } from '../updater/DismissStore';
@@ -82,6 +85,17 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   });
   registerKanbanIpc(kanbanStore);
   registerTokenUsageIpc(); // Token 消耗视图数据源
+  // 工作台连接（凭据经 safeStorage 加密存储；渲染层零明文）
+  const connectionsStore = new ConnectionsStore({
+    userDataPath,
+    adapters: PLATFORM_ADAPTERS,
+    encryption: {
+      isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
+      encryptString: (plain) => safeStorage.encryptString(plain),
+      decryptString: (buf) => safeStorage.decryptString(buf),
+    },
+  });
+  registerConnectionsIpc({ store: connectionsStore });
   // S1+S2：Skills 扫描器（只读）+ 操作层（移除/升级/禁用/回收站，破坏性守卫主进程强制）
   // homeDir 注入（Q-037 DI）；状态文件落 <userData>/skills/（CON-R-skills-006，不触 DSH_HOME）
   const skillsScanner = new SkillsScanner({ homeDir: homedir(), userDataPath, logger });
@@ -607,6 +621,12 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   ipcMain.handle('hull:showTokens', async () => {
     if (quitting) return { ok: false, message: '正在退出' };
     winMgr.showTokens();
+    return { ok: true };
+  });
+  // 工作台连接视图（设置之前，镜像 showTokens）
+  ipcMain.handle('hull:showConnections', async () => {
+    if (quitting) return { ok: false, message: '正在退出' };
+    winMgr.showConnections();
     return { ok: true };
   });
   // B2 补丁：壳导航 dsh web 入口 → 恢复官方 view（与 showBoard 对称；无新通道）
