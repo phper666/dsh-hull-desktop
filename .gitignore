@@ -24,6 +24,9 @@ src/**/*.js.map
 # PK2 extractNode 捆绑 node 解压手写源（同 pkgMgr 先例）
 !src/overlay/extractNode.ts
 !src/overlay/extractNode.test.ts
+# 更新缓存对账 + 下载记录（防陈旧差分基假回退）
+!src/updater/UpdaterCacheReconciler.ts
+!src/updater/UpdaterCacheReconciler.test.ts
 
 # Logs
 *.log

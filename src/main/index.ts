@@ -2,7 +2,7 @@ import { app, clipboard, dialog, ipcMain, shell } from 'electron';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 import { acquireSingleInstanceLock } from '../runtime/SingleInstance';
 import { RuntimeManager, type CrashInfo } from '../runtime/RuntimeManager';
@@ -226,13 +226,24 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   npmOutputTarget.fn = (line) => updater.pushOutput(line);
   // S5：Hull 自更新栈（adapter → HullUpdater；与 dsh Updater 共享 UpgradeQueue 互斥）
   // owner/repo：发布链核对注记（与 electron-builder.yml publish 一致，S6/发布时确认）
+  // updaterCacheDir：与 electron-updater AppAdapter.getAppCacheDir 同源（mac=~/Library/Caches /
+  // win=%LOCALAPPDATA% / linux=XDG_CACHE_HOME||~/.cache）+ app-update.yml updaterCacheDirName
+  // （electron-builder 默认写 <package.name>-updater；userData basename = package.name）
+  const cacheBase =
+    process.platform === 'win32'
+      ? process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local')
+      : process.platform === 'darwin'
+        ? join(homedir(), 'Library', 'Caches')
+        : process.env.XDG_CACHE_HOME || join(homedir(), '.cache');
+  const updaterCacheDir = join(cacheBase, `${basename(userDataPath)}-updater`);
   const hullUpdater = new HullUpdater({
-    adapter: createElectronUpdaterAdapter({ owner: 'phper666', repo: 'dsh-hull-desktop' }),
+    adapter: createElectronUpdaterAdapter({ owner: 'phper666', repo: 'dsh-hull-desktop', logger }),
     queue: upgradeQueue,
     runtimeManager: runtime,
     settingsProvider: settings,
     getVersion: () => app.getVersion(),
     logger,
+    updaterCacheDir,
   });
   const winMgr = new WindowManager({
     runtime,

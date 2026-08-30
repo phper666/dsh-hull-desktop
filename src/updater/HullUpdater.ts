@@ -6,6 +6,7 @@ import { HullUpdatePhase, NOOP_LOGGER, type HullUpdateStatus, type RuntimeLogger
 import { RuntimeManager } from '../runtime/RuntimeManager';
 import { SettingsProvider } from '../settings/SettingsProvider';
 import { UpgradeQueue } from './UpgradeQueue';
+import { reconcileHullUpdaterCache, writeDownloadRecord } from './UpdaterCacheReconciler';
 import type { ElectronUpdaterAdapter } from './electronUpdaterAdapter';
 
 /** HULL_UPDATE_ERRORS（契约 S5 §错误集 五码） */
@@ -45,6 +46,8 @@ export interface HullUpdaterOptions {
   logger?: RuntimeLogger;
   /** 非法迁移：dev throw / prod log 忽略；默认 false */
   dev?: boolean;
+  /** electron-updater 缓存目录（mac=~/Library/Caches/<name>-updater）：传入则启用启动对账 + 下载记录（防陈旧差分基假回退）；缺省跳过 */
+  updaterCacheDir?: string;
 }
 
 export interface HullCheckResult {
@@ -82,6 +85,9 @@ export class HullUpdater extends EventEmitter {
   private readonly getVersion: () => string;
   private readonly logger: RuntimeLogger;
   private readonly dev: boolean;
+  /** 缓存对账只做一次（check 幂等重入保护） */
+  private cacheReconciled = false;
+  private readonly updaterCacheDir: string | undefined;
 
   constructor(options: HullUpdaterOptions) {
     super();
@@ -92,6 +98,7 @@ export class HullUpdater extends EventEmitter {
     this.getVersion = options.getVersion;
     this.logger = options.logger ?? NOOP_LOGGER;
     this.dev = options.dev ?? false;
+    this.updaterCacheDir = options.updaterCacheDir;
     this.currentVersion = this.getVersion();
     // 下载进度透传（tooltip/S6 进度条数据源）
     this.adapter.on('download-progress', (p) => {
@@ -155,6 +162,7 @@ export class HullUpdater extends EventEmitter {
     if (this.phase !== HullUpdatePhase.Idle) {
       return { hasUpdate: false, targetVersion: null, changeNotes: null, error: null }; // 冲突：非 idle 忽略
     }
+    this.reconcileCacheOnce(); // 陈旧差分基清理（只跑一次，防差分失败假回退）
     if (!this.queue.acquire('hull')) {
       this.error = HULL_UPDATE_ERRORS.queueBusy;
       return { hasUpdate: false, targetVersion: null, changeNotes: null, error: HULL_UPDATE_ERRORS.queueBusy };
@@ -195,6 +203,8 @@ export class HullUpdater extends EventEmitter {
     try {
       await this.adapter.downloadUpdate(this.cancellationToken);
       if (!this.isDownloading()) return this.snapshot(); // 已取消/error 事件已处理
+      // 下载记录（缓存对账凭据）：记本次目标版本，供下次启动判定差分基是否同源
+      writeDownloadRecord(this.updaterCacheDir, this.targetVersion, this.logger);
       this.transition(HullUpdatePhase.Restarting, '下载完成，准备重启安装…'); // Q-012 无稍后重启
       this.emit('preventive-prompt', { stage: 'download-complete' }); // B1 预防性提示（仅此一次）
       return this.snapshot();
@@ -276,6 +286,13 @@ export class HullUpdater extends EventEmitter {
       this.queue.release('hull'); // 释放 → queue changed 事件 → 托盘 busy 刷新（E2E-06）
       this.queueHeld = false;
     }
+  }
+
+  /** 缓存对账（每次进程只跑一次；对账失败不影响检查，reconcile 内部吞错） */
+  private reconcileCacheOnce(): void {
+    if (this.cacheReconciled) return;
+    this.cacheReconciled = true;
+    reconcileHullUpdaterCache({ cacheDir: this.updaterCacheDir, currentVersion: this.currentVersion ?? '', logger: this.logger });
   }
 
   /** 当前处于 downloading（独立方法读取，避免外层窄化误判） */

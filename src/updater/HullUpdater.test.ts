@@ -1,8 +1,12 @@
 import { test } from 'node:test';
 import { equal, deepEqual, ok, rejects, throws } from 'node:assert/strict';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { HullUpdater } from './HullUpdater';
 import { UpgradeQueue } from './UpgradeQueue';
+import { DOWNLOAD_RECORD_FILE } from './UpdaterCacheReconciler';
 import { HullUpdatePhase, type HullUpdateStatus } from '../shared/types';
 import type { ElectronUpdaterAdapter, UpdateInfo } from './electronUpdaterAdapter';
 
@@ -69,7 +73,7 @@ class ExposedHullUpdater extends HullUpdater {
   }
 }
 
-function makeHullUpdater(overrides: { adapter?: AdapterKnobs; stopThrow?: boolean; settings?: { autoCheckHull?: boolean } } = {}) {
+function makeHullUpdater(overrides: { adapter?: AdapterKnobs; stopThrow?: boolean; settings?: { autoCheckHull?: boolean }; updaterCacheDir?: string } = {}) {
   const calls: string[] = [];
   const queue = new UpgradeQueue();
   const runtime = {
@@ -87,6 +91,7 @@ function makeHullUpdater(overrides: { adapter?: AdapterKnobs; stopThrow?: boolea
     settingsProvider: settings as unknown as import('../settings/SettingsProvider').SettingsProvider,
     getVersion: () => '0.1.0',
     dev: true,
+    updaterCacheDir: overrides.updaterCacheDir,
   });
   const events: HullUpdateStatus[] = [];
   updater.on('status', (s) => events.push(s));
@@ -258,4 +263,55 @@ test('S6-⑨ autoCheckHull=false → isAutoCheckEnabled false', () => {
   equal(a.updater.isAutoCheckEnabled(), true, '默认 true');
   const b = makeHullUpdater({ settings: { autoCheckHull: false } });
   equal(b.updater.isAutoCheckEnabled(), false);
+});
+
+// ── 缓存对账 + 下载记录（防陈旧差分基假回退，v0.1.6→0.1.7 实测） ──
+
+test('缓存对账：首查清理陈旧差分基（无记录）', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-updater-test-'));
+  writeFileSync(join(dir, 'update.zip'), 'stale');
+  writeFileSync(join(dir, 'current.blockmap'), 'stale');
+  const { updater } = makeHullUpdater({ updaterCacheDir: dir });
+  await updater.check();
+  equal(existsSync(join(dir, 'update.zip')), false, '无记录 = 不同源，应清');
+  equal(existsSync(join(dir, 'current.blockmap')), false);
+});
+
+test('缓存对账：同源记录 → 保留', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-updater-test-'));
+  writeFileSync(join(dir, 'update.zip'), 'base');
+  writeFileSync(join(dir, 'current.blockmap'), 'base');
+  writeFileSync(join(dir, DOWNLOAD_RECORD_FILE), JSON.stringify({ version: '0.1.0', at: 1 }));
+  const { updater } = makeHullUpdater({ updaterCacheDir: dir });
+  await updater.check();
+  equal(existsSync(join(dir, 'update.zip')), true, '记录版本 == 运行版本，保留差分基');
+});
+
+test('缓存对账：只跑一次（幂等重入保护）', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-updater-test-'));
+  writeFileSync(join(dir, 'update.zip'), 'stale');
+  writeFileSync(join(dir, 'current.blockmap'), 'stale');
+  const { updater } = makeHullUpdater({ updaterCacheDir: dir, adapter: { checkResult: null } });
+  await updater.check(); // 首查清理 + idle
+  equal(existsSync(join(dir, 'update.zip')), false);
+  writeFileSync(join(dir, 'update.zip'), 're-seeded');
+  writeFileSync(join(dir, 'current.blockmap'), 're-seeded');
+  await updater.check(); // 第二次 check 不再对账（memo）
+  equal(existsSync(join(dir, 'update.zip')), true, '二次 check 不重复清理');
+});
+
+test('下载成功 → 写下载记录（缓存对账凭据）', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-updater-test-'));
+  const { updater } = makeHullUpdater({ updaterCacheDir: dir });
+  await updater.check();
+  await updater.download();
+  const rec = JSON.parse(readFileSync(join(dir, DOWNLOAD_RECORD_FILE), 'utf8')) as { version: string };
+  equal(rec.version, '0.2.0', '记录本次下载目标版本');
+});
+
+test('未传 updaterCacheDir → 全链路 no-op 不抛', async () => {
+  const { updater } = makeHullUpdater();
+  await updater.check();
+  await updater.download(); // 无缓存目录也应正常完成
+  equal(updater.snapshot().phase, 'restarting');
 });

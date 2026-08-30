@@ -1,6 +1,8 @@
 import { autoUpdater } from 'electron-updater';
 import { CancellationToken } from 'builder-util-runtime';
 
+import { type RuntimeLogger } from '../shared/types';
+
 /** 更新信息（adapter 返回；releaseNotes 缺失降级为纯版本对比） */
 export interface UpdateInfo {
   version: string;
@@ -37,11 +39,26 @@ export interface ElectronUpdaterAdapterOptions {
   owner: string;
   /** GitHub repo */
   repo: string;
+  /** 接入后 electron-updater 内部日志（检查/下载/差分回退/Squirrel 错误）落 hull.log；缺省 console（打包环境不可见） */
+  logger?: RuntimeLogger;
 }
 
 /** 默认实现：electron-updater autoUpdater（GitHub provider；latest-mac.yml 由 electron-builder 生成）
  *  HULL_UPDATE_FEED_URL 覆盖为 generic provider（本地/自定义更新源测试，如本地 mock 服务器） */
 export function createElectronUpdaterAdapter(options: ElectronUpdaterAdapterOptions): ElectronUpdaterAdapter {
+  if (options.logger) {
+    // 观测性（v0.1.6→0.1.7 实测教训）：差分失败静默回退全量、Squirrel 安装错误都在内部日志里，
+    // 不接则 hull.log 只有 error 事件级一条，用户看到"下载完又重新下载"但日志无因。
+    // electron-updater 消息可能是对象（builder-util Logger 契约），统一字符串化。
+    const fmt = (m: unknown): string => (typeof m === 'string' ? m : JSON.stringify(m));
+    const hullLogger = options.logger;
+    autoUpdater.logger = {
+      debug: (m) => hullLogger.info(`[electron-updater] ${fmt(m)}`),
+      info: (m) => hullLogger.info(`[electron-updater] ${fmt(m)}`),
+      warn: (m) => hullLogger.warn(`[electron-updater] ${fmt(m)}`),
+      error: (m) => hullLogger.error(`[electron-updater] ${fmt(m)}`),
+    };
+  }
   if (process.env.HULL_UPDATE_FEED_URL) {
     // dev（unpacked）模式 electron-updater 默认跳过更新检查——forceDevUpdateConfig 放行（仅测试/本地 mock 源用）
     autoUpdater.forceDevUpdateConfig = true;
