@@ -16,6 +16,10 @@ import { createPkgMgrRunner, toRunNpmInstall, type PkgMgrRunOptions, type PkgMgr
 import { Updater } from '../updater/Updater';
 import { registerTokenUsageIpc } from '../tokens/TokenUsageIpc';
 import { registerConnectionsIpc } from '../connections/ConnectionsIpc';
+import { registerWorkflowIpc } from '../workflows/WorkflowIpc';
+import { WorkflowEngine } from '../workflows/WorkflowEngine';
+import { WorkflowStore } from '../workflows/WorkflowStore';
+import { Notification } from 'electron';
 import { ConnectionsStore } from '../connections/ConnectionsStore';
 import { PLATFORM_ADAPTERS } from '../connections/PlatformRegistry';
 import { SwapManager } from '../updater/SwapManager';
@@ -96,6 +100,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     },
   });
   registerConnectionsIpc({ store: connectionsStore });
+
   // S1+S2：Skills 扫描器（只读）+ 操作层（移除/升级/禁用/回收站，破坏性守卫主进程强制）
   // homeDir 注入（Q-037 DI）；状态文件落 <userData>/skills/（CON-R-skills-006，不触 DSH_HOME）
   const skillsScanner = new SkillsScanner({ homeDir: homedir(), userDataPath, logger });
@@ -114,6 +119,15 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     providerManager,
     maxExecutionIdleMinutes: 30,
   });
+  // 工作流引擎（顺序步骤：dsh-card 联动看板+执行引擎；通知走系统 Notification）
+  const workflowStore = new WorkflowStore(userDataPath);
+  const workflowEngine = new WorkflowEngine({
+    store: workflowStore,
+    kanban: kanbanStore,
+    exec: execEngine,
+    notify: (title, body) => { try { new Notification({ title, body }).show(); } catch { /* 通知失败不阻塞 */ } },
+  });
+  registerWorkflowIpc(workflowStore, workflowEngine);
   execEngine.start(); // 壳重启收敛（Q-017）：running/paused/interrupted → failed + queued 重排
   // B1 store 内部 system 事件写原语（B4 审批/AC 修订 timeline 写权，P1-1：B4 经 store 原语直调，不经 IPC）
   const appendSystem = (boardId: string, taskId: string, content: string): void => {
@@ -627,6 +641,12 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   ipcMain.handle('hull:showConnections', async () => {
     if (quitting) return { ok: false, message: '正在退出' };
     winMgr.showConnections();
+    return { ok: true };
+  });
+  // 工作流视图（设置之前，镜像 showConnections）
+  ipcMain.handle('hull:showWorkflows', async () => {
+    if (quitting) return { ok: false, message: '正在退出' };
+    winMgr.showWorkflows();
     return { ok: true };
   });
   // B2 补丁：壳导航 dsh web 入口 → 恢复官方 view（与 showBoard 对称；无新通道）
