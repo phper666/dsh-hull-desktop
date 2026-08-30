@@ -52,7 +52,7 @@ const DEFAULT_SETTINGS: HullSettings = {
   autoCheckDsh: true,
   autoCheckHull: true,
   registry: DEFAULT_REGISTRY,
-  theme: 'dark',
+  theme: 'system',  // CON-R-theme-004（v1.3）：默认跟随系统——仅对「从未设置过主题」的用户生效，已保存值不受影响
   packageManager: 'pnpm',
 };
 
@@ -159,7 +159,7 @@ export class SettingsProvider extends EventEmitter {
     const next: HullSettings = { ...current, ...partial, schemaVersion: SCHEMA_VERSION_CURRENT };
     if (next.channel === 'latest') next.pinnedVersion = null; // B4
     // T2：非法 theme → 回退 dark（与读路径归一对称，磁盘恒存合法值）
-    if (next.theme !== 'dark' && next.theme !== 'light' && next.theme !== 'system') next.theme = 'dark';
+    if (next.theme !== 'dark' && next.theme !== 'light' && next.theme !== 'system') next.theme = DEFAULT_SETTINGS.theme; // 非法 → 回退默认（system）
     // P3：非法 packageManager → 回退 pnpm（与读路径归一对称，CON-R-pkgmgr-008）
     if (!isValidPkgMgr(next.packageManager)) next.packageManager = 'pnpm';
     // 校验（SETTINGS_ERRORS）

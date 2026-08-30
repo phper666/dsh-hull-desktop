@@ -260,9 +260,9 @@ test('🟢 migrate：旧文件非法 registry → 默认值（与 set 校验链�
   equal(parsed.registry, 'https://registry.npmjs.org', '非法 registry 迁移为默认');
 });
 
-test('T2-① 缺 settings.json → theme 默认 dark', () => {
+test('T2-① 缺 settings.json → theme 默认 system（CON-R-theme-004 v1.3）', () => {
   const { provider } = makeProvider({});
-  equal(provider.getSettings().theme, 'dark');
+  equal(provider.getSettings().theme, 'system');
 });
 
 test('T2-② set theme=light → 持久化 + 读回 + 文件落盘', () => {
@@ -273,30 +273,30 @@ test('T2-② set theme=light → 持久化 + 读回 + 文件落盘', () => {
   equal(parsed.theme, 'light');
 });
 
-test('T2-③ 非法 theme 值 → 回退 dark + 告警', () => {
+test('T2-③ 非法 theme 值 → 回退默认 system + 告警', () => {
   const warns: string[] = [];
   const { provider } = makeProvider({ 'settings.json': JSON.stringify({ theme: 'neon' }) }, warns);
-  equal(provider.getSettings().theme, 'dark');
+  equal(provider.getSettings().theme, 'system');
   ok(warns.length >= 1, '应产生告警日志');
 });
 
-test('T2-④ 旧 settings 无 theme → 读回退 dark', () => {
+test('T2-④ 旧 settings 无 theme → 读回退默认 system', () => {
   const { provider } = makeProvider({ 'settings.json': JSON.stringify({ closeToQuit: true }) });
   const s = provider.getSettings();
-  equal(s.theme, 'dark');
+  equal(s.theme, 'system');
   equal(s.closeToQuit, true, '既有字段不受影响');
 });
 
-test('T2-⑤ set 非法 theme → 读回退 dark（与 channel 校验对称）', () => {
+test('T2-⑤ set 非法 theme → 读回退默认 system（与 channel 校验对称）', () => {
   const { provider } = makeProvider({});
   provider.set({ theme: 'neon' as ThemeName });
-  equal(provider.getSettings().theme, 'dark');
+  equal(provider.getSettings().theme, 'system');
 });
 
-test('T2-⑥ theme 类型错（number）→ 回退 dark + 告警', () => {
+test('T2-⑥ theme 类型错（number）→ 回退默认 system + 告警', () => {
   const warns: string[] = [];
   const { provider } = makeProvider({ 'settings.json': JSON.stringify({ theme: 42 }) }, warns);
-  equal(provider.getSettings().theme, 'dark');
+  equal(provider.getSettings().theme, 'system');
   ok(warns.length >= 1, '应产生告警日志');
 });
 

@@ -3,6 +3,13 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-08-30 CON-R-theme-004 修订（共识 v1.3）：默认主题 dark → system
+
+- 类型：共识规则修订（用户决策 2026-08-30）
+- 内容：默认主题 dark → system（跟随 OS 亮暗）；**仅对从未设置过主题的用户生效，已保存 theme 值的用户完全不受影响**，手动修改随时可改；非法值回退默认 system（原回退 dark）
+- 实现：DEFAULT_SETTINGS.theme + 写路径回退点（SettingsProvider）；测试 T2-①③④⑤⑥ 断言同步
+- 核验：typecheck ✓ 697 单测 ✓
+
 ## 2026-08-30 主题跟随系统（共识 v1.2，CON-R-theme-006）+ UI P1 令牌层第一增量
 
 - 类型：共识规则新增（v1.2）+ 实现层令牌化
