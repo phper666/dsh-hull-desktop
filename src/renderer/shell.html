@@ -891,8 +891,21 @@
     restartPromptShown: false,
     /** autoscroll：输出框是否停在底部（scroll 事件实时维护）。true=跟随最新，false=用户滚动中保持位置 */
     dshOutputAtBottom: true,
+    /** 升级卡结构 key（v0.1.3 缺陷修复）：形态不变时只就地更新动态字段，按钮节点不替换 */
+    dshKey: null,
+    hullKey: null,
   };
   function upCard(targetId) { return document.getElementById(targetId); }
+  // dsh 阶段文案（renderDshUpgrade 重建/就地更新两路共用）
+  function dshStageText(u) {
+    return {
+      installing: '正在安装…（解析依赖 / 下载中）',
+      swapping: '正在替换…',
+      verifying: '正在验证…',
+      rollback: '正在回滚…',
+      checking: '正在检查更新…',
+    }[u.phase] || upgradeNames[u.phase] || u.phase;
+  }
   // 吞点击修复：设置页 250ms tick 无条件重建升级卡 innerHTML → 按钮节点每秒被替换 4 次，
   // 逐渲染绑定的监听器随旧节点被丢弃，mousedown 与 click 跨重建时点击落在已脱离文档的节点上被吞
   // （实测：Hull 下载中「取消」按钮点了没反应）。改为容器级事件委托，绑定一次、节点重建不影响监听。
@@ -945,6 +958,26 @@
     if (currentEl) currentEl.innerHTML = cur ? badge('v' + cur, 'muted') : badge('—', 'muted');
     const pct = u.pct || 0;
 
+    // 缺陷修复（v0.1.3 用户实测"悬停按钮像在连续点击"）：250ms tick 无条件整卡 innerHTML 重建 →
+    // 悬停按钮节点每 tick 被替换，hover 样式随重建反复重放。改为「结构 key 守卫 + 动态字段就地更新」：
+    // 卡片形态不变时只改文本/进度（按钮节点稳定），形态变化才重建（事件委托使按钮始终可点）
+    const dshKey = JSON.stringify([u.phase, u.error || null, u.phase === 'idle' ? (u.message || '') : null, u.phase === 'confirm' ? u.targetVersion : null]);
+    if (up.dshKey === dshKey) {
+      if (u.phase !== 'idle' && !u.error && u.phase !== 'confirm') {
+        const stageText = dshStageText(u);
+        const badges = body.querySelector('[data-dyn="badges"]');
+        if (badges) badges.innerHTML = badge(stageText, 'warn');
+        const bar = body.querySelector('.up-progress .bar i');
+        if (bar) bar.style.width = pct + '%';
+        const stageEl = body.querySelector('[data-dyn="stage"]');
+        if (stageEl) stageEl.textContent = stageText;
+        const msgEl = body.querySelector('[data-dyn="msg"]');
+        if (msgEl) msgEl.textContent = u.message || '';
+      }
+      return;
+    }
+    up.dshKey = dshKey;
+
     if (u.phase === 'confirm' && u.targetVersion) {
       up.dshConfirmLatest = u.targetVersion;
       body.innerHTML = `
@@ -966,13 +999,7 @@
       const progress = ['installing', 'swapping', 'verifying', 'rollback'].includes(u.phase);
       // 改进 3：诚实阶段文案——pct 是阶段步进（50=解析/下载，90=替换，95=验证，100=完成），非真实百分比。
       // 文字显示阶段文案（不裸显误导性 50%），进度条宽度保留（弱化百分比数字）。
-      const stageText = {
-        installing: '正在安装…（解析依赖 / 下载中）',
-        swapping: '正在替换…',
-        verifying: '正在验证…',
-        rollback: '正在回滚…',
-        checking: '正在检查更新…',
-      }[u.phase] || upgradeNames[u.phase] || u.phase;
+      const stageText = dshStageText(u);
       // 输出框：静态容器 #up-dsh-output（autoscroll）。installing 段显示 npm 实时输出 + 跟随滚动；其他 phase 隐藏。
       const outputBox = document.getElementById('up-dsh-output');
       if (outputBox) {
@@ -993,10 +1020,10 @@
       // message 与 stageText 去重：checking 时 u.message（Updater「正在检查更新…」）与 stageText 相同，只显示 stageText（badge）
       const msgHtml = u.phase === 'checking'
         ? ''
-        : `<div class="up-msg">${esc(u.message || '')}</div>`;
+        : `<div class="up-msg" data-dyn="msg">${esc(u.message || '')}</div>`;
       body.innerHTML = `
-        <div class="urow"><div class="info"><div class="label">状态</div></div><div class="badges">${badge(stageText, 'warn')}</div></div>
-        ${progress ? `<div class="up-progress"><div class="bar"><i style="width:${pct}%"></i></div><span class="up-msg">${esc(stageText)}</span></div>` : ''}
+        <div class="urow"><div class="info"><div class="label">状态</div></div><div class="badges" data-dyn="badges">${badge(stageText, 'warn')}</div></div>
+        ${progress ? `<div class="up-progress"><div class="bar"><i style="width:${pct}%"></i></div><span class="up-msg" data-dyn="stage">${esc(stageText)}</span></div>` : ''}
         ${msgHtml}
         ${u.phase === 'installing' ? '<div class="urow"><div><button id="up-dsh-cancel" class="sbtn">取消</button></div></div>' : ''}`;
       return;
@@ -1020,6 +1047,22 @@
     const currentEl = document.getElementById('up-hull-current');
     if (currentEl) currentEl.innerHTML = h.currentVersion ? badge('v' + h.currentVersion, 'muted') : badge('—', 'muted');
     const pct = h.pct || 0;
+    const verifying = h.phase === 'downloading' && (pct >= 100 || (h.total > 0 && h.transferred >= h.total));
+
+    // 缺陷修复（同 dsh 卡）：结构 key 守卫 + 动态字段就地更新，消除 250ms 重建的悬停闪烁
+    const hullKey = JSON.stringify([h.phase, verifying, h.error || null, h.targetVersion || null, h.phase === 'confirm' ? (h.changeNotes || '') : null]);
+    if (up.hullKey === hullKey) {
+      if (h.phase === 'downloading' && !verifying) {
+        const bar = body.querySelector('.up-progress .bar i');
+        if (bar) bar.style.width = Math.min(pct, 100) + '%';
+        const setT = (sel, t) => { const el = body.querySelector(sel); if (el) el.textContent = t; };
+        setT('[data-dyn="pct"]', `${pct}%`);
+        setT('[data-dyn="detail"]', `已下载 ${fmtBytes(h.transferred || 0)} / 共 ${fmtBytes(h.total)} · ${fmtBytes(h.bytesPerSecond || 0)}/s`);
+        setT('[data-dyn="msg"]', h.message || '');
+      }
+      return;
+    }
+    up.hullKey = hullKey;
 
     if (h.phase === 'confirm' && h.targetVersion) {
       up.hullConfirmLatest = h.targetVersion;
@@ -1056,14 +1099,15 @@
         ? `<div class="detail">已下载 ${fmtBytes(h.transferred || 0)} / 共 ${fmtBytes(h.total)}${verifying ? '' : ' · ' + fmtBytes(h.bytesPerSecond || 0) + '/s'}</div>`
         : '';
       // checking 时 h.message（HullUpdater「正在检查更新…」）与 badge 相同 → 去重只显示 badge
-      const msgHtml = h.phase === 'checking'
-        ? ''
-        : `<div class="up-msg">${esc(h.message || '')}</div>`;
       const pctText = verifying ? '下载完成，正在校验文件…' : `${pct}%`;
       const phaseName = verifying ? '校验中' : (hullPhaseNames[h.phase] || h.phase);
+      // checking 时 h.message（HullUpdater「正在检查更新…」）与 badge 相同 → 去重只显示 badge
+      const msgHtml = h.phase === 'checking'
+        ? ''
+        : `<div class="up-msg" data-dyn="msg">${esc(h.message || '')}</div>`;
       body.innerHTML = `
-        <div class="urow"><div class="info"><div class="label">状态</div></div><div class="badges">${badge(phaseName, verifying ? 'ok' : 'warn')}</div></div>
-        ${progress ? `<div class="up-progress"><div class="bar"><i style="width:${Math.min(pct, 100)}%"></i></div><span class="up-msg">${pctText}</span>${dlDetail}</div>` : ''}
+        <div class="urow"><div class="info"><div class="label">状态</div></div><div class="badges" data-dyn="badges">${badge(phaseName, verifying ? 'ok' : 'warn')}</div></div>
+        ${progress ? `<div class="up-progress"><div class="bar"><i style="width:${Math.min(pct, 100)}%"></i></div><span class="up-msg" data-dyn="pct">${pctText}</span>${dlDetail.replace('<div class="detail">', '<div class="detail" data-dyn="detail">')}</div>` : ''}
         ${msgHtml}
         ${h.phase === 'downloading' && !verifying ? '<div class="urow"><div><button id="up-hull-cancel" class="sbtn">取消</button></div></div>' : ''}`;
       return;
