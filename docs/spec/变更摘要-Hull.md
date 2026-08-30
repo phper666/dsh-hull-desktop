@@ -3,6 +3,14 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-08-30 UI P0 视觉快赢：主题令牌值修正 + 新增 UI 微动效约定（判级：简单，纯 CSS 无逻辑）
+
+- 类型：实现层调整（无共识规则变化，CON-R-theme-001~005 机制不变；主题共识未钉死被改值，主色 #2e8bf5 保留 ✓）
+- 内容：①双强调色收敛（--hull-primary #4c6ef5 靛蓝 → #2e8bf5 accent，消灭双主色竞争）②暗色文字阶梯修正（dim/muted/sub/note 重排，消灭 note>sub 倒挂，sub 对比度提至 ~4.6:1）③新增 UI 约定：按钮/输入 120ms 微动效 + focus-visible ring + prefers-reduced-motion 守卫 + nav active 轻量化（soft 底+左指示条）+ 列表行/卡片 hover 反馈
+- 判级：简单（纯 CSS 视觉层，零 JS/IPC 改动，跳过技术方案）；依据调研 docs/research/2026-08-30-ui视觉调研.md + 原型 docs/prototype/2026-08-30-ui-p0-prototype.html（用户视觉确认后实施）
+- 核验：typecheck+695 单测绿；视觉走查（亮暗两套 × 各视图）待用户 dev/发版确认
+- 后续：P1 token 化重构 + Web Awesome 行为组件引入时，主题共识拟升 v1.1（将微动效/focus ring/表面阶梯写成正式规则）
+
 ## 2026-08-28 CON-R-packaging-005 二次修正：ad-hoc 签名不可行 → 自签名证书方案
 
 - 类型：共识规则再修正（0.1.2→0.1.3 实测 ad-hoc 仍失败，2026-08-28）

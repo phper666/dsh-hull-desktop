@@ -17,18 +17,18 @@
     --hull-panel: #171c26;
     --hull-border: #2a3342;
     --hull-text: #e8ecf3;
-    --hull-text-dim: #c6d0dd;
-    --hull-text-muted: #9aa5b5;
-    --hull-text-sub: #6b7688;
+    --hull-text-dim: #c3cddb;
+    --hull-text-muted: #93a0b4;
+    --hull-text-sub: #7c8aa3;
     --hull-text-inverse: #fff;
     --hull-accent: #2e8bf5;
     --hull-accent-hover: #3f97fb;
     --hull-accent-soft: #2e8bf533;
     --hull-accent-faint: #2e8bf522;
     --hull-accent-medium: #2e8bf544;
-    --hull-primary: #4c6ef5;
-    --hull-primary-hover: #3b5bdb;
-    --hull-primary-soft: #edf1fe;
+    --hull-primary: #2e8bf5;
+    --hull-primary-hover: #3f97fb;
+    --hull-primary-soft: #2e8bf533;
     --hull-hover: #33405a;
     --hull-card: #232b3a;
     --hull-danger: #f85149;
@@ -59,18 +59,18 @@
     --hull-panel: #fff;
     --hull-border: #d5dbe4;
     --hull-text: #1a2233;
-    --hull-text-dim: #5a6472;
-    --hull-text-muted: #7b8694;
-    --hull-text-sub: #9aa5b5;
+    --hull-text-dim: #4e5a6b;
+    --hull-text-muted: #6d7a8c;
+    --hull-text-sub: #8b97a9;
     --hull-text-inverse: #fff;
     --hull-accent: #2e8bf5;
     --hull-accent-hover: #1f6fd0;
     --hull-accent-soft: #e6f2ff;
     --hull-accent-faint: #f0f7ff;
     --hull-accent-medium: #d6ebff;
-    --hull-primary: #4c6ef5;
-    --hull-primary-hover: #3b5bdb;
-    --hull-primary-soft: #edf1fe;
+    --hull-primary: #2e8bf5;
+    --hull-primary-hover: #1f6fd0;
+    --hull-primary-soft: #e6f2ff;
     --hull-hover: #e8edf2;
     --hull-card: #fff;
     --hull-danger: #e03131;
@@ -114,7 +114,8 @@
     font-size: 13px; cursor: pointer;
   }
   .nav-item:hover { background: var(--hull-border); }
-  .nav-item.active { background: var(--hull-accent); color: var(--hull-text-inverse); }
+  /* P0：nav active 减重——accent 满底反白 → soft 底 + accent 字 + 左侧指示条（Linear 式轻量 active） */
+  .nav-item.active { background: var(--hull-accent-soft); color: var(--hull-accent-hover); font-weight: 600; box-shadow: inset 2px 0 0 var(--hull-accent); }
   .nav-item[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
   /* 状态区（hull:status 渲染：runtime.phase + currentVersion + hullVersion + upgrade.phase） */
   #nav-status { padding: 12px 16px; border-top: 1px solid var(--hull-border); font-size: 12px; color: var(--hull-text-muted); }
@@ -133,6 +134,22 @@
   h1 { font-size: 18px; font-weight: 600; margin: 0 0 12px; }
   p { color: var(--hull-text-muted); font-size: 13px; line-height: 1.6; margin: 0 0 20px; word-break: break-all; }
   button { margin: 4px 8px; padding: 8px 22px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; }
+  /* P0：全局微动效——按钮/输入 hover·focus 120ms 渐变（替换硬切跳变）；reduced-motion 用户关闭 */
+  button, .input, .select {
+    transition: background-color 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                border-color 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                color 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                box-shadow 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  }
+  /* P0：键盘 focus ring（双层：bg 色 + accent 软环；鼠标点击不触发，仅 focus-visible） */
+  button:focus-visible, .input:focus-visible, .select:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--hull-bg), 0 0 0 4px var(--hull-accent-soft);
+    border-color: var(--hull-accent);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    button, .input, .select { transition: none; }
+  }
   .primary { background: var(--hull-accent); color: var(--hull-text-inverse); }
   .primary:hover { background: var(--hull-accent-hover); }
   .ghost { background: var(--hull-border); color: var(--hull-text-dim); }

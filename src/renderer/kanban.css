@@ -73,7 +73,10 @@ textarea.kb-input { min-height: 56px; resize: vertical; font-family: inherit; }
 .kb-card {
   background: var(--hull-card); border: 1px solid var(--hull-border); border-radius: 8px; padding: 9px 11px; cursor: grab;
   box-shadow: 0 1px 2px var(--hull-shadow);
+  /* P0：卡片 hover 过渡（与 skills 行一致） */
+  transition: border-color 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94), box-shadow 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
+@media (prefers-reduced-motion: reduce) { .kb-card { transition: none; } }
 .kb-card:hover { border-color: var(--hull-hover); }
 .kb-card.kb-dragging { opacity: 0.5; }
 .kb-card.kb-blocked { border-left: 3px solid var(--hull-danger); }

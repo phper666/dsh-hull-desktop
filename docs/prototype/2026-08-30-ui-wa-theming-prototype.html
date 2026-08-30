@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hull UI · Web Awesome 全家桶三层验证（组件 / 图标 / 令牌换肤）</title>
+<!-- Web Awesome v3（MIT Free）CDN；真实接入时 vendor 到 src/renderer/vendor/ -->
+<link rel="stylesheet" href="https://early.webawesome.com/webawesome@3.0.0/dist/styles/webawesome.css">
+<script type="module" src="https://early.webawesome.com/webawesome@3.0.0/dist/webawesome.loader.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #141924; color: #eef2f8; min-height: 100vh; padding: 24px 28px; font-size: 13px;
+  }
+  .head { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 4px; }
+  .head h1 { font-size: 17px; font-weight: 700; }
+  .head .note { font-size: 12px; color: #93a0b4; }
+  .legend { font-size: 12px; color: #93a0b4; margin-bottom: 16px; line-height: 1.7; }
+  .legend b { color: #c3cddb; }
+  .grid { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+  .col { flex: 1 1 420px; max-width: 560px; }
+  .col > h2 { font-size: 13px; font-weight: 600; margin: 0 0 10px; text-transform: uppercase; letter-spacing: .04em; }
+  .col.def > h2 { color: #93a0b4; }
+  .col.hull > h2 { color: #4da3f7; }
+
+  .card { background: #1b2130; border: 1px solid #293348; border-radius: 14px; margin-bottom: 16px; overflow: hidden; }
+  .card h3 { font-size: 12px; font-weight: 600; color: #c3cddb; text-transform: uppercase; letter-spacing: .04em; padding: 11px 16px 8px; border-bottom: 1px solid #293348; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 16px; border-bottom: 1px solid #293348; }
+  .row:last-child { border-bottom: none; }
+  .row .label { font-weight: 500; }
+  .row .sub { font-size: 12px; color: #93a0b4; margin-top: 2px; }
+  .row .ctrl { display: flex; align-items: center; gap: 10px; }
+  .samples { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+  .lbl { font-size: 11px; color: #93a0b4; text-transform: uppercase; letter-spacing: .04em; }
+  .row2 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  /* 迷你导航（图标层演示：wa-icon 进 nav） */
+  .nav { display: flex; flex-direction: column; gap: 4px; padding: 10px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px;
+    border: none; background: transparent; color: #c3cddb; font-size: 13px; cursor: pointer; text-align: left;
+  }
+  .nav-item:hover { background: #232d40; }
+  .nav-item.active { background: var(--wa-color-brand-fill-quiet, #2e8bf522); color: var(--wa-color-brand-on-quiet, #4da3f7); }
+  .nav-item wa-icon { font-size: 15px; }
+  .nav-item.active wa-icon { color: var(--wa-color-brand-fill-loud, #2e8bf5); }
+
+  /* ====== 令牌层演示：右列整列覆盖 Web Awesome 品牌/表面令牌为 Hull 蓝 ====== */
+  /* 这些变量是 WA v3 的语义令牌（fill/border/on × quiet/normal/loud 矩阵）——
+     只改这一组 CSS 变量，列内全部 wa-* 组件（按钮/徽标/进度条/开关/单选）同步换肤 */
+  .col.hull .scope {
+    --wa-color-brand-fill-loud: #2e8bf5;
+    --wa-color-brand-on-loud: #ffffff;
+    --wa-color-brand-fill-normal: #2e8bf533;
+    --wa-color-brand-on-normal: #4da3f7;
+    --wa-color-brand-fill-quiet: #2e8bf51f;
+    --wa-color-brand-on-quiet: #4da3f7;
+    --wa-color-brand-border-loud: #2e8bf5;
+    --wa-color-brand-border-normal: #2e8bf566;
+    --wa-color-brand-border-quiet: #2e8bf533;
+    --wa-color-brand-quiet: #2e8bf51f;
+  }
+  .scope { padding: 4px; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>Hull UI · Web Awesome 全家桶三层验证</h1>
+    <span class="note">左 = WA 默认主题 · 右 = 纯 CSS 变量覆盖成 Hull 蓝（零 JS、零组件改动）</span>
+  </div>
+  <div class="legend">
+    <b>三层各在哪看：</b>① <b>组件层</b>——两列的 switch/radio/select/button/badge/progress 全是 wa-* 现成组件；② <b>图标层</b>——nav 的 wa-icon（Font Awesome 系）；③ <b>令牌层</b>——右列只改了一组 <b>--wa-color-brand-*</b> CSS 变量，整列组件自动换肤成 Hull 蓝（对比左列默认紫）。
+  </div>
+
+  <div class="grid">
+    <!-- ============ 默认主题列 ============ -->
+    <div class="col def">
+      <h2>Web Awesome 默认主题</h2>
+      <div class="card">
+        <h3>导航（图标层）</h3>
+        <div class="nav">
+          <button class="nav-item active"><wa-icon name="house"></wa-icon> dsh web</button>
+          <button class="nav-item"><wa-icon name="table-columns"></wa-icon> 任务看板</button>
+          <button class="nav-item"><wa-icon name="gear"></wa-icon> 设置</button>
+          <button class="nav-item"><wa-icon name="puzzle-piece"></wa-icon> Skills</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>设置页（组件层）</h3>
+        <div class="row">
+          <div><div class="label">主题</div><div class="sub">壳 UI 配色</div></div>
+          <wa-radio-group value="dark" size="small">
+            <wa-radio value="dark">暗色</wa-radio>
+            <wa-radio value="light">亮色</wa-radio>
+          </wa-radio-group>
+        </div>
+        <div class="row">
+          <div><div class="label">启动自动检查更新</div><div class="sub">启动时自动检查 dsh / Hull 新版本</div></div>
+          <wa-switch checked></wa-switch>
+        </div>
+        <div class="row">
+          <div><div class="label">包管理器</div><div class="sub">dsh 安装/升级使用的包管理器</div></div>
+          <wa-select value="npm" size="small" style="width: 130px;">
+            <wa-option value="npm">npm</wa-option>
+            <wa-option value="pnpm">pnpm</wa-option>
+          </wa-select>
+        </div>
+        <div class="row">
+          <div><div class="label">当前版本</div><div class="sub">DeepSeek Harness</div></div>
+          <div class="ctrl">
+            <wa-badge variant="success" appearance="filled outlined">✓ 0.1.1</wa-badge>
+            <wa-button size="small" variant="brand" appearance="filled">检查更新</wa-button>
+          </div>
+        </div>
+        <div class="row">
+          <div style="flex:1;">
+            <div class="label">下载中…</div>
+            <wa-progress-bar value="68" label="进度" style="margin-top:6px;"></wa-progress-bar>
+            <div class="sub" style="margin-top:4px;">41.2 MB / 60.6 MB · 8.2 MB/s</div>
+          </div>
+          <wa-button size="small" variant="neutral" appearance="outlined">取消</wa-button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>样张</h3>
+        <div class="samples">
+          <div class="lbl">按钮 / 徽标</div>
+          <div class="row2">
+            <wa-button size="small" variant="brand" appearance="filled">主操作</wa-button>
+            <wa-button size="small" variant="neutral" appearance="outlined">次要</wa-button>
+            <wa-button size="small" variant="danger" appearance="filled">危险</wa-button>
+            <wa-badge variant="success" appearance="filled outlined">✓ 已安装</wa-badge>
+            <wa-badge variant="warning" appearance="filled outlined">⚠ 可升级</wa-badge>
+            <wa-badge variant="danger" appearance="filled outlined">✗ 未安装</wa-badge>
+          </div>
+          <div class="lbl">骨架屏（点击按钮刷新）</div>
+          <div class="row2"><wa-button size="small" variant="neutral" appearance="outlined" onclick="skDemo()">刷新骨架屏</wa-button></div>
+          <div id="sk-slot" style="display:flex; flex-direction:column; gap:8px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ Hull 品牌化列（仅 CSS 变量覆盖） ============ -->
+    <div class="col hull">
+      <h2>Hull 品牌化（同一套组件，只改 CSS 变量）</h2>
+      <div class="scope">
+        <div class="card">
+          <h3>导航（图标层）</h3>
+          <div class="nav">
+            <button class="nav-item active"><wa-icon name="house"></wa-icon> dsh web</button>
+            <button class="nav-item"><wa-icon name="table-columns"></wa-icon> 任务看板</button>
+            <button class="nav-item"><wa-icon name="gear"></wa-icon> 设置</button>
+            <button class="nav-item"><wa-icon name="puzzle-piece"></wa-icon> Skills</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>设置页（组件层）</h3>
+          <div class="row">
+            <div><div class="label">主题</div><div class="sub">壳 UI 配色</div></div>
+            <wa-radio-group value="dark" size="small">
+              <wa-radio value="dark">暗色</wa-radio>
+              <wa-radio value="light">亮色</wa-radio>
+            </wa-radio-group>
+          </div>
+          <div class="row">
+            <div><div class="label">启动自动检查更新</div><div class="sub">启动时自动检查 dsh / Hull 新版本</div></div>
+            <wa-switch checked></wa-switch>
+          </div>
+          <div class="row">
+            <div><div class="label">包管理器</div><div class="sub">dsh 安装/升级使用的包管理器</div></div>
+            <wa-select value="npm" size="small" style="width: 130px;">
+              <wa-option value="npm">npm</wa-option>
+              <wa-option value="pnpm">pnpm</wa-option>
+            </wa-select>
+          </div>
+          <div class="row">
+            <div><div class="label">当前版本</div><div class="sub">DeepSeek Harness</div></div>
+            <div class="ctrl">
+              <wa-badge variant="success" appearance="filled outlined">✓ 0.1.1</wa-badge>
+              <wa-button size="small" variant="brand" appearance="filled">检查更新</wa-button>
+            </div>
+          </div>
+          <div class="row">
+            <div style="flex:1;">
+              <div class="label">下载中…</div>
+              <wa-progress-bar value="68" label="进度" style="margin-top:6px;"></wa-progress-bar>
+              <div class="sub" style="margin-top:4px;">41.2 MB / 60.6 MB · 8.2 MB/s</div>
+            </div>
+            <wa-button size="small" variant="neutral" appearance="outlined">取消</wa-button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>样张</h3>
+          <div class="samples">
+            <div class="lbl">按钮 / 徽标（品牌令牌生效）</div>
+            <div class="row2">
+              <wa-button size="small" variant="brand" appearance="filled">主操作</wa-button>
+              <wa-button size="small" variant="neutral" appearance="outlined">次要</wa-button>
+              <wa-button size="small" variant="danger" appearance="filled">危险</wa-button>
+              <wa-badge variant="success" appearance="filled outlined">✓ 已安装</wa-badge>
+              <wa-badge variant="warning" appearance="filled outlined">⚠ 可升级</wa-badge>
+              <wa-badge variant="danger" appearance="filled outlined">✗ 未安装</wa-badge>
+            </div>
+            <div class="lbl">开关选中态也是品牌蓝</div>
+            <div class="row2"><wa-switch checked></wa-switch><wa-switch></wa-switch></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  function skDemo() {
+    const slot = document.getElementById('sk-slot');
+    slot.innerHTML = '';
+    for (let i = 0; i < 3; i++) {
+      const sk = document.createElement('wa-skeleton');
+      sk.style.cssText = 'height:40px; border-radius:10px;';
+      slot.appendChild(sk);
+    }
+    setTimeout(() => { slot.innerHTML = ''; }, 2000);
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hull UI · 开源组件库路线原型（Web Awesome）</title>
+<!-- Web Awesome v3（MIT Free）：CDN 引入，无构建；真实接入时 vendor 到 src/renderer/vendor/（CSP self） -->
+<link rel="stylesheet" href="https://early.webawesome.com/webawesome@3.0.0/dist/styles/webawesome.css">
+<script type="module" src="https://early.webawesome.com/webawesome@3.0.0/dist/webawesome.loader.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #141924; color: #eef2f8; min-height: 100vh;
+    padding: 24px 28px; font-size: 13px;
+  }
+  .head { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 6px; }
+  .head h1 { font-size: 17px; font-weight: 700; }
+  .head .note { font-size: 12px; color: #93a0b4; }
+  .grid { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; margin-top: 14px; }
+  .col { flex: 1 1 420px; max-width: 560px; }
+  .col > h2 { font-size: 13px; color: #93a0b4; font-weight: 600; margin: 0 0 10px; text-transform: uppercase; letter-spacing: .04em; }
+  .card {
+    background: #1b2130; border: 1px solid #293348; border-radius: 14px; margin-bottom: 16px; overflow: hidden;
+  }
+  .card h3 { font-size: 12px; font-weight: 600; color: #c3cddb; text-transform: uppercase; letter-spacing: .04em; padding: 11px 16px 8px; border-bottom: 1px solid #293348; background: #141924; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 16px; border-bottom: 1px solid #293348; }
+  .row:last-child { border-bottom: none; }
+  .row .label { font-weight: 500; }
+  .row .sub { font-size: 12px; color: #93a0b4; margin-top: 2px; }
+  .row .ctrl { display: flex; align-items: center; gap: 10px; }
+  .samples { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+  .samples .lbl { font-size: 11px; color: #93a0b4; text-transform: uppercase; letter-spacing: .04em; }
+  .samples .row2 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .sk-row { display: flex; gap: 10px; padding: 10px 12px; border-radius: 10px; background: #1e2534; border: 1px solid #293348; }
+  .sk-name { font-weight: 600; display: flex; gap: 6px; align-items: center; }
+  .sk-desc { margin-top: 3px; color: #93a0b4; font-size: 12px; }
+  .sk-meta { margin-top: 5px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .foot { margin-top: 18px; font-size: 12px; color: #93a0b4; line-height: 1.7; }
+  .foot b { color: #c3cddb; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>Hull UI · 开源组件库路线原型（Web Awesome v3 · MIT Free）</h1>
+    <span class="note">CDN 加载 · 真实接入时 vendor 到 src/renderer/vendor/（CSP self）</span>
+  </div>
+  <div class="grid">
+    <div class="col">
+      <h2>设置页（行为组件全部现成）</h2>
+      <div class="card">
+        <h3>通用</h3>
+        <div class="row">
+          <div><div class="label">主题</div><div class="sub">壳 UI 配色</div></div>
+          <wa-radio-group value="dark" size="small">
+            <wa-radio value="dark">暗色</wa-radio>
+            <wa-radio value="light">亮色</wa-radio>
+          </wa-radio-group>
+        </div>
+        <div class="row">
+          <div><div class="label">启动自动检查更新</div><div class="sub">启动时自动检查 dsh / Hull 新版本</div></div>
+          <wa-switch checked></wa-switch>
+        </div>
+        <div class="row">
+          <div><div class="label">包管理器</div><div class="sub">dsh 安装/升级使用的包管理器</div></div>
+          <wa-select value="npm" size="small" style="width: 140px;">
+            <wa-option value="npm">npm</wa-option>
+            <wa-option value="pnpm">pnpm</wa-option>
+          </wa-select>
+        </div>
+      </div>
+      <div class="card">
+        <h3>dsh 升级（进度/版本对比/取消）</h3>
+        <div class="row">
+          <div><div class="label">当前版本</div><div class="sub">DeepSeek Harness</div></div>
+          <div class="ctrl">
+            <wa-badge variant="success" appearance="filled outlined">✓ 0.1.1-rc.2</wa-badge>
+            <wa-button size="small" variant="neutral" appearance="outlined">检查更新</wa-button>
+          </div>
+        </div>
+        <div class="row" style="display:block">
+          <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+            <div style="flex:1; border:1px solid #293348; border-radius:10px; padding:10px 12px;">
+              <div style="font-size:11px; color:#93a0b4;">当前版本</div>
+              <div style="font-size:15px; font-weight:700;">0.1.1-rc.2</div>
+            </div>
+            <span style="color:#93a0b4;">→</span>
+            <div style="flex:1; border:1px solid #2e8bf5; border-radius:10px; padding:10px 12px; background:#2e8bf514;">
+              <div style="font-size:11px; color:#93a0b4;">目标版本</div>
+              <div style="font-size:15px; font-weight:700;">0.1.2</div>
+            </div>
+          </div>
+          <wa-progress-bar value="68" label="下载进度"></wa-progress-bar>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+            <span style="font-size:12px; color:#93a0b4;">已下载 41.2 MB / 共 60.6 MB · 8.2 MB/s</span>
+            <wa-button size="small" variant="neutral" appearance="outlined">取消</wa-button>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>交互演示（dialog 焦点陷阱 / toast / skeleton 全内置）</h3>
+        <div class="samples">
+          <div class="row2">
+            <wa-button size="small" variant="brand" appearance="filled" onclick="document.getElementById('demo-dialog').show()">打开确认弹窗</wa-button>
+            <wa-button size="small" variant="neutral" appearance="outlined" onclick="toastDemo()">弹 toast</wa-button>
+            <wa-button size="small" variant="neutral" appearance="outlined" onclick="skDemo()">刷新骨架屏</wa-button>
+          </div>
+          <div id="sk-slot" style="display:flex; flex-direction:column; gap:8px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <h2>组件样张（按钮/徽标/输入 全家族）</h2>
+      <div class="card">
+        <h3>样张</h3>
+        <div class="samples">
+          <div class="lbl">按钮（variant × appearance 组合，hover/active/focus 全内置）</div>
+          <div class="row2">
+            <wa-button size="small" variant="brand" appearance="filled">主操作</wa-button>
+            <wa-button size="small" variant="neutral" appearance="outlined">次要</wa-button>
+            <wa-button size="small" variant="danger" appearance="outlined">危险</wa-button>
+            <wa-button size="small" variant="neutral" appearance="outlined" disabled>禁用</wa-button>
+          </div>
+          <div class="lbl">徽标</div>
+          <div class="row2">
+            <wa-badge variant="success" appearance="filled outlined">✓ 已安装</wa-badge>
+            <wa-badge variant="warning" appearance="filled outlined">⚠ 可升级</wa-badge>
+            <wa-badge variant="danger" appearance="filled outlined">✗ 未安装</wa-badge>
+            <wa-badge variant="neutral" appearance="filled outlined">全局</wa-badge>
+          </div>
+          <div class="lbl">输入（focus/错误态内置）</div>
+          <div class="row2" style="flex-direction: column; align-items: stretch;">
+            <wa-input label="普通输入" size="small"></wa-input>
+            <wa-input label="错误态" size="small"></wa-input>
+          </div>
+          <div class="lbl">Skills 列表行</div>
+          <div class="sk-row">
+            <div style="flex:1;">
+              <div class="sk-name">phper666-git-commit
+                <wa-badge variant="success" appearance="filled outlined">最新</wa-badge>
+              </div>
+              <div class="sk-desc">git commit 提交规范：Conventional Commits + 拆分建议 + lint/test 前置</div>
+              <div class="sk-meta">
+                <wa-badge variant="neutral" appearance="outlined">claude-code</wa-badge>
+                <wa-badge variant="neutral" appearance="outlined">zcode</wa-badge>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <wa-dialog id="demo-dialog" label="移除 skill 确认">
+    <div style="display:flex; flex-direction:column; gap:6px; font-size:13px;">
+      <p>确定移除 <b>phper666-git-commit</b>？</p>
+      <p style="color:#93a0b4;">受影响平台：claude-code、zcode（2 个）</p>
+      <p style="color:#93a0b4;">移除前将备份到回收站（TTL 30 天）</p>
+    </div>
+    <wa-slot slot="footer" style="display:flex; justify-content:flex-end; gap:8px;">
+      <wa-button slot="footer" variant="neutral" appearance="outlined" onclick="this.closest('wa-dialog').hide()">取消</wa-button>
+      <wa-button slot="footer" variant="danger" appearance="filled" onclick="this.closest('wa-dialog').hide()">确认移除</wa-button>
+    </wa-slot>
+  </wa-dialog>
+
+  <script>
+    // toast 演示（web components 弹层，无障碍内置）
+    function toastDemo() {
+      const t = document.createElement('wa-alert');
+      t.setAttribute('variant', 'brand');
+      t.setAttribute('closable');
+      t.style.cssText = 'position:fixed; right:16px; bottom:16px; z-index:999;';
+      t.textContent = '已复制到剪贴板';
+      document.body.appendChild(t);
+      setTimeout(() => t.remove(), 3000);
+    }
+    // skeleton 演示
+    function skDemo() {
+      const slot = document.getElementById('sk-slot');
+      slot.innerHTML = '';
+      for (let i = 0; i < 3; i++) {
+        const sk = document.createElement('wa-skeleton');
+        sk.style.cssText = 'height:44px; border-radius:10px;';
+        slot.appendChild(sk);
+      }
+      setTimeout(() => { slot.innerHTML = ''; }, 2000);
+    }
+  </script>
+  <div class="foot">
+    <b>对比要点</b>：① 所有交互组件（switch/select/dialog/progress/alert/skeleton）为现成实现——键盘导航、焦点陷阱、无障碍属性全内置，替代手写三套平行组件中行为最复杂的部分；② 主题走 CSS 自定义属性，与 <b>--hull-*</b> 令牌方案同构；③ Free 版 MIT 约 70 组件，vendor 后满足 CSP self；④ 代价：vendor 增加约 100~200KB JS + shadow DOM 主题定制走 CSS parts（学习成本小）+ 标记结构从 div/button 改为 wa-* 自定义元素（渐进迁移，建议先替 dialog/switch/toast 这类行为组件）。
+  </div>
+</body>
+</html>
