@@ -6,9 +6,8 @@ dist/
 out/
 release/
 *.tsbuildinfo
-# tsc 编译产物（开发期可能就地输出；排除手写 B2 UI 源 src/renderer/kanban.js）
-/src/**/*.ts
-/src/**/*.d.ts
+# tsc 编译产物（build 输出 dist/；开发期 .js 就地输出忽略，手写 .js 按下方反排除入库）
+# 注：/src/**/*.ts 宽泛忽略已移除（v0.1.4 教训：新增 src 子目录被静默吞，四次断链——.ts 源码永远入库）
 src/**/*.js
 src/**/*.js.map
 # 显式保留手写源（覆盖默认）
@@ -26,6 +25,7 @@ src/**/*.js.map
 !src/overlay/extractNode.test.ts
 # T-Token 消耗模块手写源（同 extractNode 先例；否则新 .ts/.js 静默被忽略不进版本库）
 !src/renderer/tokens.js
+!src/renderer/connections.js
 !src/tokens/
 !src/tokens/**/*.ts
 # 更新缓存对账 + 下载记录（防陈旧差分基假回退）
