@@ -56,8 +56,9 @@ export type PlaceholderView =
   | 'placeholder:not-installed'
   | 'placeholder:board'
   | 'placeholder:skills'
+  | 'placeholder:tokens'
   | 'placeholder:settings';
-export type PlaceholderMode = 'starting' | 'installing' | 'failed' | 'not-installed' | 'board' | 'skills' | 'settings';
+export type PlaceholderMode = 'starting' | 'installing' | 'failed' | 'not-installed' | 'board' | 'skills' | 'tokens' | 'settings';
 
 /**
  * 主窗口壳框架（S8 D1-D7 唯一实现依据）：
@@ -227,6 +228,11 @@ export class WindowManager {
   /** S1：壳导航 Skills 入口 → 切 skills 视图（镜像 showSettings/showBoard，D6 view 单一事实源不破） */
   showSkills(): void {
     this.showPlaceholder('skills', '');
+  }
+
+  /** Token 消耗视图（Skills 之后，镜像 showSkills） */
+  showTokens(): void {
+    this.showPlaceholder('tokens', '');
   }
 
   /** 官方 view 边界同步（D2）：幂等；resize/maximize/unmaximize/全屏/display-metrics-changed 统一入口 */

@@ -14,6 +14,7 @@ import { InstallFlow } from '../overlay/InstallFlow';
 import { extractBundledNode, isNodeExtracted } from '../overlay/extractNode';
 import { createPkgMgrRunner, toRunNpmInstall, type PkgMgrRunOptions, type PkgMgrRunner } from '../overlay/pkgMgr';
 import { Updater } from '../updater/Updater';
+import { registerTokenUsageIpc } from '../tokens/TokenUsageIpc';
 import { SwapManager } from '../updater/SwapManager';
 import { UpgradeQueue } from '../updater/UpgradeQueue';
 import { DismissStore } from '../updater/DismissStore';
@@ -80,6 +81,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     maxAttachmentSizeMB: 10,
   });
   registerKanbanIpc(kanbanStore);
+  registerTokenUsageIpc(); // Token 消耗视图数据源
   // S1+S2：Skills 扫描器（只读）+ 操作层（移除/升级/禁用/回收站，破坏性守卫主进程强制）
   // homeDir 注入（Q-037 DI）；状态文件落 <userData>/skills/（CON-R-skills-006，不触 DSH_HOME）
   const skillsScanner = new SkillsScanner({ homeDir: homedir(), userDataPath, logger });
@@ -599,6 +601,12 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   ipcMain.handle('hull:showSkills', async () => {
     if (quitting) return { ok: false, message: '正在退出' };
     winMgr.showSkills();
+    return { ok: true };
+  });
+  // Token 消耗视图（Skills 之后，镜像 showSkills）
+  ipcMain.handle('hull:showTokens', async () => {
+    if (quitting) return { ok: false, message: '正在退出' };
+    winMgr.showTokens();
     return { ok: true };
   });
   // B2 补丁：壳导航 dsh web 入口 → 恢复官方 view（与 showBoard 对称；无新通道）

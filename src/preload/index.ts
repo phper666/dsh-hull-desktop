@@ -47,6 +47,8 @@ contextBridge.exposeInMainWorld('hull', {
   showWeb: () => ipcRenderer.invoke('hull:showWeb'),
   /** S1：壳导航 Skills 入口 → main 切 view 到 placeholder:skills（与官方 UI 互斥） */
   showSkills: () => ipcRenderer.invoke('hull:showSkills'),
+  /** Token 消耗视图（Skills 之后） */
+  showTokens: () => ipcRenderer.invoke('hull:showTokens'),
 
   // ─────────── S8' D2：设置页桥 15 方法并入（原 src/preload/settings.ts 删除） ───────────
   /** 读全量设置（settings.json 持久化，CON-R002 走主进程 SettingsProvider） */
@@ -121,6 +123,11 @@ contextBridge.exposeInMainWorld('skills', {
 
 // ─────────────────────────── B1 看板桥（M2） ───────────────────────────
 /** window.kanban 16 原语（B1 契约 §接口清单）+ B5 导出/导入 2 原语（B2 看板 UI 消费） */
+/** Token 消耗视图桥（tokens:getUsage 单原语） */
+contextBridge.exposeInMainWorld('tokens', {
+  getUsage: (granularity: string) => invoke('tokens:getUsage', granularity),
+});
+
 contextBridge.exposeInMainWorld('kanban', {
   getBoards: () => invoke('kanban:getBoards'),
   createBoard: (name: string) => invoke('kanban:createBoard', name),
