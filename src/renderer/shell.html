@@ -115,13 +115,8 @@
     font-size: 13px; cursor: pointer;
   }
   .nav-item:hover { background: var(--hull-border); }
-  /* P0：nav active 减重——soft 底 + accent 字 + 左侧短指示条 */
+  /* P0：nav active 减重——soft 底 + accent 字 + 加粗已足够表达选中态（指示条经用户评审去除） */
   .nav-item.active { background: var(--hull-accent-soft); color: var(--hull-accent-hover); font-weight: 600; }
-  /* 指示条用独立伪元素（垂直居中的短圆角条）：inset box-shadow 会跟随按钮圆角弯曲成月牙（用户实测反馈） */
-  .nav-item.active::before {
-    content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
-    width: 3px; height: 16px; border-radius: 2px; background: var(--hull-accent);
-  }
   .nav-item[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
   /* 状态区（hull:status 渲染：runtime.phase + currentVersion + hullVersion + upgrade.phase） */
   #nav-status { padding: 12px 16px; border-top: 1px solid var(--hull-border); font-size: 12px; color: var(--hull-text-muted); }
