@@ -54,6 +54,15 @@
     --hull-overlay: rgba(0,0,0,0.55);
     --hull-shadow: rgba(0,0,0,0.3);
   }
+  /* P1 令牌层（几何/字体/动效；颜色仍用上方 --hull-* 主题变量；值保持现状不视觉变更） */
+  :root {
+    --radius-xs: 4px; --radius-sm: 6px; --radius-md: 8px; --radius-lg: 10px; --radius-xl: 12px; --radius-pill: 999px;
+    --shadow-1: 0 1px 2px rgba(0,0,0,0.3);
+    --shadow-2: 0 2px 8px rgba(0,0,0,0.3);
+    --dur-fast: 120ms; --dur-med: 200ms;
+    --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
   [data-theme="light"] {
     --hull-bg: #f5f7fa;
     --hull-panel: #fff;
@@ -111,7 +120,7 @@
   .nav-item {
     position: relative;
     display: block; width: calc(100% - 16px); text-align: left; padding: 9px 12px; margin: 0 8px 2px;
-    border-radius: 8px; border: none; background: transparent; color: var(--hull-text-dim);
+    border-radius: var(--radius-md); border: none; background: transparent; color: var(--hull-text-dim);
     font-size: 13px; cursor: pointer;
   }
   .nav-item:hover { background: var(--hull-border); }
@@ -138,13 +147,13 @@
   .card { text-align: center; max-width: 440px; padding: 24px; }
   h1 { font-size: 18px; font-weight: 600; margin: 0 0 12px; }
   p { color: var(--hull-text-muted); font-size: 13px; line-height: 1.6; margin: 0 0 20px; word-break: break-all; }
-  button { margin: 4px 8px; padding: 8px 22px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; }
+  button { margin: 4px 8px; padding: 8px 22px; border-radius: var(--radius-md); border: none; cursor: pointer; font-size: 13px; }
   /* P0：全局微动效——按钮/输入 hover·focus 120ms 渐变（替换硬切跳变）；reduced-motion 用户关闭 */
   button, .input, .select {
-    transition: background-color 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
-                border-color 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
-                color 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
-                box-shadow 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    transition: background-color var(--dur-fast) var(--ease-out),
+                border-color var(--dur-fast) var(--ease-out),
+                color var(--dur-fast) var(--ease-out),
+                box-shadow var(--dur-fast) var(--ease-out);
   }
   /* P0：键盘 focus ring（双层：bg 色 + accent 软环；鼠标点击不触发，仅 focus-visible） */
   button:focus-visible, .input:focus-visible, .select:focus-visible {
@@ -161,8 +170,8 @@
   .ghost:hover { background: var(--hull-hover); }
   .spinner { width: 28px; height: 28px; border: 3px solid var(--hull-border); border-top-color: var(--hull-accent); border-radius: 50%; margin: 0 auto 20px; animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .bar { width: 280px; height: 8px; border-radius: 4px; background: var(--hull-border); margin: 0 auto 8px; overflow: hidden; }
-  .bar-fill { height: 100%; width: 0; background: var(--hull-accent); border-radius: 4px; transition: width 0.25s ease; }
+  .bar { width: 280px; height: 8px; border-radius: var(--radius-xs); background: var(--hull-border); margin: 0 auto 8px; overflow: hidden; }
+  .bar-fill { height: 100%; width: 0; background: var(--hull-accent); border-radius: var(--radius-xs); transition: width var(--dur-med) ease-out; }
   .muted { font-size: 12px; color: var(--hull-text-sub); margin-top: 16px; }
 
   /* 设置 section：通用/dsh/Hull/诊断（dsh/Hull 升级反馈内联各自区块底部，settings.html 视觉 token 迁移） */
@@ -177,7 +186,7 @@
   }
   .panel { width: 100%; max-width: 680px; margin: 0 auto; }
   .panel h1 { font-size: 15px; font-weight: 700; margin: 0 0 16px; color: var(--hull-text); }
-  .scard { background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: 12px; margin-bottom: 16px; overflow: hidden; }
+  .scard { background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: var(--radius-xl); margin-bottom: 16px; overflow: hidden; }
   .scard h2 { font-size: 12px; font-weight: 600; color: var(--hull-text-dim); text-transform: uppercase; letter-spacing: 0.04em; padding: 12px 16px 8px; border-bottom: 1px solid var(--hull-border); background: var(--hull-bg); }
   .srow { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 16px; border-bottom: 1px solid var(--hull-border); }
   .srow:last-child { border-bottom: none; }
@@ -185,43 +194,43 @@
   .srow .label { font-size: 13px; font-weight: 500; color: var(--hull-text); }
   .srow .sub { font-size: 12px; color: var(--hull-text-dim); margin-top: 2px; }
   .srow .control { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 180px; }
-  .sbtn { border: 1px solid var(--hull-border); background: var(--hull-panel); border-radius: 8px; padding: 6px 12px; font-size: 13px; cursor: pointer; color: var(--hull-text); }
+  .sbtn { border: 1px solid var(--hull-border); background: var(--hull-panel); border-radius: var(--radius-md); padding: 6px 12px; font-size: 13px; cursor: pointer; color: var(--hull-text); }
   .sbtn:hover { background: var(--hull-hover); }
   .sbtn.primary { background: var(--hull-primary); border-color: var(--hull-primary); color: var(--hull-text-inverse); }
   .sbtn.primary:hover { background: var(--hull-primary-hover); }
   .sbtn.danger { color: var(--hull-danger); border-color: var(--hull-danger-hover); }
   .sbtn:disabled { opacity: 0.45; cursor: not-allowed; }
-  .switch { position: relative; width: 40px; height: 22px; background: var(--hull-text-sub); border-radius: 999px; border: none; cursor: pointer; transition: background 0.15s; flex-shrink: 0; }
-  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: var(--hull-text-inverse); border-radius: 50%; transition: left 0.15s; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+  .switch { position: relative; width: 40px; height: 22px; background: var(--hull-text-sub); border-radius: var(--radius-pill); border: none; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); flex-shrink: 0; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: var(--hull-text-inverse); border-radius: 50%; transition: left var(--dur-fast) var(--ease-out); box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
   .switch[aria-checked="true"] { background: var(--hull-primary); }
   .switch[aria-checked="true"]::after { left: 20px; }
   .badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
-  .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--hull-primary-soft); color: var(--hull-primary); white-space: nowrap; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: var(--radius-pill); background: var(--hull-primary-soft); color: var(--hull-primary); white-space: nowrap; }
   .badge.ok { background: var(--hull-success-soft); color: var(--hull-success); }
   .badge.warn { background: var(--hull-warning-soft); color: var(--hull-warning-alt); }
   .badge.err { background: var(--hull-danger-soft); color: var(--hull-danger); }
   .badge.muted { background: var(--hull-neutral-soft); color: var(--hull-text-note); }
   .hint { font-size: 11px; color: var(--hull-text-dim); margin-top: 4px; text-align: right; }
-  .input { width: 240px; border: 1px solid var(--hull-border); border-radius: 8px; padding: 6px 10px; font-size: 13px; color: var(--hull-text); background: var(--hull-panel); outline: none; }
+  .input { width: 240px; border: 1px solid var(--hull-border); border-radius: var(--radius-md); padding: 6px 10px; font-size: 13px; color: var(--hull-text); background: var(--hull-panel); outline: none; }
   .input:focus { border-color: var(--hull-primary); box-shadow: 0 0 0 2px var(--hull-primary-soft); }
   .input.error { border-color: var(--hull-danger); background: var(--hull-danger-soft); }
   .error-text { font-size: 11px; color: var(--hull-danger); max-width: 240px; text-align: right; }
   .channel-wrap { display: flex; gap: 8px; align-items: center; }
-  .select { border: 1px solid var(--hull-border); border-radius: 8px; padding: 6px 8px; font-size: 13px; background: var(--hull-panel); outline: none; color: var(--hull-text); }
+  .select { border: 1px solid var(--hull-border); border-radius: var(--radius-md); padding: 6px 8px; font-size: 13px; background: var(--hull-panel); outline: none; color: var(--hull-text); }
   .version-input { width: 140px; }
-  .status-alert { margin: 8px 16px 12px; padding: 8px 12px; border-radius: 8px; font-size: 12px; background: var(--hull-danger-soft); color: var(--hull-danger); border: 1px solid var(--hull-danger-hover); display: none; }
+  .status-alert { margin: 8px 16px 12px; padding: 8px 12px; border-radius: var(--radius-md); font-size: 12px; background: var(--hull-danger-soft); color: var(--hull-danger); border: 1px solid var(--hull-danger-hover); display: none; }
   .status-alert.show { display: block; }
-  .toast { position: fixed; right: 16px; bottom: 16px; background: var(--hull-text); color: var(--hull-bg); font-size: 12px; padding: 8px 14px; border-radius: 8px; opacity: 0; transform: translateY(8px); transition: opacity 0.25s, transform 0.25s; pointer-events: none; z-index: 100; }
+  .toast { position: fixed; right: 16px; bottom: 16px; background: var(--hull-text); color: var(--hull-bg); font-size: 12px; padding: 8px 14px; border-radius: var(--radius-md); opacity: 0; transform: translateY(8px); transition: opacity var(--dur-med) var(--ease-out), transform var(--dur-med) var(--ease-out); pointer-events: none; z-index: 100; }
   .toast.show { opacity: 1; transform: translateY(0); }
   /* upgrade 视图：双通道反馈内联在各自 scard 底部，去掉嵌套卡片感 */
   .ver { display: flex; gap: 10px; align-items: center; margin: 12px 0; }
-  .ver .box { flex: 1; border: 1px solid var(--hull-border); border-radius: 10px; padding: 10px 12px; }
+  .ver .box { flex: 1; border: 1px solid var(--hull-border); border-radius: var(--radius-lg); padding: 10px 12px; }
   .ver .box.target { border-color: var(--hull-primary); background: var(--hull-primary-soft); }
   .ver .box .v { font-size: 15px; font-weight: 700; }
   .ver .box .k { font-size: 11px; color: var(--hull-text-dim); }
   .ver .arrow { font-size: 16px; color: var(--hull-text-dim); }
   /* A/C：releaseNotes（GitHub markdown 渲染 HTML）富文本排版 + 滚动（长 changelog 不撑爆卡片） */
-  .notes { font-size: 12px; color: var(--hull-text); background: var(--hull-bg); border: 1px solid var(--hull-border); border-radius: 10px; padding: 10px 12px; margin-top: 10px; line-height: 1.7; max-height: 220px; overflow-y: auto; }
+  .notes { font-size: 12px; color: var(--hull-text); background: var(--hull-bg); border: 1px solid var(--hull-border); border-radius: var(--radius-lg); padding: 10px 12px; margin-top: 10px; line-height: 1.7; max-height: 220px; overflow-y: auto; }
   .notes > b { display: block; font-size: 11px; font-weight: 700; color: var(--hull-text-sub); text-transform: uppercase; letter-spacing: 0.05em; padding-bottom: 6px; margin-bottom: 8px; border-bottom: 1px solid var(--hull-border); }
   .notes h1, .notes h2, .notes h3, .notes h4 { font-size: 13px; font-weight: 700; color: var(--hull-text); margin: 12px 0 6px; line-height: 1.4; }
   .notes h1:first-child, .notes h2:first-child, .notes h3:first-child, .notes h4:first-child { margin-top: 0; }
@@ -229,8 +238,8 @@
   .notes ul, .notes ol { margin: 0 0 8px; padding-left: 20px; }
   .notes li { color: var(--hull-text-dim); margin: 2px 0; }
   .notes li::marker { color: var(--hull-text-sub); }
-  .notes code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: 4px; padding: 1px 4px; color: var(--hull-info); }
-  .notes pre { background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: 8px; padding: 8px 10px; margin: 0 0 8px; overflow-x: auto; }
+  .notes code { font-family: var(--font-mono); font-size: 11px; background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: var(--radius-xs); padding: 1px 4px; color: var(--hull-info); }
+  .notes pre { background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: var(--radius-md); padding: 8px 10px; margin: 0 0 8px; overflow-x: auto; }
   .notes pre code { background: none; border: none; padding: 0; color: var(--hull-text-dim); white-space: pre-wrap; word-break: break-word; }
   .notes a { color: var(--hull-info); text-decoration: none; }
   .notes a:hover { text-decoration: underline; }
@@ -239,9 +248,9 @@
   .notes table { border-collapse: collapse; margin: 0 0 8px; max-width: 100%; }
   .notes th, .notes td { border: 1px solid var(--hull-border); padding: 4px 8px; }
   .notes th { background: var(--hull-panel); color: var(--hull-text-dim); }
-  .notes img { max-width: 100%; border-radius: 8px; }
+  .notes img { max-width: 100%; border-radius: var(--radius-md); }
   .notes::-webkit-scrollbar { width: 8px; }
-  .notes::-webkit-scrollbar-thumb { background: var(--hull-border); border-radius: 4px; }
+  .notes::-webkit-scrollbar-thumb { background: var(--hull-border); border-radius: var(--radius-xs); }
   .notes::-webkit-scrollbar-thumb:hover { background: var(--hull-text-sub); }
   .notes::-webkit-scrollbar-track { background: transparent; }
   /* 升级反馈：融入 scard，不再是独立卡片 */
@@ -263,16 +272,16 @@
   .up-warn { font-size: 12px; color: var(--hull-warning-alt); margin-top: 8px; }
   .up-progress { margin: 8px 0; }
   .up-progress .bar { width: 100%; height: 6px; margin: 8px 0 4px; }
-  .up-progress .bar i { display: block; height: 100%; width: 0; background: var(--hull-primary); border-radius: 999px; transition: width 0.3s; }
+  .up-progress .bar i { display: block; height: 100%; width: 0; background: var(--hull-primary); border-radius: var(--radius-pill); transition: width var(--dur-med) var(--ease-out); }
   /* B：下载详情行（已下载 X / 共 Y · Z MB/s），与 .bar 体系统一 */
   .up-progress .detail { font-size: 12px; color: var(--hull-text-dim); margin-top: 6px; }
   /* 改进 3：升级输出框（npm 实时输出，等宽 + 滚动，最新在最下） */
-  .up-output { margin: 0 16px 16px; max-height: 140px; overflow-y: auto; background: var(--hull-bg); border: 1px solid var(--hull-border); border-radius: 8px; padding: 8px 10px; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; line-height: 1.5; color: var(--hull-text-dim); white-space: pre-wrap; word-break: break-all; }
+  .up-output { margin: 0 16px 16px; max-height: 140px; overflow-y: auto; background: var(--hull-bg); border: 1px solid var(--hull-border); border-radius: var(--radius-md); padding: 8px 10px; font-family: var(--font-mono); font-size: 11px; line-height: 1.5; color: var(--hull-text-dim); white-space: pre-wrap; word-break: break-all; }
   .up-output .line { display: block; }
   .up-msg { font-size: 12px; color: var(--hull-text-dim); }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
   /* T2 主题选择：segmented 按钮组 */
-  .theme-seg { display: inline-flex; border: 1px solid var(--hull-border); border-radius: 8px; overflow: hidden; background: var(--hull-bg); }
+  .theme-seg { display: inline-flex; border: 1px solid var(--hull-border); border-radius: var(--radius-md); overflow: hidden; background: var(--hull-bg); }
   .theme-seg button { margin: 0; padding: 6px 14px; border-radius: 0; border: none; background: transparent; color: var(--hull-text-dim); font-size: 13px; cursor: pointer; }
   .theme-seg button[aria-pressed="true"] { background: var(--hull-primary); color: var(--hull-text-inverse); }
   .theme-seg button:not([aria-pressed="true"]):hover { background: var(--hull-hover); color: var(--hull-text); }
@@ -384,12 +393,13 @@
           <div class="srow">
             <div class="info">
               <div class="label">主题</div>
-              <div class="sub">暗色 / 亮色切换，即时生效</div>
+              <div class="sub">暗色 / 亮色 / 跟随系统，即时生效</div>
             </div>
             <div class="control" role="radiogroup" aria-label="主题">
               <div class="theme-seg" id="theme-seg">
                 <button type="button" data-theme="dark" aria-pressed="true">暗色</button>
                 <button type="button" data-theme="light" aria-pressed="false">亮色</button>
+                <button type="button" data-theme="system" aria-pressed="false">跟随系统</button>
               </div>
             </div>
           </div>
@@ -650,28 +660,38 @@
     sett.els[k] = document.getElementById(SETT_IDS[k]);
   }
 
-  // T2：data-theme 应用与设置页主题 UI 同步
+  // T2 + 主题跟随系统（CON-R-theme-006）：data-theme 应用与设置页主题 UI 同步
+  // system 解析：main 已设 nativeTheme.themeSource='system' → 渲染树 prefers-color-scheme 跟随 OS，
+  // renderer 用 matchMedia 被动读取即可（OS 切换实时触发 change，无需主进程推送）
+  const systemThemeMedia = window.matchMedia('(prefers-color-scheme: dark)');
+  function resolveTheme(theme) {
+    if (theme === 'system') return systemThemeMedia.matches ? 'dark' : 'light';
+    return theme === 'light' ? 'light' : 'dark';
+  }
   function applyTheme(theme) {
-    const t = theme === 'light' ? 'light' : 'dark';
-    document.body.setAttribute('data-theme', t);
+    document.body.setAttribute('data-theme', resolveTheme(theme));
   }
   function renderThemeButtons(theme) {
-    const t = theme === 'light' ? 'light' : 'dark';
     if (!sett.els.themeSeg) return;
     for (const btn of sett.els.themeSeg.querySelectorAll('button[data-theme]')) {
-      btn.setAttribute('aria-pressed', String(btn.dataset.theme === t));
+      btn.setAttribute('aria-pressed', String(btn.dataset.theme === theme));
     }
   }
   function setTheme(theme) {
     applyTheme(theme);
     renderThemeButtons(theme);
   }
+  // system 态：OS 亮暗切换实时跟随
+  systemThemeMedia.addEventListener('change', () => {
+    const cur = sett.state.settings?.theme;
+    if (cur === 'system') applyTheme('system');
+  });
   if (sett.els.themeSeg) {
     sett.els.themeSeg.addEventListener('click', async (e) => {
       const btn = e.target.closest('button[data-theme]');
       if (!btn) return;
       const next = btn.dataset.theme;
-      if (next !== 'dark' && next !== 'light') return;
+      if (next !== 'dark' && next !== 'light' && next !== 'system') return;
       const ok = await setSetting({ theme: next }, null);
       if (ok) setTheme(next);
     });

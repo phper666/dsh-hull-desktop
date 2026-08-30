@@ -13,13 +13,13 @@
 }
 .sk-tabs, .sk-filters { display: flex; align-items: center; gap: 6px; }
 .sk-tab {
-  padding: 6px 12px; border-radius: 8px; border: none; cursor: pointer;
+  padding: 6px 12px; border-radius: var(--radius-md); border: none; cursor: pointer;
   font-size: 12px; background: var(--hull-border); color: var(--hull-text-dim);
 }
 .sk-tab:hover { background: var(--hull-hover); }
 .sk-tab.active { background: var(--hull-accent); color: var(--hull-text-inverse); }
 .sk-input, .sk-select {
-  background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: 8px; color: var(--hull-text);
+  background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: var(--radius-md); color: var(--hull-text);
   padding: 7px 10px; font-size: 12px; outline: none;
 }
 .sk-input:focus, .sk-select:focus { border-color: var(--hull-accent); }
@@ -30,7 +30,7 @@
 .sk-ops { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
 
 /* 显示样式切换（列表/卡片） */
-.sk-viewseg { display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--hull-border); }
+.sk-viewseg { display: inline-flex; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--hull-border); }
 .sk-viewbtn {
   padding: 6px 12px; border: none; cursor: pointer; font-size: 12px;
   background: var(--hull-panel); color: var(--hull-text-muted);
@@ -39,7 +39,7 @@
 .sk-viewbtn:hover { color: var(--hull-text); }
 .sk-viewbtn.active { background: var(--hull-accent); color: var(--hull-text-inverse); }
 .sk-btn {
-  padding: 6px 12px; border-radius: 8px; border: none; cursor: pointer;
+  padding: 6px 12px; border-radius: var(--radius-md); border: none; cursor: pointer;
   font-size: 12px; background: var(--hull-border); color: var(--hull-text-dim);
 }
 .sk-btn:hover { background: var(--hull-hover); }
@@ -57,17 +57,17 @@
 .sk-list { flex: 1; width: 100%; overflow-y: auto; padding: 8px 14px; }
 .sk-row {
   display: flex; align-items: flex-start; gap: 10px;
-  padding: 10px 12px; margin-bottom: 6px; border-radius: 10px; background: var(--hull-card);
+  padding: 10px 12px; margin-bottom: 6px; border-radius: var(--radius-lg); background: var(--hull-card);
   /* P0：行 hover 反馈（border 指向 accent + 轻上浮，120ms） */
-  transition: border-color 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94), transform 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94), box-shadow 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
-.sk-row:hover { border-color: var(--hull-accent-hover); transform: translateY(-1px); box-shadow: 0 2px 8px var(--hull-shadow); }
+.sk-row:hover { border-color: var(--hull-accent-hover); transform: translateY(-1px); box-shadow: var(--shadow-2); }
 .sk-card {
   display: flex; flex-direction: column; gap: 2px;
-  padding: 12px; border-radius: 12px; background: var(--hull-card); border: 1px solid var(--hull-border);
-  transition: border-color 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94), transform 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94), box-shadow 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  padding: 12px; border-radius: var(--radius-xl); background: var(--hull-card); border: 1px solid var(--hull-border);
+  transition: border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
-.sk-card:hover { border-color: var(--hull-accent-hover); transform: translateY(-1px); box-shadow: 0 2px 8px var(--hull-shadow); }
+.sk-card:hover { border-color: var(--hull-accent-hover); transform: translateY(-1px); box-shadow: var(--shadow-2); }
 @media (prefers-reduced-motion: reduce) { .sk-row, .sk-card { transition: none; } .sk-row:hover, .sk-card:hover { transform: none; } }
 .sk-main { flex: 1; min-width: 0; }
 .sk-name { font-weight: 600; font-size: 13px; color: var(--hull-text); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -77,7 +77,7 @@
 }
 .sk-meta { margin-top: 5px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; }
 .sk-badge {
-  display: inline-block; padding: 1px 8px; border-radius: 999px;
+  display: inline-block; padding: 1px 8px; border-radius: var(--radius-pill);
   background: var(--hull-border); color: var(--hull-text-dim); font-size: 11px;
 }
 .sk-badge.global { background: var(--hull-accent-soft); color: var(--hull-info); }
@@ -89,7 +89,7 @@
 .sk-badge.lint.warn { background: var(--hull-warning-faint); color: var(--hull-warning-light); }
 .sk-badge.lint.info { background: var(--hull-hover); color: var(--hull-text-muted); }
 /* P0-2 详情弹窗健康度列表 */
-.sk-detail-lint { margin-top: 8px; padding: 8px 10px; border-radius: 8px; font-size: 12px; }
+.sk-detail-lint { margin-top: 8px; padding: 8px 10px; border-radius: var(--radius-md); font-size: 12px; }
 .sk-detail-lint.warn { background: var(--hull-warning-faint); color: var(--hull-warning-light); }
 .sk-detail-lint.info { background: var(--hull-hover); color: var(--hull-text-note); }
 .sk-detail-lint h4 { margin: 0 0 4px; font-size: 12px; }
@@ -105,13 +105,13 @@
 .sk-list.card { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; align-content: start; max-width: none; }
 .sk-card {
   display: flex; flex-direction: column; gap: 2px;
-  padding: 12px; border-radius: 12px; background: var(--hull-card); border: 1px solid var(--hull-border);
+  padding: 12px; border-radius: var(--radius-xl); background: var(--hull-card); border: 1px solid var(--hull-border);
 }
 .sk-card .sk-desc { -webkit-line-clamp: 3; }
 .sk-card-ops { margin-top: auto; padding-top: 8px; display: flex; justify-content: flex-end; gap: 6px; }
 
 /* 骨架屏（FR-10：扫描中先骨架不阻塞） */
-.sk-skeleton { height: 58px; border-radius: 10px; margin-bottom: 6px; background: linear-gradient(90deg, var(--hull-card) 25%, var(--hull-border) 50%, var(--hull-card) 75%); background-size: 200% 100%; animation: sk-shimmer 1.2s infinite; }
+.sk-skeleton { height: 58px; border-radius: var(--radius-lg); margin-bottom: 6px; background: linear-gradient(90deg, var(--hull-card) 25%, var(--hull-border) 50%, var(--hull-card) 75%); background-size: 200% 100%; animation: sk-shimmer 1.2s infinite; }
 @keyframes sk-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
 /* 空态 */
@@ -132,10 +132,10 @@
 .sk-path.disabled { color: var(--hull-text-sub); text-decoration: line-through; }
 .sk-path-row .sk-badge { flex-shrink: 0; align-self: center; }
 .sk-switch {
-  width: 30px; height: 16px; border-radius: 999px; border: none; cursor: pointer;
+  width: 30px; height: 16px; border-radius: var(--radius-pill); border: none; cursor: pointer;
   background: var(--hull-success-dim); position: relative; flex-shrink: 0; padding: 0;
 }
-.sk-switch i { position: absolute; top: 2px; left: 15px; width: 12px; height: 12px; border-radius: 50%; background: var(--hull-success-light); transition: left .15s; }
+.sk-switch i { position: absolute; top: 2px; left: 15px; width: 12px; height: 12px; border-radius: 50%; background: var(--hull-success-light); transition: left var(--dur-fast) var(--ease-out); }
 .sk-switch.off { background: var(--hull-switch-off); }
 .sk-switch.off i { left: 3px; background: var(--hull-text-muted); }
 .sk-switch:disabled { opacity: .5; cursor: wait; }
@@ -153,20 +153,20 @@
 }
 .sk-modal {
   width: min(520px, 90%); max-height: 80vh; overflow-y: auto;
-  background: var(--hull-bg); border: 1px solid var(--hull-border); border-radius: 12px; padding: 16px;
+  background: var(--hull-bg); border: 1px solid var(--hull-border); border-radius: var(--radius-xl); padding: 16px;
   color: var(--hull-text); font-size: 13px;
 }
 .sk-modal h3 { margin: 0 0 10px; font-size: 15px; }
 .sk-modal-body p { margin: 6px 0; }
 .sk-path-list { margin: 6px 0; padding-left: 18px; color: var(--hull-text-dim); word-break: break-all; }
-.sk-modal code { background: var(--hull-panel); padding: 1px 6px; border-radius: 4px; font-size: 11px; }
+.sk-modal code { background: var(--hull-panel); padding: 1px 6px; border-radius: var(--radius-xs); font-size: 11px; }
 .sk-modal-ops { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 
 /* S2：回收站弹层（D7 工具条按钮 + 面板） */
 .sk-trash-panel {
   position: absolute; right: 14px; top: 52px; z-index: 50;
   width: min(480px, 80%); max-height: 70vh; overflow-y: auto;
-  background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: 12px; padding: 12px;
+  background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: var(--radius-xl); padding: 12px;
 }
 .sk-trash-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; color: var(--hull-text); }
 .sk-trash-row { border-top: 1px solid var(--hull-border); padding: 8px 0; display: flex; flex-direction: column; gap: 4px; }
@@ -174,13 +174,13 @@
 
 /* ── skill 详情弹窗（点击卡片/行主体打开）── */
 .sk-detail-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
-.sk-detail-desc { color: var(--hull-text-dim); font-size: 13px; line-height: 1.5; margin-bottom: 10px; padding: 10px 12px; background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: 8px; white-space: pre-wrap; }
+.sk-detail-desc { color: var(--hull-text-dim); font-size: 13px; line-height: 1.5; margin-bottom: 10px; padding: 10px 12px; background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: var(--radius-md); white-space: pre-wrap; }
 .sk-detail-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 .sk-detail-source { font-size: 12px; color: var(--hull-text-muted); margin-bottom: 10px; }
 .sk-detail-paths h4 { font-size: 11px; color: var(--hull-text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 6px; }
 .sk-detail-path {
   display: flex; align-items: center; gap: 8px; padding: 6px 8px;
-  border-radius: 6px; background: var(--hull-panel); margin-bottom: 4px;
+  border-radius: var(--radius-sm); background: var(--hull-panel); margin-bottom: 4px;
 }
 .sk-detail-path code { flex: 1; min-width: 0; font-size: 11px; color: var(--hull-text-note); word-break: break-all; line-height: 1.5; }
 .sk-detail-path .sk-btn { flex-shrink: 0; padding: 3px 10px; font-size: 11px; }
