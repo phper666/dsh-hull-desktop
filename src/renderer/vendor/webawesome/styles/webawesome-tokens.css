@@ -1,0 +1,6 @@
+/* Hull 定制入口（2026-08-31）：不引 native.css——其 body/元素级全局样式会污染壳 UI
+   （v0.1.4 实测：body 字体/字号/行高被 --wa-font-* 顶乱，设置页样式错乱）。
+   仅保留工具类 + 主题令牌层：wa-* 组件的样式在各自 shadow DOM + 这里的 --wa-* 令牌。 */
+@layer wa-utilities, wa-color-palette, wa-color-variant, wa-theme, wa-theme-dimension, wa-theme-overrides;
+@import url('utilities.css');
+@import url('themes/default.css');

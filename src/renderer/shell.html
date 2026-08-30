@@ -7,7 +7,7 @@
   <!-- E1 看板编辑器 vendoring（CON-R-editor-001/004）：本地 CSS 先于 kanban.css，style-src 'self' 无 CDN -->
   <link rel="stylesheet" href="vendor/easymde.min.css" />
   <link rel="stylesheet" href="vendor/easymde-dark.css" />
-  <link rel="stylesheet" href="vendor/webawesome/styles/webawesome.css" />
+  <link rel="stylesheet" href="vendor/webawesome/styles/webawesome-tokens.css" />
   <link rel="stylesheet" href="vendor/easymde-light.css" />
   <link rel="stylesheet" href="kanban.css" />
   <link rel="stylesheet" href="skills.css" />
@@ -67,6 +67,19 @@
     --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
     --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 20px; --space-6: 24px; /* P1.2 增量采用 */
+  }
+  /* P1.2：Web Awesome 令牌 → Hull 品牌（wa-* 组件随壳配色/字号，暗亮通用） */
+  --wa-color-brand-fill-loud: var(--hull-accent);
+  --wa-color-brand-on-loud: var(--hull-text-inverse);
+  --wa-color-brand-fill-normal: var(--hull-accent-soft);
+  --wa-color-brand-on-normal: var(--hull-accent-hover);
+  --wa-color-brand-fill-quiet: var(--hull-accent-faint);
+  --wa-color-brand-on-quiet: var(--hull-accent-hover);
+  --wa-color-brand-border-loud: var(--hull-accent);
+  --wa-color-brand-border-normal: var(--hull-accent-soft);
+  --wa-color-brand-border-quiet: var(--hull-accent-soft);
+  --wa-font-family-body: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --wa-font-size-m: 13px;
   }
   [data-theme="light"] {
     --hull-bg: #f5f7fa;
