@@ -24,6 +24,10 @@ src/**/*.js.map
 # PK2 extractNode 捆绑 node 解压手写源（同 pkgMgr 先例）
 !src/overlay/extractNode.ts
 !src/overlay/extractNode.test.ts
+# T-Token 消耗模块手写源（同 extractNode 先例；否则新 .ts/.js 静默被忽略不进版本库）
+!src/renderer/tokens.js
+!src/tokens/
+!src/tokens/**/*.ts
 # 更新缓存对账 + 下载记录（防陈旧差分基假回退）
 !src/updater/UpdaterCacheReconciler.ts
 !src/updater/UpdaterCacheReconciler.test.ts
