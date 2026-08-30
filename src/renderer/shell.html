@@ -7,6 +7,7 @@
   <!-- E1 看板编辑器 vendoring（CON-R-editor-001/004）：本地 CSS 先于 kanban.css，style-src 'self' 无 CDN -->
   <link rel="stylesheet" href="vendor/easymde.min.css" />
   <link rel="stylesheet" href="vendor/easymde-dark.css" />
+  <link rel="stylesheet" href="vendor/webawesome/styles/webawesome.css" />
   <link rel="stylesheet" href="vendor/easymde-light.css" />
   <link rel="stylesheet" href="kanban.css" />
   <link rel="stylesheet" href="skills.css" />
@@ -220,8 +221,6 @@
   .version-input { width: 140px; }
   .status-alert { margin: 8px 16px 12px; padding: 8px 12px; border-radius: var(--radius-md); font-size: 12px; background: var(--hull-danger-soft); color: var(--hull-danger); border: 1px solid var(--hull-danger-hover); display: none; }
   .status-alert.show { display: block; }
-  .toast { position: fixed; right: 16px; bottom: 16px; background: var(--hull-text); color: var(--hull-bg); font-size: 12px; padding: 8px 14px; border-radius: var(--radius-md); opacity: 0; transform: translateY(8px); transition: opacity var(--dur-med) var(--ease-out), transform var(--dur-med) var(--ease-out); pointer-events: none; z-index: 100; }
-  .toast.show { opacity: 1; transform: translateY(0); }
   /* upgrade 视图：双通道反馈内联在各自 scard 底部，去掉嵌套卡片感 */
   .ver { display: flex; gap: 10px; align-items: center; margin: 12px 0; }
   .ver .box { flex: 1; border: 1px solid var(--hull-border); border-radius: var(--radius-lg); padding: 10px 12px; }
@@ -514,7 +513,6 @@
       </div>
     </section>
   </main>
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script>
   // 壳框架页（S8 D4/D5/D6 + S8' M1-重构）：
   // - 右侧内容区显示完全由主进程 hull:status 的 view 字段驱动（renderer 无 view 控制通道）
@@ -636,11 +634,14 @@
   };
   let toastTimer = null;
   function toast(msg) {
-    const t = document.getElementById('toast');
+    // P1：迁移 wa-alert（Web Awesome）——手写 .toast div 移除；组件自带进出场与 aria-live
+    const t = document.createElement('wa-alert');
+    t.setAttribute('variant', 'brand');
+    t.setAttribute('closable');
+    t.style.cssText = 'position:fixed; right:16px; bottom:16px; z-index:100;';
     t.textContent = msg;
-    t.classList.add('show');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove('show'), 1800);
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2100);
   }
 
   const sett = {
@@ -1297,6 +1298,8 @@
 <!-- E1 vendored 库（CON-R-editor-001/004）：本地 <script src>（CSP 'self'，禁 CDN），先于 kanban.js 保证全局就绪。
      markdown-it 锁 v14.1.0（v15 起无 UMD build）；EasyMDE 2.21.0 含捆绑 CM5；DOMPurify UMD；task-lists 为 CJS 源码 + UMD shim 包装 -->
 <script src="vendor/easymde.min.js"></script>
+  <!-- P1：Web Awesome 行为组件（autoloader 按需懒加载 chunks，同源 self） -->
+  <script type="module" src="vendor/webawesome/webawesome.loader.js"></script>
 <script src="vendor/markdown-it.min.js"></script>
 <script src="vendor/purify.min.js"></script>
 <script src="vendor/markdown-it-task-lists.js"></script>
