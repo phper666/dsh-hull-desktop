@@ -6,7 +6,8 @@
 
 ## 1. 文档元信息
 
-- **本版本变更**：v1.1 已发布——BE 扫描修正（确认定案，向后兼容）：CON-R-theme-003 主题持久化改「字段级扩展不 bump schemaVersion」（对齐 S6 registry 先例，schemaVersion 保持 3，migrate() `<3` 补齐兜底）；新增 §4.5 schema 处理。
+- **本版本变更**：v1.2 已发布——主题跟随系统：CON-R-theme-006（theme 枚举扩展 'system'，nativeTheme.themeSource 透传 + renderer matchMedia 解析；默认仍 dark，非法回退不变）。
+- **历史变更摘要**：v1.1——BE 扫描修正：CON-R-theme-003 持久化改「字段级扩展不 bump schemaVersion」（schemaVersion 保持 3，migrate() `<3` 补齐兜底）；新增 §4.5 schema 处理。
 - **历史变更摘要**：v1.0 首次建立——从 Hull Theme PRD v0.1 提取整理为业务事实源；登记 CON-R-theme-001~005。
 - **状态说明**：v1.1 已发布；BE/FE/QA 扫描完成，无新增 Q-items（全部被共识 §6/FR-2/验收5 覆盖，1 项 BE 修正回写 v1.1）；无未决项。
 
@@ -95,6 +96,7 @@
 | CON-R-theme-003 | 主题持久化 = settings.json（HullSettings `theme` 字段），字段级扩展不 bump schemaVersion（保持 3，对齐 S6 registry 先例；旧数据/非法值读时回退 dark） | PRD FR-1/§5 | 生效 | 稳定 |
 | CON-R-theme-004 | 默认主题 = dark（保持现状），非法值回退 dark | PRD FR-1/§6 | 生效 | 稳定 |
 | CON-R-theme-005 | 硬编码色值全部抽取为 CSS 变量，无残留（除变量定义处） | PRD FR-3/验收6 | 生效 | 稳定 |
+| CON-R-theme-006 | 主题跟随系统 = theme 枚举扩展 'system'（dark/light/system，默认仍 dark，非法值回退 dark 不变）；main 设 nativeTheme.themeSource = settings.theme（'system' 原生透传），renderer 以 matchMedia(prefers-color-scheme: dark) 被动解析 + change 实时跟随；持久化字段级扩展不 bump schemaVersion | 用户需求 2026-08-30/UI-P1 设计文档 | 生效 | 稳定 |
 
 ## 11. 页面交互规范
 
@@ -137,6 +139,7 @@
 | 版本 | 日期 | 变更摘要条目 | 说明 |
 |:-----|:-----|:-------------|:-----|
 | v1.1 | 2026-08-24 | 已登记（已发布） | BE 扫描修正：CON-R-theme-003 主题持久化改字段级扩展不 bump schemaVersion（对齐 S6 registry 先例）；新增 §4.5 |
+| v1.2 | 2026-08-30 | 已登记 | 主题跟随系统：theme 枚举扩展 'system'，新增 CON-R-theme-006；默认仍 dark；main nativeTheme.themeSource 透传 + renderer matchMedia 解析（UI-P1 设计文档 docs/design/UI-P1-令牌化与主题跟随-design.md） |
 | v1.0 | 2026-08-24 | 已登记（已发布） | 首次建立：从 Hull Theme PRD v0.1 提取；登记 CON-R-theme-001~005、U-1~U-3 |
 
 ### 15.3 后续规划

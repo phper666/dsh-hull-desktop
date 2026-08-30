@@ -1,4 +1,4 @@
-import { app, clipboard, dialog, ipcMain, shell } from 'electron';
+import { app, clipboard, dialog, ipcMain, nativeTheme, shell } from 'electron';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -67,6 +67,11 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   logger.info('启动流程开始（单实例锁已获取，兜底清理完成）');
   const settings = new SettingsProvider({ userDataPath, logger });
   settings.migrate(); // S6 B5：schemaVersion < 3 字段补齐（设置页首次运行触发）
+  // 主题跟随系统（CON-R-theme-006）：themeSource 接受 'system' 原生透传——Electron 将其注入
+  // 渲染树 prefers-color-scheme，renderer 的 matchMedia 自动跟随（OS 切换与改设置两条路径统一）；
+  // 非 system 值（dark/light）直接锁定。变更经 on('changed') 广播实时生效
+  nativeTheme.themeSource = settings.getSettings().theme;
+  settings.on('changed', (s) => { nativeTheme.themeSource = s.theme; });
   // B1：看板数据层（boards.json 原子写/损坏重建/迁移）+ 16 IPC 原语注册
   const kanbanStore = new KanbanStore({
     userDataPath,

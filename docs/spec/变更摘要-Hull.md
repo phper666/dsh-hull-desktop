@@ -3,6 +3,15 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-08-30 主题跟随系统（共识 v1.2，CON-R-theme-006）+ UI P1 令牌层第一增量
+
+- 类型：共识规则新增（v1.2）+ 实现层令牌化
+- 主题跟随系统：theme 枚举扩展 'system'（dark/light/system，默认仍 dark）；main 设 nativeTheme.themeSource（'system' 原生透传 → 渲染树 prefers-color-scheme 自动跟随），renderer matchMedia 被动解析 + change 实时切换；持久化字段级扩展不 bump schemaVersion；设置页主题 segmented 三选（暗色/亮色/跟随系统）
+- 令牌层第一增量（值保持替换，不视觉变更）：--radius-xs~xl/pill、--shadow-1/2、--dur-fast/med、--ease-out、--font-mono；三渲染文件单值 border-radius/动效时长/mono 栈全部 token 化（多值简写与 3px 特例保留原样并注记）
+- 判级：常规偏复杂（新依赖前景 + 主题共识变更）→ 技术方案 docs/design/UI-P1-令牌化与主题跟随-design.md
+- 核验：typecheck + 单测（新增 T2-⑦/⑧ system 用例）绿；运行时 OS 切换实时跟随待用户 dev 验证
+- 后续增量：WA vendor + toast/dialog 迁移、spacing token、P2 品牌个性
+
 ## 2026-08-30 UI P0 视觉快赢：主题令牌值修正 + 新增 UI 微动效约定（判级：简单，纯 CSS 无逻辑）
 
 - 类型：实现层调整（无共识规则变化，CON-R-theme-001~005 机制不变；主题共识未钉死被改值，主色 #2e8bf5 保留 ✓）

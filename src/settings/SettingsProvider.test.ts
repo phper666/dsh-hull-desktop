@@ -300,6 +300,23 @@ test('T2-⑥ theme 类型错（number）→ 回退 dark + 告警', () => {
   ok(warns.length >= 1, '应产生告警日志');
 });
 
+// ── 主题跟随系统（CON-R-theme-006：theme 枚举扩展 'system'）──
+test('T2-⑦ set theme=system → 持久化 + 读回 + 文件落盘 + 广播', () => {
+  const { provider, dir } = makeProvider({});
+  const changed: Array<Record<string, unknown>> = [];
+  provider.on('changed', (s) => changed.push(s as unknown as Record<string, unknown>));
+  provider.set({ theme: 'system' });
+  equal(provider.getSettings().theme, 'system');
+  equal(changed.length, 1, 'changed 广播一次（main 侧据此更新 nativeTheme.themeSource）');
+  const parsed = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as { theme: string };
+  equal(parsed.theme, 'system');
+});
+
+test('T2-⑧ 旧文件 theme=system（读路径归一化）→ 读回 system 不回退', () => {
+  const { provider } = makeProvider({ 'settings.json': JSON.stringify({ theme: 'system' }) });
+  equal(provider.getSettings().theme, 'system');
+});
+
 // ── P3 packageManager 字段（CON-R-pkgmgr-001/008）──
 test('P3-① 缺 settings.json → packageManager 默认 pnpm', () => {
   const { provider } = makeProvider({});

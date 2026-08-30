@@ -13,8 +13,8 @@ export type { PkgMgrName } from '../overlay/pkgMgr/types';
 /** 通道名（S4 契约 §Schema：latest/pinned） */
 export type ChannelName = 'latest' | 'pinned';
 
-/** 主题（T2：dark/light，默认 dark；字段级扩展不 bump schemaVersion） */
-export type ThemeName = 'dark' | 'light';
+/** 主题（T2 + 主题跟随系统：dark/light/system，默认 dark；字段级扩展不 bump schemaVersion，CON-R-theme-006） */
+export type ThemeName = 'dark' | 'light' | 'system';
 
 /** 默认 registry（S6 契约 schema：任意 npm registry，CON-R013） */
 export const DEFAULT_REGISTRY = 'https://registry.npmjs.org';
@@ -129,7 +129,7 @@ export class SettingsProvider extends EventEmitter {
     const autoCheckHull = typeof obj.autoCheckHull === 'boolean' ? obj.autoCheckHull : DEFAULT_SETTINGS.autoCheckHull;
     const registry = typeof obj.registry === 'string' ? obj.registry : DEFAULT_SETTINGS.registry;
     const theme: ThemeName =
-      obj.theme === 'dark' || obj.theme === 'light' ? obj.theme : DEFAULT_SETTINGS.theme;
+      obj.theme === 'dark' || obj.theme === 'light' || obj.theme === 'system' ? obj.theme : DEFAULT_SETTINGS.theme;
     const packageManager: PkgMgrName =
       obj.packageManager === 'npm' || obj.packageManager === 'pnpm' ? obj.packageManager : DEFAULT_SETTINGS.packageManager;
     if (
@@ -159,7 +159,7 @@ export class SettingsProvider extends EventEmitter {
     const next: HullSettings = { ...current, ...partial, schemaVersion: SCHEMA_VERSION_CURRENT };
     if (next.channel === 'latest') next.pinnedVersion = null; // B4
     // T2：非法 theme → 回退 dark（与读路径归一对称，磁盘恒存合法值）
-    if (next.theme !== 'dark' && next.theme !== 'light') next.theme = 'dark';
+    if (next.theme !== 'dark' && next.theme !== 'light' && next.theme !== 'system') next.theme = 'dark';
     // P3：非法 packageManager → 回退 pnpm（与读路径归一对称，CON-R-pkgmgr-008）
     if (!isValidPkgMgr(next.packageManager)) next.packageManager = 'pnpm';
     // 校验（SETTINGS_ERRORS）
@@ -222,7 +222,7 @@ export class SettingsProvider extends EventEmitter {
       autoCheckHull: typeof obj.autoCheckHull === 'boolean' ? obj.autoCheckHull : DEFAULT_SETTINGS.autoCheckHull,
       // 🟢：旧文件 registry 格式校验（与 set() 校验链对称——非法 → 默认值）
       registry: typeof obj.registry === 'string' && isValidRegistry(obj.registry) ? obj.registry : DEFAULT_SETTINGS.registry,
-      theme: obj.theme === 'dark' || obj.theme === 'light' ? obj.theme : DEFAULT_SETTINGS.theme,
+      theme: obj.theme === 'dark' || obj.theme === 'light' || obj.theme === 'system' ? obj.theme : DEFAULT_SETTINGS.theme,
       // P3：旧文件 packageManager 非法 → 默认 pnpm（与 set() 校验链对称）
       packageManager: isValidPkgMgr(obj.packageManager) ? obj.packageManager : DEFAULT_SETTINGS.packageManager,
     };
