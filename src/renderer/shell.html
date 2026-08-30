@@ -115,8 +115,8 @@
     font-size: 13px; cursor: pointer;
   }
   .nav-item:hover { background: var(--hull-border); }
-  /* P0：nav active 减重——soft 底 + accent 字 + 加粗已足够表达选中态（指示条经用户评审去除） */
-  .nav-item.active { background: var(--hull-accent-soft); color: var(--hull-accent-hover); font-weight: 600; }
+  /* P0：nav active 减重——soft 底 + accent 字 + 加粗；选中态收窄 inset（用户方案 B：两侧多留白防"横贯长条"感） */
+  .nav-item.active { background: var(--hull-accent-soft); color: var(--hull-accent-hover); font-weight: 600; width: calc(100% - 28px); margin: 0 14px 2px; border-radius: 6px; }
   .nav-item[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
   /* 状态区（hull:status 渲染：runtime.phase + currentVersion + hullVersion + upgrade.phase） */
   #nav-status { padding: 12px 16px; border-top: 1px solid var(--hull-border); font-size: 12px; color: var(--hull-text-muted); }
