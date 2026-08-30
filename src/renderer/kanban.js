@@ -50,7 +50,16 @@
   const activeTasks = () => (currentBoard?.tasks || []).filter((t) => !t.archivedAt);
   const archivedTasks = () => (currentBoard?.tasks || []).filter((t) => t.archivedAt);
   const childrenOf = (id) => (currentBoard?.tasks || []).filter((t) => t.parentId === id);
-  const visibleCols = () => (currentBoard?.columns || []).filter((c) => !c.hidden);
+  const visibleCols = () => orderedCols().filter((c) => !c.hidden);
+  /* 列拖拽换序（用户需求 2026-08-30）：显示顺序 = order 字段升序（未设置按数组下标兜底）。
+     重排实现：拖拽落点 → 有序数组内 splice → 全列重赋 order（变更列批量 updateColumn） */
+  const orderedCols = () => {
+    const cols = currentBoard?.columns || [];
+    return cols
+      .map((c, i) => [c, i])
+      .sort((a, b) => ((a[0].order ?? a[1]) - (b[0].order ?? b[1])) || (a[1] - b[1]))
+      .map(([c]) => c);
+  };
   const subDone = (t) => { const ch = childrenOf(t.id); return ch.length ? ch.filter((c) => c.executionStatus === 'succeeded' || colById(c.columnId)?.type === 'done').length + '/' + ch.length : ''; };
 
   // ── E1 Markdown 渲染管线（markdown-it v14.1.0 + DOMPurify；CON-R-editor-002/004/005）──
@@ -97,7 +106,7 @@
   }
 
   function boardToolbar() {
-    const cols = currentBoard.columns;
+    const cols = orderedCols();
     return `<div class="kb-toolbar">
       <div class="kb-boards"><select id="kb-board-select">${boards.map((b) => `<option value="${b.id}" ${b.id === currentBoard.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select><button class="kb-btn" id="kb-newboard">＋ 新建</button></div>
       <div class="kb-views">${Object.entries(viewNames).map(([k, n]) => `<button class="kb-view ${view === k ? 'active' : ''}" data-view="${k}">${n}</button>`).join('')}</div>
@@ -110,7 +119,7 @@
     boardRoot.innerHTML = boardToolbar() + `<div class="kb-cols" id="kb-cols">${cols.map((c) => {
       const tasks = activeTasks().filter((t) => t.columnId === c.id && matchesFilter(t));
       const empty = tasks.length === 0;
-      return `<div class="kb-col" data-col="${c.id}" style="border-top-color:${c.color}"><div class="kb-col-head"><span class="kb-col-name">${esc(c.name)}</span><span class="kb-col-count">${tasks.length}</span><span class="kb-col-actions"><button class="kb-icon" title="列管理" data-act="col-mgr">⚙</button></span></div><div class="kb-col-body">${empty ? '<div class="kb-empty-col">空列</div>' : tasks.map(cardHtml).join('')}</div><button class="kb-add-card" data-col="${c.id}">＋ 添加卡片</button></div>`;
+      return `<div class="kb-col" data-col="${c.id}" style="border-top-color:${c.color}"><div class="kb-col-head" draggable="true" title="拖拽换序"><span class="kb-col-name">${esc(c.name)}</span><span class="kb-col-count">${tasks.length}</span><span class="kb-col-actions"><button class="kb-icon" title="列管理" data-act="col-mgr">⚙</button></span></div><div class="kb-col-body">${empty ? '<div class="kb-empty-col">空列</div>' : tasks.map(cardHtml).join('')}</div><button class="kb-add-card" data-col="${c.id}">＋ 添加卡片</button></div>`;
     }).join('')}</div>`;
     bindBoardEvents();
   }
@@ -307,6 +316,39 @@
       card.addEventListener('dragstart', (e) => { dragTaskId = card.dataset.id; e.dataTransfer.effectAllowed = 'move'; card.classList.add('kb-dragging'); });
       card.addEventListener('dragend', () => { dragTaskId = null; card.classList.remove('kb-dragging'); });
     });
+    // 列拖拽换序（列头拖动；dragColId 仅列头 dragstart 设置，卡片拖拽不干扰）
+    let dragColId = null;
+    document.querySelectorAll('.kb-col-head').forEach((head) => {
+      head.addEventListener('dragstart', (e) => {
+        dragColId = head.closest('.kb-col')?.dataset.col || null;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', dragColId || '');
+        head.closest('.kb-col')?.classList.add('kb-col-dragging');
+      });
+      head.addEventListener('dragend', () => {
+        dragColId = null;
+        document.querySelectorAll('.kb-col').forEach((el) => el.classList.remove('kb-col-dragging', 'kb-col-drop-hint'));
+      });
+      head.addEventListener('dragover', (e) => {
+        if (!dragColId) return; // 卡片拖拽不进入列换序逻辑
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+        head.closest('.kb-col')?.classList.add('kb-col-drop-hint');
+      });
+      head.addEventListener('dragleave', () => head.closest('.kb-col')?.classList.remove('kb-col-drop-hint'));
+      head.addEventListener('drop', (e) => {
+        const targetId = head.closest('.kb-col')?.dataset.col;
+        document.querySelectorAll('.kb-col').forEach((el) => el.classList.remove('kb-col-drop-hint'));
+        if (!dragColId || !targetId) return;
+        e.preventDefault();
+        e.stopPropagation(); // 不触发列体的卡片放置
+        const id = dragColId;
+        dragColId = null;
+        reorderColumn(id, targetId);
+      });
+    });
+
     document.querySelectorAll('.kb-col').forEach((col) => {
       col.addEventListener('dragover', (e) => { e.preventDefault(); col.classList.add('kb-drop-target'); });
       col.addEventListener('dragleave', () => col.classList.remove('kb-drop-target'));
@@ -323,6 +365,24 @@
         if (r.ok) { dragTaskId = null; await loadBoard(currentBoard.id); } else alert('移动失败：' + (r.message || r.code));
       });
     });
+
+    // 列拖拽换序：有序数组内 splice → 全列重赋 order（变更列批量持久化）
+    async function reorderColumn(dragId, targetId) {
+      if (!currentBoard || dragId === targetId) return;
+      const ordered = orderedCols();
+      const from = ordered.findIndex((c) => c.id === dragId);
+      const to = ordered.findIndex((c) => c.id === targetId);
+      if (from === -1 || to === -1) return;
+      const next = ordered.slice();
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      const updates = next
+        .map((c, i) => ({ id: c.id, order: i }))
+        .filter((u, i) => next[i].order !== i);
+      const rs = await Promise.all(updates.map((u) => kanban.updateColumn(currentBoard.id, u.id, { order: u.order })));
+      if (rs.every((r) => r.ok)) await loadBoard(currentBoard.id);
+      else alert('列排序失败：' + (rs.find((r) => !r.ok)?.message || ''));
+    }
 
     // 卡片操作
     document.querySelectorAll('[data-run]').forEach((b) => b.addEventListener('click', async () => { const r = await exec.executeTask(currentBoard.id, b.dataset.run); if (!r.ok) alert('执行失败：' + (r.message || r.code)); }));
