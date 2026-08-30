@@ -90,6 +90,24 @@ function extractArchive(archivePath, destDir, spec, platformLabel) {
   void platformLabel;
 }
 
+/** 运行时无关内容裁剪（体积优化，-65M/平台）：
+ *  - include/（~64M，Node C/C++ 头文件）：唯一消费方是 node-gyp 显式 --nodedir 场景（本仓库无此配置）；
+ *    node-gyp 默认从 nodejs.org 在线下载头文件，与本地 include/ 无关。dsh 依赖树实测零原生模块
+ *  - share/ + README.md + CHANGELOG.md：纯文档
+ *  保留：bin/ + lib/（dsh 安装硬依赖）、LICENSE（MIT 再分发合规，必须随包）、node-version.txt（extractNode 校验）
+ *  幂等：每项 existsSync 守卫——未来 node 发行版结构变化仅跳过，不报错 */
+function trimNodeDist(targetDir) {
+  const REMOVABLE = ['include', 'share', 'README.md', 'CHANGELOG.md'];
+  let removed = 0;
+  for (const rel of REMOVABLE) {
+    const p = join(targetDir, rel);
+    if (!existsSync(p)) continue;
+    rmSync(p, { recursive: true, force: true });
+    removed++;
+  }
+  if (removed > 0) console.log(`[fetch-node] 已裁剪运行时无关内容 ${removed} 项（include/share/文档）——零消费方，详见 trimNodeDist 注释`);
+}
+
 async function main() {
   const version = parseVersion(process.argv.slice(2));
   const { name: platform, spec } = parsePlatform(process.argv.slice(2));
@@ -103,6 +121,7 @@ async function main() {
   // 幂等：目标版本目录已存在 → 直接复用（先前解压必经 checksum 校验）
   if (existsSync(targetDir) && existsSync(nodeBin)) {
     console.log(`[fetch-node] 复用已存在产物: ${targetDir}`);
+    trimNodeDist(targetDir); // 旧版本 fetch 未裁剪 → 复用时自愈补裁
     printResult(nodeBin, version, platform);
     return;
   }
@@ -154,6 +173,7 @@ async function main() {
   chmodSync(nodeBin, 0o755);
   // 版本文件（PK2 extractNode 完整性校验依据：node-version.txt 随树复制到 userData/node）
   writeFileSync(join(targetDir, 'node-version.txt'), `v${version}\n`, 'utf8');
+  trimNodeDist(targetDir);
 
   console.log(`[fetch-node] 完成: ${targetDir}`);
   printResult(nodeBin, version, platform);
