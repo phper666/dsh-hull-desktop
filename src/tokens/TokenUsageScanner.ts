@@ -117,7 +117,10 @@ export interface PlatformSource {
   home: string;
   /** 返回目录下全部目标文件（绝对路径） */
   listFiles: () => string[];
-  parseLine: (line: string, fallbackTs: string) => UsageRecord | null;
+  /** 逐行解析（默认路径） */
+  parseLine?: (line: string, fallbackTs: string) => UsageRecord | null;
+  /** 整文件解析（累计值/特殊语义平台，如 codex）——设置后 parseLine 不生效 */
+  parseFile?: (text: string, fallbackTs: string) => UsageRecord[];
   /** dsh 需解压（zstd）；返回解压后文本，失败抛错由调用方隔离 */
   readFile?: (path: string) => string;
 }
@@ -155,7 +158,24 @@ export function platformSources(home = HOME): PlatformSource[] {
         listFilesRecursive(codexHome, '.jsonl', out);
         return out;
       },
-      parseLine: parseCodexLine,
+      // 准确性关键：codex 的 token_count 事件是「会话累计值」而非增量——逐行累加会重复计数。
+      // 语义：每个会话文件取时间序最后一条 total_token_usage 作为该会话总量（单记录）
+      parseFile: (text, fallbackTs) => {
+        const records: UsageRecord[] = [];
+        let last: UsageRecord | null = null;
+        let lastTs = '';
+        for (const line of text.split('\n')) {
+          if (!line) continue;
+          const rec = parseCodexLine(line, fallbackTs);
+          if (!rec) continue;
+          if (!last || (rec.ts && rec.ts >= lastTs)) {
+            last = rec;
+            lastTs = rec.ts;
+          }
+        }
+        if (last) records.push(last);
+        return records;
+      },
     },
     {
       platform: 'dsh',
@@ -184,6 +204,7 @@ function fileFallbackTs(path: string): string {
 export function scanAllSources(sources: PlatformSource[] = platformSources()): { records: UsageRecord[]; sources: ScanSourceInfo[] } {
   const records: UsageRecord[] = [];
   const infos: ScanSourceInfo[] = [];
+  const seen = new Set<string>(); // 准确性：跨文件去重（claude 同一 assistant 消息可能在多文件重复出现）
   for (const src of sources) {
     const info: ScanSourceInfo = { platform: src.platform, home: src.home, files: 0, records: 0 };
     try {
@@ -193,10 +214,23 @@ export function scanAllSources(sources: PlatformSource[] = platformSources()): {
         try {
           const text = src.readFile ? src.readFile(file) : readFileSync(file, 'utf8');
           const fallbackTs = fileFallbackTs(file);
+          if (src.parseFile) {
+            records.push(...src.parseFile(text, fallbackTs));
+            continue;
+          }
           for (const line of text.split('\n')) {
             if (!line) continue;
-            const rec = src.parseLine(line, fallbackTs);
-            if (rec) records.push(rec);
+            const rec = src.parseLine?.(line, fallbackTs);
+            if (!rec) continue;
+            // 去重键：claude 用 message.id+requestId（同一 API 响应在主会话/子代理文件重复出现只计一次）
+            const j = safeJson(line);
+            const msgId = (j?.message as Record<string, unknown> | undefined)?.id;
+            const dedupeKey = `${src.platform}:${(msgId as string) || fileFingerprint(file)}:${(j?.requestId as string) || ''}:${rec.ts}`;
+            if (src.platform === 'claude-code') {
+              if (seen.has(dedupeKey)) continue;
+              seen.add(dedupeKey);
+            }
+            records.push(rec);
           }
         } catch {
           // 单文件失败隔离（损坏/解压失败）→ 跳过
@@ -212,6 +246,9 @@ export function scanAllSources(sources: PlatformSource[] = platformSources()): {
 }
 
 /** 文件指纹（调试/未来缓存增量用） */
+/** 路线图平台（格式待逐一验证后实现适配器；TokenTracker 已覆盖 34 工具可参考） */
+export const ROADMAP_PLATFORMS = ['Gemini CLI', 'OpenCode', 'Cursor', 'Zed', 'GitHub Copilot', 'Qoder', 'Goose', 'ZCode', 'Kiro'];
+
 export function fileFingerprint(path: string): string {
   try {
     const s = statSync(path);

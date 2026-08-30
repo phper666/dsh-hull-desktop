@@ -75,7 +75,7 @@
           <h2>暂无 Token 用量数据</h2>
           <p>使用以下任一支持的 AI 编程工具产生会话后，这里会自动统计输入 / 输出 / 缓存 token（${GRAN.map(([k, n]) => n).join(' / ')}粒度）。</p>
           <div class="src">${srcRows}</div>
-          <p class="hint-note">扫描只读，不会修改各平台目录；dsh / API 型平台适配器在路线图中。</p>
+          <div class="hint-note">路线图适配器：Gemini CLI、OpenCode、Cursor、Zed、GitHub Copilot、Qoder、ZCode 等（格式逐一验证后上线）。扫描只读，不会修改各平台目录。</div>
         </div>`;
       return;
     }
