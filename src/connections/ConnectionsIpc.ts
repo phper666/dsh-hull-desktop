@@ -20,28 +20,16 @@ export function registerConnectionsIpc(options: ConnectionsIpcOptions): void {
 
   ipcMain.handle('connections:list', () => ({ ok: true, data: store.list() }));
 
-  ipcMain.handle('connections:save', async (_e, input: { id?: string; platform: PlatformId; name?: string; fields?: Record<string, string> }) => {
+  ipcMain.handle('connections:save', (_e, input: { id?: string; platform: PlatformId; name?: string; fields?: Record<string, string> }) => {
     try {
-      // 保存（加密落盘）→ 立即验证（≤10s）→ 状态落盘 → 返回最终脱敏视图
+      // 保存立即返回（unverified）；连通验证由渲染层显式调 connections:test（驱动"验证中"测试状态 UX）
       const view = store.save({
         id: input?.id,
         platform: input?.platform,
         name: input?.name || '',
         fields: input?.fields || {},
       });
-      const cred = store.getCredentials(view.id);
-      if (!cred) return { ok: true, data: view };
-      const adapter = getPlatformAdapter(cred.platform);
-      if (!adapter) return { ok: true, data: view };
-      let result;
-      try {
-        result = await adapter.verify(cred.fields);
-      } catch (err) {
-        result = { ok: false, message: (err as Error).message };
-      }
-      store.recordResult(view.id, result.ok ? 'connected' : 'failed', result.ok ? undefined : result.message);
-      const updated = store.list().find((c) => c.id === view.id) || view;
-      return { ok: true, data: updated, verify: result };
+      return { ok: true, data: view };
     } catch (err) {
       return { ok: false, message: (err as Error).message };
     }

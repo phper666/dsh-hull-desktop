@@ -65,11 +65,10 @@
     root.querySelector('#cn-add').addEventListener('click', () => { state.mode = 'platforms'; render(); });
     for (const b of root.querySelectorAll('[data-test]'))
       b.addEventListener('click', async () => {
-        b.disabled = true;
-        b.textContent = '测试中…';
+        state.verifyId = b.dataset.test;
+        render(); // 徽标 → 验证中…
         const r = await window.connections.test(b.dataset.test);
-        b.disabled = false;
-        b.textContent = '测试';
+        state.verifyId = null;
         toast(r.ok && r.data?.verify?.ok ? r.data.verify.message : r.data?.verify?.message || r.message || '测试失败');
         await loadList();
       });
@@ -99,7 +98,7 @@
         <button class="cn-back" id="cn-back">← 返回</button></div>
       <div class="cn-platforms">
         ${state.platforms
-          .map((p) => `<button class="cn-platform" data-p="${p.id}"><div class="name">${esc(p.name)}</div><div class="desc">${esc(p.description)}</div></button>`)
+          .map((p) => `<div class="cn-platform" role="button" tabindex="0" data-p="${p.id}"><div class="name">${esc(p.name)}</div><div class="desc">${esc(p.description)}</div></div>`)
           .join('')}
       </div>
       <div class="hint-note" style="padding: 0 14px; font-size: 11px; color: var(--hull-text-sub);">更多平台（小红书 / 抖音 / 飞书等）在路线图中，适配器架构已预留。</div>`;
@@ -163,20 +162,26 @@
         }
       }
       btn.disabled = true;
-      btn.textContent = '保存并验证中…（≤10s）';
+      btn.textContent = '保存中…';
       const r = await window.connections.save({ id: state.editId || undefined, platform: state.formPlatform, name, fields });
-      btn.disabled = false;
-      btn.textContent = editing ? '保存并重新验证' : '保存并连接';
       if (!r.ok) {
+        btn.disabled = false;
+        btn.textContent = editing ? '保存并重新验证' : '保存并连接';
         state.verifyMsg = { ok: false, message: r.message || '保存失败' };
         render();
         return;
       }
-      state.verifyMsg = { ok: !!(r.verify && r.verify.ok), message: r.verify?.message || '已保存' };
+      // 测试状态 UX：保存成功（未验证）→ 返回列表显式触发测试 → 徽标「验证中…」→ 结果
+      state.verifyMsg = null;
       state.editId = r.data.id;
       state.formName = r.data.name;
       state.formFields = r.data.fields; // 脱敏回显
+      state.mode = 'list';
+      state.verifyId = r.data.id;
       render();
+      const t = await window.connections.test(r.data.id);
+      state.verifyId = null;
+      if (t.ok && t.data?.verify) toast(t.data.verify.message);
       await loadList();
     });
   }
