@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync } 
 import { join } from 'node:path';
 
 import { HullError } from '../shared/errors';
+import { relinkStaleJunctions } from './relinkJunctions';
 import { InstallPhase, NOOP_LOGGER, type InstallProgress, type InstallSnapshot, type RuntimeLogger } from '../shared/types';
 
 /** INSTALL_ERRORS 六码（契约 v0.2 错误集）+ 内部码（S3 rollback 域，非契约六码） */
@@ -246,6 +247,18 @@ export class OverlayManager extends EventEmitter {
       } catch (err) {
         // ④ 回滚（回滚结果与后续 throw 分离，防内层 catch 自吞）
         this.rollbackSwap(`原子替换失败: ${(err as Error).message}`);
+      }
+      // ④b win32 junction 重建（#8，2026-08-31 Windows 实测）：pnpm 依赖链接用绝对路径
+      //     junction（指向 dsh-staging），rename 后全部悬空 → dsh 启动 dshEntryPath
+      //     MODULE_NOT_FOUND。swap 后把 node_modules 链内 target 前缀 dsh-staging → dsh。
+      //     POSIX pnpm 用相对 symlink 不需要（不调用）。
+      if (this.platform === 'win32') {
+        try {
+          const fixed = relinkStaleJunctions(this.dshDir, this.stagingDir);
+          this.logger.info(`win32 junction 重建: ${fixed} 个链接已改写指向 ${this.dshDir}`);
+        } catch (err) {
+          this.rollbackSwap(`win32 junction 重建失败: ${(err as Error).message}`);
+        }
       }
       // ⑤ post-swap bin symlink（🟡-3：失败告警 + 重试一次；POSIX 仍败走回滚。
       //    win32 例外：创建 symlink 需管理员/开发者模式，EPERM 是权限常态——spawn 走
