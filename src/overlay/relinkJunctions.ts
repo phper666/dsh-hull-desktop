@@ -16,7 +16,7 @@ import { join, sep } from 'node:path';
 /** 从根开始的受控遍历：
  *  - nm(dir)：node_modules 目录——子项为链接（修复）或真实目录（top 层）
  *  - top(dir)：node_modules 直接子层——.pnpm → pnpm 层；@scope → 再一层 top；其余真实包 → 不深入 */
-function walkNm(dir: string, oldRoot: string, newRoot: string, fixed: { n: number }): void {
+function walkNm(dir: string, oldRoot: string, newRoot: string, res: RelinkResult): void {
   let entries: string[];
   try {
     entries = readdirSync(dir);
@@ -32,17 +32,18 @@ function walkNm(dir: string, oldRoot: string, newRoot: string, fixed: { n: numbe
       continue;
     }
     if (st.isSymbolicLink()) {
-      relink(p, oldRoot, newRoot, fixed);
+      res.seen += 1;
+      relink(p, oldRoot, newRoot, res);
       continue; // 链接不深入
     }
     if (!st.isDirectory()) continue;
-    if (name === '.pnpm') walkPnpm(p, oldRoot, newRoot, fixed);
-    else if (name.startsWith('@')) walkNm(p, oldRoot, newRoot, fixed); // @scope 层（子项仍可能是真实包或 .pnpm 不在此层）
+    if (name === '.pnpm') walkPnpm(p, oldRoot, newRoot, res);
+    else if (name.startsWith('@')) walkNm(p, oldRoot, newRoot, res); // @scope 层（子项仍可能是真实包或 .pnpm 不在此层）
     // 其余真实目录 = 顶层真实包（npm hoisted 布局无链接）→ 不深入
   }
 }
 
-function walkPnpm(dir: string, oldRoot: string, newRoot: string, fixed: { n: number }): void {
+function walkPnpm(dir: string, oldRoot: string, newRoot: string, res: RelinkResult): void {
   let entries: string[];
   try {
     entries = readdirSync(dir);
@@ -64,12 +65,12 @@ function walkPnpm(dir: string, oldRoot: string, newRoot: string, fixed: { n: num
     } catch {
       continue;
     }
-    walkPkgNm(nm, oldRoot, newRoot, fixed);
+    walkPkgNm(nm, oldRoot, newRoot, res);
   }
 }
 
 /** .pnpm/<pkg>/node_modules 层：子项为依赖链接（修复）或包自身真实目录（不深入） */
-function walkPkgNm(dir: string, oldRoot: string, newRoot: string, fixed: { n: number }): void {
+function walkPkgNm(dir: string, oldRoot: string, newRoot: string, res: RelinkResult): void {
   let entries: string[];
   try {
     entries = readdirSync(dir);
@@ -85,19 +86,30 @@ function walkPkgNm(dir: string, oldRoot: string, newRoot: string, fixed: { n: nu
       continue;
     }
     if (st.isSymbolicLink()) {
-      relink(p, oldRoot, newRoot, fixed);
+      res.seen += 1;
+      relink(p, oldRoot, newRoot, res);
       continue;
     }
     // 真实目录：@scope 聚合层再进一层找链接，包内容不深入
-    if (st.isDirectory() && name.startsWith('@')) walkPkgNm(p, oldRoot, newRoot, fixed);
+    if (st.isDirectory() && name.startsWith('@')) walkPkgNm(p, oldRoot, newRoot, res);
   }
 }
 
-function relink(linkPath: string, oldRoot: string, newRoot: string, fixed: { n: number }): void {
+export interface RelinkResult {
+  /** 成功重建数 */
+  fixed: number;
+  /** 重建失败数（含错误信息——rmSync/symlinkSync 失败绝不能静默，Windows 实测 0 个+悬空并存时真凶在此） */
+  failed: Array<{ path: string; error: string }>;
+  /** 遍历到的链接数（诊断用：>0 而 fixed=0 → 匹配逻辑问题；=0 → 遍历层问题） */
+  seen: number;
+}
+
+function relink(linkPath: string, oldRoot: string, newRoot: string, res: RelinkResult): void {
   let target: string;
   try {
     target = readlinkSync(linkPath);
-  } catch {
+  } catch (err) {
+    res.failed.push({ path: linkPath, error: `readlink: ${(err as Error).message}` });
     return;
   }
   // Windows junction target 可能带 \\?\ 前缀（fs.symlinkSync junction 自动加）——归一化后比较
@@ -108,21 +120,21 @@ function relink(linkPath: string, oldRoot: string, newRoot: string, fixed: { n: 
   try {
     rmSync(linkPath); // 删链接本身（不递归进 target）
     symlinkSync(newTarget, linkPath, 'junction');
-    fixed.n += 1;
-  } catch {
-    /* 单个重建失败尽力而为（调用方告警计数） */
+    res.fixed += 1;
+  } catch (err) {
+    res.failed.push({ path: linkPath, error: `rebuild(${(err as NodeJS.ErrnoException).code}): ${(err as Error).message}` });
   }
 }
 
-/** 扫描 rootDir 的 node_modules 链，重建 target 指向 oldRoot 的悬空链接。返回重建数。 */
-export function relinkStaleJunctions(rootDir: string, oldRoot: string): number {
-  const fixed = { n: 0 };
+/** 扫描 rootDir 的 node_modules 链，重建 target 指向 oldRoot 的悬空链接。 */
+export function relinkStaleJunctions(rootDir: string, oldRoot: string): RelinkResult {
+  const res: RelinkResult = { fixed: 0, failed: [], seen: 0 };
   const nm = join(rootDir, 'node_modules');
   try {
-    if (!lstatSync(nm).isDirectory()) return 0;
+    if (!lstatSync(nm).isDirectory()) return res;
   } catch {
-    return 0;
+    return res;
   }
-  walkNm(nm, oldRoot, rootDir, fixed);
-  return fixed.n;
+  walkNm(nm, oldRoot, rootDir, res);
+  return res;
 }

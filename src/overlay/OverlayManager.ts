@@ -254,8 +254,8 @@ export class OverlayManager extends EventEmitter {
       //     POSIX pnpm 用相对 symlink 不需要（不调用）。
       if (this.platform === 'win32') {
         try {
-          const fixed = relinkStaleJunctions(this.dshDir, this.stagingDir);
-          this.logger.info(`win32 junction 重建: ${fixed} 个链接已改写指向 ${this.dshDir}`);
+          const r = relinkStaleJunctions(this.dshDir, this.stagingDir);
+          this.logger.info(`win32 junction 重建: fixed=${r.fixed} seen=${r.seen} failed=${r.failed.length}${r.failed.length ? ' ' + r.failed.map((f) => `${f.path} → ${f.error}`).join('; ') : ''}`);
         } catch (err) {
           this.rollbackSwap(`win32 junction 重建失败: ${(err as Error).message}`);
         }

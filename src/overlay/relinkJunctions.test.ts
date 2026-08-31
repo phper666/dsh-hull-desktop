@@ -43,9 +43,11 @@ test('relink：swap 后悬空 junction 重建为前缀改写（dsh-staging → d
   // 简单 cp -R 等价：重建目录结构 + 链接（mac 无 cp junction 语义，用 fs 手动拷贝链接）
   copyTree(oldRoot, newRoot);
 
-  const fixed = relinkStaleJunctions(newRoot, oldRoot);
+  const r = relinkStaleJunctions(newRoot, oldRoot);
 
-  equal(fixed, 3, '三个 stale 链接全部重建');
+  equal(r.fixed, 3, '三个 stale 链接全部重建');
+  equal(r.seen, 4, '遍历到 4 个链接（3 stale + 1 外部）');
+  equal(r.failed.length, 0, '零失败');
   // 顶层 foo：现指向 newRoot 下的 .pnpm
   const fooTarget = readlinkSync(join(newRoot, 'node_modules', 'foo'));
   ok(fooTarget.startsWith(newRoot), `顶层链接应指向新根，实际 ${fooTarget}`);
@@ -69,7 +71,7 @@ test('relink：无 stale 链接 → 返回 0，无副作用', () => {
   const root = join(base, 'dsh');
   mkdirSync(join(root, 'node_modules', 'pkg'), { recursive: true });
   writeFileSync(join(root, 'node_modules', 'pkg', 'i.js'), 'x');
-  equal(relinkStaleJunctions(root, join(base, 'dsh-staging')), 0);
+  equal(relinkStaleJunctions(root, join(base, 'dsh-staging')).fixed, 0);
 });
 
 /** 测试辅助：递归拷贝（symlink 保留为链接） */
