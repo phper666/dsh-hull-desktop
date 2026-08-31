@@ -66,6 +66,12 @@ function walkPnpm(dir: string, oldRoot: string, newRoot: string, res: RelinkResu
       continue;
     }
     if (!st.isDirectory() || st.isSymbolicLink()) continue;
+    // .pnpm/node_modules = pnpm 根级虚拟 store（hoist 所有包，junction 链 client-ui bundle 解析依赖）——
+    //   Windows 实测曾漏扫 → 全部 client-ui 链接悬空 → dsh 插件加载 ERR_MODULE_NOT_FOUND
+    if (name === 'node_modules') {
+      walkNm(pkgDir, oldRoot, newRoot, res);
+      continue;
+    }
     const nm = join(pkgDir, 'node_modules');
     try {
       if (!lstatSync(nm).isDirectory()) continue;

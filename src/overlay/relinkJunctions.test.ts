@@ -24,6 +24,9 @@ function makeStaleTree(oldRoot: string): void {
   symlinkSync(barReal, join(oldRoot, 'node_modules', '@scope', 'bar'), 'dir');
   // .pnpm/foo@1/node_modules/bar → 依赖链接（junction）
   symlinkSync(barReal, join(pnpm, 'foo@1', 'node_modules', 'bar'), 'dir');
+  // .pnpm/node_modules（pnpm 根级虚拟 store）：hoist 所有包 → junction（曾漏扫，client-ui 解析断链根因）
+  mkdirSync(join(pnpm, 'node_modules', '@deepseek-ai'), { recursive: true });
+  symlinkSync(barReal, join(pnpm, 'node_modules', '@deepseek-ai', 'bar'), 'dir');
   // 包内容里混一个 symlink（不应被触碰/遍历）
   symlinkSync(join(oldRoot, 'decoy'), join(pkg1Real, 'decoy-link'), 'dir');
   // 非 stale 链接（指向 oldRoot 之外）→ 不动
@@ -45,8 +48,8 @@ test('relink：swap 后悬空 junction 重建为前缀改写（dsh-staging → d
 
   const r = relinkStaleJunctions(newRoot, oldRoot);
 
-  equal(r.fixed, 3, '三个 stale 链接全部重建');
-  equal(r.seen, 4, '遍历到 4 个链接（3 stale + 1 外部）');
+  equal(r.fixed, 4, '四个 stale 链接全部重建（含 .pnpm/node_modules 根级虚拟 store）');
+  equal(r.seen, 5, '遍历到 5 个链接（4 stale + 1 外部）');
   equal(r.failed.length, 0, '零失败');
   // 顶层 foo：现指向 newRoot 下的 .pnpm
   const fooTarget = readlinkSync(join(newRoot, 'node_modules', 'foo'));
@@ -58,6 +61,10 @@ test('relink：swap 后悬空 junction 重建为前缀改写（dsh-staging → d
   // .pnpm 内依赖链接
   const depTarget = readlinkSync(join(newRoot, 'node_modules', '.pnpm', 'foo@1', 'node_modules', 'bar'));
   ok(depTarget.startsWith(newRoot), `依赖链接应指向新根，实际 ${depTarget}`);
+  // .pnpm/node_modules 根级虚拟 store 链接（client-ui bundle 解析链）
+  const storeTarget = readlinkSync(join(newRoot, 'node_modules', '.pnpm', 'node_modules', '@deepseek-ai', 'bar'));
+  ok(storeTarget.startsWith(newRoot), `虚拟 store 链接应指向新根，实际 ${storeTarget}`);
+  ok(existsSync(join(newRoot, 'node_modules', '.pnpm', 'node_modules', '@deepseek-ai', 'bar')), '虚拟 store 链接可解析');
   // 包内容 decoy 未触碰（仍指 oldRoot）
   const decoy = readlinkSync(join(newRoot, 'node_modules', '.pnpm', 'foo@1', 'node_modules', 'foo', 'decoy-link'));
   ok(decoy.startsWith(oldRoot), '包内容内 symlink 不应被遍历/触碰');
