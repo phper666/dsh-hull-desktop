@@ -35,6 +35,7 @@ interface MakeOpts {
   withBin?: boolean;
   pendingNpm?: boolean;
   fs?: OverlayFs;
+  platform?: NodeJS.Platform;
 }
 
 function makeManager(opts: MakeOpts = {}) {
@@ -43,9 +44,12 @@ function makeManager(opts: MakeOpts = {}) {
   const events: Array<{ type: string; payload?: unknown }> = [];
   const npmRuns: string[] = [];
   let npmControl: { resolve: () => void; reject: (e: Error) => void } | undefined;
+  const warns: string[] = [];
   const mgr = new OverlayManager({
     userDataPath,
     ...(opts.fs ? { fs: opts.fs } : {}),
+    ...(opts.platform ? { platform: opts.platform } : {}),
+    logger: { info() {}, warn: (m) => warns.push(m), error() {}, dshLog() {} },
     runNpmInstall: async (stagingDir) => {
       npmRuns.push(stagingDir);
       if (opts.pendingNpm) {
@@ -60,7 +64,7 @@ function makeManager(opts: MakeOpts = {}) {
   mgr.on('success', (v) => events.push({ type: 'success', payload: v }));
   mgr.on('cancelled', () => events.push({ type: 'cancelled' }));
   mgr.on('failed', (f) => events.push({ type: 'failed', payload: f }));
-  return { mgr, userDataPath, events, npmRuns, getNpmControl: () => npmControl };
+  return { mgr, userDataPath, events, npmRuns, getNpmControl: () => npmControl, warns };
 }
 
 /** 构造完整 staging（门禁通过）：package.json{version,bin} + node_modules/.bin/dsh */
@@ -383,6 +387,24 @@ test('🟡-3b symlink 失败一次 → 重试成功 → swap 正常完成', asyn
   await mgr.swap();
   equal(mgr.installStatus().phase, 'ready');
   equal(mgr.currentVersion(), '1.0.0');
+});
+
+test('🟡-3c win32 symlink EPERM → 降级告警不回滚（Windows 无 symlink 权限，spawn 走真实入口）', async () => {
+  const { mgr, userDataPath, warns } = makeManager({ version: '1.0.0', platform: 'win32' });
+  makeOldDsh(userDataPath, '0.9.0');
+  await mgr.install('1.0.0');
+  const base = realFs();
+  const badFs: OverlayFs = {
+    ...base,
+    symlink: () => {
+      throw new Error('EPERM: operation not permitted, symlink');
+    },
+  };
+  (mgr as unknown as { fs: OverlayFs }).fs = badFs;
+  await mgr.swap(); // 不抛 = 不回滚
+  equal(mgr.installStatus().phase, 'ready', 'win32 symlink 失败降级 → ready');
+  equal(mgr.currentVersion(), '1.0.0', '新版就位（未回滚至 0.9.0）');
+  ok(warns.some((w) => w.includes('symlink') && w.includes('Windows')), '应产生降级告警');
 });
 
 test('🟡-4 ensure 态3：回滚 rename 失败 → not-installed（自动重装路径）', async () => {

@@ -55,6 +55,8 @@ export interface OverlayManagerOptions {
   logger?: RuntimeLogger;
   /** fs 门面（测试注入；默认 node:fs） */
   fs?: OverlayFs;
+  /** 宿主平台（测试注入；默认 process.platform）——win32 symlink 失败降级告警不回滚 */
+  platform?: NodeJS.Platform;
   /** npm install 执行器（默认抛 npm-install-failed——未接入时不可用） */
   runNpmInstall?: NpmInstallFn;
   /** 休眠（测试 seam；swap 取消窗口拦截点） */
@@ -93,6 +95,7 @@ export class OverlayManager extends EventEmitter {
   private readonly userDataPath: string;
   private readonly logger: RuntimeLogger;
   private readonly fs: OverlayFs;
+  private readonly platform: NodeJS.Platform;
   private readonly runNpmInstall: NpmInstallFn;
   private readonly sleepImpl: (ms: number) => Promise<void>;
 
@@ -101,6 +104,7 @@ export class OverlayManager extends EventEmitter {
     this.userDataPath = options.userDataPath;
     this.logger = options.logger ?? NOOP_LOGGER;
     this.fs = options.fs ?? DEFAULT_FS;
+    this.platform = options.platform ?? process.platform;
     this.runNpmInstall =
       options.runNpmInstall ??
       (async () => {
@@ -243,9 +247,17 @@ export class OverlayManager extends EventEmitter {
         // ④ 回滚（回滚结果与后续 throw 分离，防内层 catch 自吞）
         this.rollbackSwap(`原子替换失败: ${(err as Error).message}`);
       }
-      // ⑤ post-swap bin symlink（🟡-3：失败告警 + 重试一次 → 仍败走回滚）
+      // ⑤ post-swap bin symlink（🟡-3：失败告警 + 重试一次；POSIX 仍败走回滚。
+      //    win32 例外：创建 symlink 需管理员/开发者模式，EPERM 是权限常态——spawn 走
+      //    dshEntryPath 真实 JS 入口（P2 CON-R-pkgmgr-004）不依赖 bin/dsh，降级告警不回滚）
       const linkErr = this.createBinSymlinkWithRetry();
-      if (linkErr) this.rollbackSwap(`post-swap bin symlink 失败: ${linkErr}`);
+      if (linkErr) {
+        if (this.platform === 'win32') {
+          this.logger.warn(`post-swap bin symlink 失败（Windows 无 symlink 权限，已跳过——spawn 走 dshEntryPath 真实入口不受影响）: ${linkErr}`);
+        } else {
+          this.rollbackSwap(`post-swap bin symlink 失败: ${linkErr}`);
+        }
+      }
       // ⑥ 版本记录
       this.version = this.readVersionFrom(this.dshDir);
       this.transition(InstallPhase.Ready, `dsh 就绪（v${this.version ?? 'unknown'}）`);
