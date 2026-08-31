@@ -67,6 +67,9 @@ jobs:
       - name: Fetch bundled Node (C3，按平台生成；win32-x64 CI 补齐 Q-059)
         env:
           PLATFORM: ${{ matrix.platform }}
+        # ⚠️ shell: bash 必须显式指定——windows runner 默认 PowerShell，node 非零退出不 fail step，
+        #   曾静默吞掉 fetch-node 404 导致发布无捆绑 node 的 win 包（v0.1.0~0.1.6 全中招）
+        shell: bash
         run: node scripts/fetch-node.mjs --platform "$PLATFORM"
 
       - name: Typecheck (C7 前置门禁)
