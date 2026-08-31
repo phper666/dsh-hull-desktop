@@ -40,6 +40,8 @@ export const COREPACK_PNPM_VERSION = '11.23.0';
 export abstract class BasePkgMgrRunner implements PkgMgrRunner {
   protected readonly nodePath: string;
   protected readonly corepackHome?: string;
+  /** install() 解析出的 registry（rebuild/peerFixup 的 spawnOnce 同透传） */
+  private activeRegistry: string | null = null;
   protected readonly spawnFn: PkgMgrSpawnFn;
   protected readonly logger: RuntimeLogger;
   protected readonly now: () => number;
@@ -118,6 +120,11 @@ export abstract class BasePkgMgrRunner implements PkgMgrRunner {
       try {
         const env: NodeJS.ProcessEnv = { ...process.env };
         this.corepackEnv(env); // COREPACK_HOME 壳控（rebuild 同走 corepack）
+        // registry 同透传 install 的选择（缺 → corepack 再拉 pnpm / pnpm 装包走默认源，国内网络挂）
+        if (this.activeRegistry) {
+          env.npm_config_registry = this.activeRegistry;
+          env.COREPACK_NPM_REGISTRY = this.activeRegistry;
+        }
         child = this.spawnFn(command, args, {
           cwd,
           stdio: ['ignore', 'pipe', 'pipe'],
@@ -142,9 +149,14 @@ export abstract class BasePkgMgrRunner implements PkgMgrRunner {
   async install(stagingDir: string, targetVersion: string, opts: PkgMgrRunOptions): Promise<PkgMgrResult> {
     this.cancelled = false;
     const env: NodeJS.ProcessEnv = { ...process.env };
-    // registry env 注入（npm_config_registry 通用变量——npm/pnpm 均识别）
-    if (opts.registry) env.npm_config_registry = opts.registry;
-    else if (process.env.HULL_REGISTRY) env.npm_config_registry = process.env.HULL_REGISTRY;
+    // registry env 注入：npm_config_registry（npm/pnpm 装包识别）+ COREPACK_NPM_REGISTRY
+    // （corepack 下载 pnpm 本体识别——实测缺它时 corepack 恒走 registry.npmjs.org，国内网络 ConnectTimeout）
+    const registry = opts.registry || process.env.HULL_REGISTRY;
+    if (registry) {
+      env.npm_config_registry = registry;
+      env.COREPACK_NPM_REGISTRY = registry;
+      this.activeRegistry = registry; // rebuild/peerFixup 同透传（COREPACK_HOME 缓存空时 corepack 会再拉 pnpm）
+    }
     this.corepackEnv(env); // A 方案：COREPACK_HOME 壳控（pnpm 走 corepack）
     const { command, args } = this.buildArgs(stagingDir, targetVersion, env);
     const child = this.spawnFn(command, args, {
