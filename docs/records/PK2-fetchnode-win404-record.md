@@ -51,3 +51,15 @@ dsh 无法安装（打包环境无 PATH node 兜底可用）。
 1. **v0.1.7 发布前**：直接发 CI 版本即可（修复已合入则 win 包带 node）；发布后抽查产物确认
 2. 已发布 v0.1.0~0.1.6 win 包永久损坏，release notes 建议标注
 3. 防复发候选（未做，待拍板）：electron-builder afterPack 钩子校验 win 包 resources/node 存在性（打包门禁）
+
+## 连带修复：Windows 验证会话（2026-08-31 同日）
+
+Windows 实测连带发现并修复 **pkgMgr 跨平台缺陷**（另一独立 bug，非本 bug 部分）：
+
+- 现象：dev 环境（PATH 兜底系统 node）装 dsh 报 `Cannot find module '<staging>\corepack'`
+- 根因三连：① `resolveExecutablePath` 按 `:` 切 PATH（win 是 `;`）且不补 `.exe` → nodePath 保持裸 `'node'`；② 连锁致 `corepackBin()` 相对化 → cwd 下解析 MODULE_NOT_FOUND；③ corepack/npm-cli 的 JS 入口在 win 布局（node.exe 同级直挂 `node_modules/`，无 bin/lib 层）下路径不同——无扩展名 `corepack` 是 sh 脚本，node 跑不了
+- 修复：`corepackBinFor`/`npmCliPathFor` 平台分支 + `resolveExecutablePath` 用 `path.delimiter` + `.exe` 候选（导出可注入）；新增 `winpaths.test.ts` 10 用例（含 POSIX 回归守卫）；yarn 已移除（v1.2），npm/pnpm 两执行器全部覆盖（rebuild/peerFixup 复用 corepackBin 源头修复）
+- 验证：731/731 全绿 + typecheck 干净；Windows 端实测待用户复测
+- 详见 docs/lessons/2026-08-31-pkgmgr-win-node-dist-layout-lesson.md
+
+同会话环境排障（非代码 bug，已入 README）：Windows dev `npx electron --version` 报 extract-zip 绑定 `ERR_DLOPEN_FAILED`——真实根因 **VC++ 运行库缺失**（装 vc_redist.x64 即愈），npm#4828（删 node_modules 重装）为文件缺失时次选。
