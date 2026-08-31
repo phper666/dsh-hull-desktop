@@ -8,7 +8,10 @@ export const PROBE_WINDOW_MS = 15_000;
 /** 探测间隔默认 ms */
 export const PROBE_INTERVAL_MS = 500;
 /** 就绪行预算默认 ms（契约：60s，可注入） */
-export const READY_LINE_TIMEOUT_DEFAULT_MS = 60_000;
+/** 就绪行超时默认（设计 D5：60s）。
+ *  ⚠️ 180s（Windows 实测 2026-08-31）：dsh 0.1.1-rc.2 Windows 冷启动受 Defender 逐文件扫描拖慢
+ *  可超 60s，且 ready 行之前 stdout 零输出（dsh.log 空）——60s 判失败过早，dsh 其实正在起 */
+export const READY_LINE_TIMEOUT_DEFAULT_MS = 180_000;
 /** 单行长度上限（防畸形输出撑爆内存；保留尾部，不吞后续行） */
 export const MAX_LINE_BYTES = 8 * 1024;
 /** 单次探测超时 ms（防请求挂起吃掉整个窗口） */

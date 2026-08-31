@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { spawn, type StdioOptions } from 'node:child_process';
+import { spawn, spawnSync, type StdioOptions } from 'node:child_process';
 import { existsSync, promises as fsPromises, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -347,6 +347,17 @@ export class RuntimeManager extends EventEmitter {
   private async killProcessGroup(child: ChildLike): Promise<void> {
     if (child.exitCode !== null || child.pid === undefined) return;
     const pid = child.pid;
+    // Windows：process.kill(-pid) 负 pid 进程组语义仅 POSIX（Windows 上无效 → dsh 残留进程，
+    // Windows 实测 2026-08-31）→ 用 taskkill /T /F 杀整树
+    if (process.platform === 'win32') {
+      try {
+        spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
+      } catch {
+        /* taskkill 不可用 → 尽力而为 */
+      }
+      await this.waitForExit(child, POST_KILL_WAIT_MS);
+      return;
+    }
     try {
       this.killFn(-pid, 'SIGTERM');
     } catch {
