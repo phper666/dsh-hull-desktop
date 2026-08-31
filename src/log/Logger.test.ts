@@ -43,14 +43,15 @@ test('超阈值轮转：hull.log → .1/.2/.3 顺序（keepCount=3）', () => {
   ok(!existsSync(join(dir, 'hull.log.4')), 'keepCount=3，无 .4');
 });
 
-test('dshLog 统一落盘 dsh.log（带 [dsh pid=<pid>] 前缀，不再 dsh-<pid>.log）', () => {
+test('dshLog 统一落盘 dsh.log（带时间戳 + [dsh pid=<pid>] 前缀，不再 dsh-<pid>.log）', () => {
   const dir = makeDir();
   const log = new Logger({ logDir: dir });
   log.dshLog(4242, 'dsh web: http://127.0.0.1:53421');
   log.dshLog(4242, 'second line');
   const content = readFileSync(join(dir, 'dsh.log'), 'utf8');
-  ok(content.includes('[dsh pid=4242] dsh web: http://127.0.0.1:53421'), 'dsh.log 含 pid 前缀 + 内容');
-  ok(content.includes('[dsh pid=4242] second line'));
+  // 时间戳格式与 hull.log 一致：[YYYY-MM-DD HH:mm:ss.SSS]
+  ok(/\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\] \[dsh pid=4242\] dsh web:/.test(content), 'dsh.log 含时间戳 + pid 前缀 + 内容');
+  ok(/\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\] \[dsh pid=4242\] second line/.test(content), '每行独立时间戳');
   ok(!existsSync(join(dir, 'dsh-4242.log')), '不再创建 dsh-<pid>.log');
 });
 

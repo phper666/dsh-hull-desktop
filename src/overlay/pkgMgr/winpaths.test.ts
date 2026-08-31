@@ -6,14 +6,14 @@ import { corepackBinFor, npmCliPathFor, resolveExecutablePath } from './npmRunne
 
 // ---------- corepackBinFor：平台布局差异 ----------
 
-test('win32 布局：corepack JS 入口 = <dir>/node_modules/corepack/bin/corepack.js（node.exe 同级）', () => {
+test('win32 布局：corepack JS 入口 = <dir>/node_modules/corepack/dist/corepack.js（node.exe 同级）', () => {
   const nodePath = join('C:', 'Program Files', 'nodejs', 'node.exe');
-  equal(corepackBinFor(nodePath, 'win32'), join('C:', 'Program Files', 'nodejs', 'node_modules', 'corepack', 'bin', 'corepack.js'));
+  equal(corepackBinFor(nodePath, 'win32'), join('C:', 'Program Files', 'nodejs', 'node_modules', 'corepack', 'dist', 'corepack.js'));
 });
 
-test('win32 捆绑 node 布局同构：userData/node/node.exe → userData/node/node_modules/corepack/...', () => {
+test('win32 捆绑 node 布局同构：userData/node/node.exe → userData/node/node_modules/corepack/dist/...', () => {
   const nodePath = join('C:', 'Users', 'u', 'AppData', 'Roaming', 'dsh-hull-desktop', 'node', 'node.exe');
-  equal(corepackBinFor(nodePath, 'win32'), join('C:', 'Users', 'u', 'AppData', 'Roaming', 'dsh-hull-desktop', 'node', 'node_modules', 'corepack', 'bin', 'corepack.js'));
+  equal(corepackBinFor(nodePath, 'win32'), join('C:', 'Users', 'u', 'AppData', 'Roaming', 'dsh-hull-desktop', 'node', 'node_modules', 'corepack', 'dist', 'corepack.js'));
 });
 
 test('POSIX 布局：bin/corepack（symlink→JS）——现状不变（回归守卫）', () => {

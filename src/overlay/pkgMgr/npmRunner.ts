@@ -439,12 +439,13 @@ export class PnpmRunner extends BasePkgMgrRunner {
 }
 
 /** 平台布局：corepack JS 入口（node 显式跑，见 PnpmRunner.buildArgs 注释）。
- *  - POSIX：bin/corepack 是 symlink → JS（node 可直接执行）——现状不变
- *  - win32：node.exe 同级无 JS 入口（无扩展名 corepack 是 sh 脚本，node 跑不了），
- *    真实 JS 在 node_modules/corepack/bin/corepack.js（system node 与捆绑 win zip 同构） */
+ *  - POSIX：bin/corepack 是 symlink → dist/corepack.js（node 可直接执行）——现状不变
+ *  - win32：node.exe 同级无 JS 入口（无扩展名 corepack 是 sh 脚本，node 跑不了）。
+ *    ⚠️ corepack 0.34+ 的 package.json bin = ./dist/corepack.js，bin/ 目录为空——
+ *    真实 JS 在 node_modules/corepack/dist/corepack.js（system node 与捆绑 win zip 同构，实测 2026-08-31） */
 export function corepackBinFor(nodePath: string, platform: NodeJS.Platform = process.platform): string {
   const dir = dirname(nodePath);
-  if (platform === 'win32') return join(dir, 'node_modules', 'corepack', 'bin', 'corepack.js');
+  if (platform === 'win32') return join(dir, 'node_modules', 'corepack', 'dist', 'corepack.js');
   return join(dir, 'corepack');
 }
 
