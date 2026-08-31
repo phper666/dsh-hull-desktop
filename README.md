@@ -92,6 +92,10 @@ npm test             # 单测 + 集成（476+8 全绿）
 npm run dev          # tsc + electron . (启动壳)
 ```
 
+> **Windows 开发环境**：`npm run dev` / `npx electron --version` 报 `Cannot find native binding ... @electron-internal/extract-zip` + `ERR_DLOPEN_FAILED` 时，按序排查：
+> ① **装 VC++ 运行库**（最常见根因：`index.win32-x64-msvc.node` 已随包分发但依赖的 DLL 缺失，报「The specified module could not be found」）——下载安装 [vc_redist.x64](https://aka.ms/vs/17/release/vc_redist.x64.exe) 后重跑；
+> ② 仍失败则查绑定文件是否缺失/0 字节（`Get-Item node_modules\@electron-internal\extract-zip\index.win32-x64-msvc.node | Select-Object Length`）——是则 `Remove-Item -Recurse -Force node_modules` 后重装 `npm i`（npm/cli#4828）；仍不行再连同 `package-lock.json` 一起删后重建（lock diff 勿提交）。
+
 ### 命令矩阵
 
 | 命令 | 作用 |
