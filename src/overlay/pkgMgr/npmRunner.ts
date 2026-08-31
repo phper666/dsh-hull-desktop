@@ -60,7 +60,7 @@ export abstract class BasePkgMgrRunner implements PkgMgrRunner {
 
   /** 捆绑 corepack 二进制路径（A 方案：nodePath 同 bin 目录；nodePath 为绝对路径——resolveExecutablePath 已解析） */
   protected corepackBin(): string {
-    return join(dirname(this.nodePath), 'corepack');
+    return corepackBinFor(this.nodePath);
   }
 
   /** COREPACK_HOME env 注入（壳控缓存；未配 → 不设，corepack 用用户默认缓存） */
@@ -297,9 +297,9 @@ export class NpmRunner extends BasePkgMgrRunner {
     return 'npm';
   }
 
-  /** 捆绑 npm-cli 路径（nodePath 推导：<nodeDir>/lib/node_modules/npm/bin/npm-cli.js） */
+  /** 捆绑 npm-cli 路径（nodePath 推导；平台布局差异见 npmCliPathFor） */
   get npmCliPath(): string {
-    return join(dirname(this.nodePath), '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+    return npmCliPathFor(this.nodePath);
   }
 
   protected buildArgs(
@@ -438,13 +438,48 @@ export class PnpmRunner extends BasePkgMgrRunner {
   }
 }
 
-/** 相对可执行名 → 绝对路径（PATH 查找；绝对路径原样返回）。npmCliPath 推导依赖绝对 node 路径 */
-function resolveExecutablePath(cmd: string): string {
+/** 平台布局：corepack JS 入口（node 显式跑，见 PnpmRunner.buildArgs 注释）。
+ *  - POSIX：bin/corepack 是 symlink → JS（node 可直接执行）——现状不变
+ *  - win32：node.exe 同级无 JS 入口（无扩展名 corepack 是 sh 脚本，node 跑不了），
+ *    真实 JS 在 node_modules/corepack/bin/corepack.js（system node 与捆绑 win zip 同构） */
+export function corepackBinFor(nodePath: string, platform: NodeJS.Platform = process.platform): string {
+  const dir = dirname(nodePath);
+  if (platform === 'win32') return join(dir, 'node_modules', 'corepack', 'bin', 'corepack.js');
+  return join(dir, 'corepack');
+}
+
+/** 平台布局：npm-cli.js。
+ *  - POSIX：bin/node → 上一级 lib/node_modules/npm/bin/npm-cli.js——现状不变
+ *  - win32：node.exe 同级直挂 node_modules/npm/bin/npm-cli.js（无 lib 层） */
+export function npmCliPathFor(nodePath: string, platform: NodeJS.Platform = process.platform): string {
+  const dir = dirname(nodePath);
+  if (platform === 'win32') return join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  return join(dir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+}
+
+export interface ResolveExecutableOptions {
+  platform?: NodeJS.Platform;
+  /** 默认 process.env.PATH（测试注入用） */
+  pathEnv?: string;
+  /** 默认 existsSync（测试注入用） */
+  exists?: (p: string) => boolean;
+}
+
+/** 相对可执行名 → 绝对路径（PATH 查找；绝对路径原样返回）。npmCliPath 推导依赖绝对 node 路径。
+ *  ⚠️ Windows 坑（曾致 dsh-staging\corepack MODULE_NOT_FOUND）：
+ *  ① PATH 分隔符是 `;` 非 `:`（用 path.delimiter，跨平台正确）；
+ *  ② 目录下是 node.exe——无后缀匹配不到，需补 .exe 候选 */
+export function resolveExecutablePath(cmd: string, opts: ResolveExecutableOptions = {}): string {
   if (isAbsolute(cmd)) return cmd;
-  const dirs = (process.env.PATH ?? '').split(':');
+  const platform = opts.platform ?? process.platform;
+  const exists = opts.exists ?? existsSync;
+  const dirs = (opts.pathEnv ?? process.env.PATH ?? '').split(platform === 'win32' ? ';' : ':');
+  const exts = platform === 'win32' ? ['', '.exe'] : [''];
   for (const dir of dirs) {
-    const candidate = join(dir, cmd);
-    if (existsSync(candidate)) return candidate;
+    for (const ext of exts) {
+      const candidate = join(dir, cmd + ext);
+      if (exists(candidate)) return candidate;
+    }
   }
   return cmd; // 找不到 → 原样返回，spawn 报错更清晰
 }
