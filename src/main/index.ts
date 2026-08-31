@@ -222,7 +222,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     registry: settings.getSettings().registry, // S6 B7：settings.registry 优先 + env 兜底
     onLine: (line) => {
       npmOutputTarget.fn?.(line);
-      installLineTarget.fn?.(line); // 首装进度：install 行 → OverlayManager.onNpmLine
+      installLineTarget.fn?.(line); // 首装进度：install 行 → OverlayManager.onPkgMgrLine
       logger.dshLog(0, `[pkgmgr] ${line}`); // 逐包输出落盘（排查安装慢/卡包）
     },
   };
@@ -231,7 +231,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     logger,
     runNpmInstall: (stagingDir, targetVersion) => toRunNpmInstall(newPkgMgrRunner(), pkgMgrOptions)(stagingDir, targetVersion), // 委托 pkgMgrRunner（错误码透传）
   });
-  installLineTarget.fn = (line) => overlay.onNpmLine(line);
+  installLineTarget.fn = (line) => overlay.onPkgMgrLine(line);
   // PK2：捆绑 node 解压接入（CON-R-packaging-003）——打包后 resources/node → <userData>/node；
   // dev 无打包资源 → extractBundledNode 抛错 → InstallFlow dev 分支告警跳过 → PATH 兜底（CON-R-packaging-008）
   const installFlow = new InstallFlow({

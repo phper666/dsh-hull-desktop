@@ -227,6 +227,25 @@ test('⑪ installStatus 返回当前 phase + 进度', async () => {
   equal(mgr.installStatus().progress?.pct, 100);
 });
 
+test('⑪b pnpm Progress 行解析 → pct 按 added/resolved 渐进（修复恒 20%）', () => {
+  const { mgr } = makeManager();
+  void mgr.install('latest');
+  equal(mgr.installStatus().progress?.pct, 20, '起始 20');
+  mgr.onPkgMgrLine('Progress: resolved 100, reused 0, downloaded 10, added 5');
+  equal(mgr.installStatus().progress?.pct, 22, '20 + floor(40*5/100)');
+  mgr.onPkgMgrLine('Progress: resolved 504, reused 0, downloaded 447, added 442');
+  equal(mgr.installStatus().progress?.pct, 55, '20 + floor(40*442/504)，封顶 60 内');
+  mgr.onPkgMgrLine('Progress: resolved 504, reused 0, downloaded 447, added 445, done');
+  equal(mgr.installStatus().progress?.pct, 60, 'done → 60（installing 段顶格）');
+});
+
+test('⑪c npm http fetch 行计数仍生效（npm 路径回归守卫）', () => {
+  const { mgr } = makeManager();
+  void mgr.install('latest');
+  for (let i = 0; i < 25; i++) mgr.onPkgMgrLine('npm http fetch GET https://x');
+  equal(mgr.installStatus().progress?.pct, 21, '20 + 25/25 = 21');
+});
+
 test('⑫ currentVersion：无 dsh → null；swap 后读 package.json', async () => {
   const { mgr } = makeManager({ version: '2.1.0' });
   equal(mgr.currentVersion(), null);

@@ -128,14 +128,25 @@ export class OverlayManager extends EventEmitter {
     };
   }
 
-  /** npm 输出行钩子（main 的 npmRunner onLine → 本方法；首装进度 + 输出缓冲）。
+  /** pkgmgr 输出行钩子（main 的 pkgMgr onLine → 本方法；首装进度 + 输出缓冲）。
    *  仅 installing 段收集（对齐 Updater.pushOutput：其他段不污染缓冲）。
-   *  npm http fetch 行计数 → pct 渐进（50→60，每 25 行 +1%，封顶 60——installing 段留余量给 swap 90）。 */
-  onNpmLine(line: string): void {
+   *  进度解析双格式：
+   *  - npm：`npm http fetch` 行计数（每 25 行 +1%，封顶 60）
+   *  - pnpm：`Progress: resolved N, … added X[, done]`（added/resolved 比例映射 20→60——
+   *    曾只认 npm 格式 → pnpm 首装进度恒 20%） */
+  onPkgMgrLine(line: string): void {
     if (this.phase !== InstallPhase.Installing) return;
     this.output.push(line);
     if (this.output.length > OverlayManager.MAX_OUTPUT_LINES) {
       this.output.splice(0, this.output.length - OverlayManager.MAX_OUTPUT_LINES);
+    }
+    const pnpm = /Progress: resolved (\d+),.*?added (\d+)(, done)?/.exec(line);
+    if (pnpm) {
+      const resolved = Number(pnpm[1]);
+      const added = Number(pnpm[2]);
+      const pct = pnpm[3] ? 60 : resolved > 0 ? 20 + Math.floor((40 * added) / resolved) : 20;
+      this.setProgress({ phase: 'npm-install', pct: Math.min(60, pct) });
+      return;
     }
     if (/^npm http fetch/.test(line)) {
       this.npmFetchCount += 1;
