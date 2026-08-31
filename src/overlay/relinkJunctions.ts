@@ -1,5 +1,5 @@
 import { lstatSync, readlinkSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 
 /** 路径归一化：剥 \\?\ 前缀 + 分隔符统一为 `\`。
  *  ⚠️ 必须在前后缀比较前做——实测 readlink 返回 `\` 分隔而调用方传入 `/` 分隔路径时
@@ -122,7 +122,9 @@ function relink(linkPath: string, oldRoot: string, newRoot: string, res: RelinkR
   const norm = canonPath(target);
   const oldNorm = canonPath(oldRoot);
   if (!norm.startsWith(oldNorm + '\\') && norm !== oldNorm) return; // 非 stale，不动
-  const newTarget = join(newRoot, norm.slice(oldNorm.length).replace(/^[/\\]/, ''));
+  // canonPath 已把分隔符统一为 '\'——重组时转回平台分隔符（posix join 不归一化 '\'，实测 mac 链接断）
+  const rel = norm.slice(oldNorm.length).replace(/^[/\\]/, '');
+  const newTarget = join(newRoot, rel.split(/[/\\]+/).join(sep));
   try {
     rmSync(linkPath); // 删链接本身（不递归进 target）
     symlinkSync(newTarget, linkPath, 'junction');
