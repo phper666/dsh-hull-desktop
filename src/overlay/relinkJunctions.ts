@@ -1,5 +1,12 @@
 import { lstatSync, readlinkSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
-import { join, sep } from 'node:path';
+import { join } from 'node:path';
+
+/** 路径归一化：剥 \\?\ 前缀 + 分隔符统一为 `\`。
+ *  ⚠️ 必须在前后缀比较前做——实测 readlink 返回 `\` 分隔而调用方传入 `/` 分隔路径时
+ *  startsWith 永远失配 → seen=2027 / fixed=0（2026-08-31 Windows 实测真凶）。 */
+function canonPath(p: string): string {
+  return p.replace(/^\\\\\?\\/, '').replace(/\/+/g, '\\');
+}
 
 /**
  * Windows pnpm junction 悬空重建（#8，2026-08-31 Windows 实测）：
@@ -112,10 +119,9 @@ function relink(linkPath: string, oldRoot: string, newRoot: string, res: RelinkR
     res.failed.push({ path: linkPath, error: `readlink: ${(err as Error).message}` });
     return;
   }
-  // Windows junction target 可能带 \\?\ 前缀（fs.symlinkSync junction 自动加）——归一化后比较
-  const norm = target.replace(/^\\\\\?\\/, '');
-  const oldNorm = oldRoot.replace(/^\\\\\?\\/, '');
-  if (!norm.startsWith(oldNorm + sep) && norm !== oldNorm) return; // 非 stale，不动
+  const norm = canonPath(target);
+  const oldNorm = canonPath(oldRoot);
+  if (!norm.startsWith(oldNorm + '\\') && norm !== oldNorm) return; // 非 stale，不动
   const newTarget = join(newRoot, norm.slice(oldNorm.length).replace(/^[/\\]/, ''));
   try {
     rmSync(linkPath); // 删链接本身（不递归进 target）
