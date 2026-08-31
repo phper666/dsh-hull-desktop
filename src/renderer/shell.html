@@ -57,6 +57,16 @@
     --hull-switch-off: #6b768855;
     --hull-overlay: rgba(0,0,0,0.55);
     --hull-shadow: rgba(0,0,0,0.3);
+    /* P1.2：Web Awesome 令牌 → Hull 品牌（wa-* 组件随壳配色/字号；暗色域） */
+    --wa-color-brand-fill-loud: var(--hull-accent);
+    --wa-color-brand-on-loud: var(--hull-text-inverse);
+    --wa-color-brand-fill-normal: var(--hull-accent-soft);
+    --wa-color-brand-on-normal: var(--hull-accent-hover);
+    --wa-color-brand-fill-quiet: var(--hull-accent-faint);
+    --wa-color-brand-on-quiet: var(--hull-accent-hover);
+    --wa-color-brand-border-loud: var(--hull-accent);
+    --wa-color-brand-border-normal: var(--hull-accent-soft);
+    --wa-color-brand-border-quiet: var(--hull-accent-soft);
   }
   /* P1 令牌层（几何/字体/动效；颜色仍用上方 --hull-* 主题变量；值保持现状不视觉变更） */
   :root {
@@ -68,20 +78,19 @@
     --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 20px; --space-6: 24px; /* P1.2 增量采用 */
   }
-  /* P1.2：Web Awesome 令牌 → Hull 品牌（wa-* 组件随壳配色/字号，暗亮通用） */
-  --wa-color-brand-fill-loud: var(--hull-accent);
-  --wa-color-brand-on-loud: var(--hull-text-inverse);
-  --wa-color-brand-fill-normal: var(--hull-accent-soft);
-  --wa-color-brand-on-normal: var(--hull-accent-hover);
-  --wa-color-brand-fill-quiet: var(--hull-accent-faint);
-  --wa-color-brand-on-quiet: var(--hull-accent-hover);
-  --wa-color-brand-border-loud: var(--hull-accent);
-  --wa-color-brand-border-normal: var(--hull-accent-soft);
-  --wa-color-brand-border-quiet: var(--hull-accent-soft);
-  --wa-font-family-body: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-  --wa-font-size-m: 13px;
-  }
   [data-theme="light"] {
+    /* P1.2：Web Awesome 令牌 → Hull 品牌（浅色域，随主题切换） */
+    --wa-color-brand-fill-loud: var(--hull-accent);
+    --wa-color-brand-on-loud: var(--hull-text-inverse);
+    --wa-color-brand-fill-normal: var(--hull-accent-soft);
+    --wa-color-brand-on-normal: var(--hull-accent-hover);
+    --wa-color-brand-fill-quiet: var(--hull-accent-faint);
+    --wa-color-brand-on-quiet: var(--hull-accent-hover);
+    --wa-color-brand-border-loud: var(--hull-accent);
+    --wa-color-brand-border-normal: var(--hull-accent-soft);
+    --wa-color-brand-border-quiet: var(--hull-accent-soft);
+    --wa-font-family-body: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --wa-font-size-m: 13px;
     --hull-bg: #f5f7fa;
     --hull-panel: #fff;
     --hull-border: #d5dbe4;
