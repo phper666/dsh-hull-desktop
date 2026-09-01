@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import { equal, deepEqual, ok, rejects } from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
-import { NpmRunner } from './npmRunner';
+import { NpmRunner, npmCliPathFor } from './npmRunner';
 import { toRunNpmInstall } from './index';
 import type { PkgMgrSpawnOptions } from './types';
 
@@ -40,8 +40,10 @@ test('① npm 参数串：npm-cli 路径 / install 包名 / --prefix / --fetch-t
   const p = runner.install('/tmp/staging', '1.0.0', runOpts);
   const s = getSpawn();
   equal(s!.cmd, '/usr/local/fake-node/bin/node');
+  // npm-cli 路径按平台推导（win32 无 lib 层；硬编码 POSIX 路径在 Windows 必挂——
+  // 且断言先抛 → emit('exit') 不执行 → install promise 挂起 → 测试进程不退出）
   deepEqual(s!.args, [
-    '/usr/local/fake-node/lib/node_modules/npm/bin/npm-cli.js',
+    npmCliPathFor('/usr/local/fake-node/bin/node'),
     'install',
     '@deepseek-ai/dsh@1.0.0',
     '--prefix',
@@ -87,6 +89,15 @@ test('② registry env 透传：opts.registry → npm_config_registry；空 → 
   equal(s3()!.opts.env.npm_config_registry, undefined);
   c3().emit('exit', 0, null);
   await p3;
+});
+
+test('②b registry 尾斜杠归一化：带尾斜杠的镜像 → corepack 拼 //pnpm/ 404（2026-09-01 冷装真凶），两个 env 均剥尾斜杠', async () => {
+  const { runner, getChild, getSpawn } = makeRunner();
+  const p = runner.install('/tmp/staging', 'latest', { registry: 'https://registry.npmmirror.com/' });
+  equal(getSpawn()!.opts.env.npm_config_registry, 'https://registry.npmmirror.com');
+  equal(getSpawn()!.opts.env.COREPACK_NPM_REGISTRY, 'https://registry.npmmirror.com');
+  getChild().emit('exit', 0, null);
+  await p;
 });
 
 test('③ 非零退出（无网络错误码）→ npm-install-failed', async () => {

@@ -60,12 +60,15 @@ test('win32：找不到 → 原样返回（spawn 报错更清晰）', () => {
 });
 
 test('POSIX：PATH 按 : 切分（回归守卫）', () => {
+  // exists 回调用 join 推导期望值——实现内部用 path.join 构造候选路径，
+  // win32 运行下产出反斜杠，硬编码 POSIX 正斜杠字面量永失配 → 误报失败
+  const dir = '/usr/local/fake-node/bin';
   const found = resolveExecutablePath('node', {
     platform: 'darwin',
-    pathEnv: '/usr/bin:/usr/local/fake-node/bin',
-    exists: (p) => p === '/usr/local/fake-node/bin/node',
+    pathEnv: `/usr/bin:${dir}`,
+    exists: (p) => p === join(dir, 'node'),
   });
-  equal(found, '/usr/local/fake-node/bin/node');
+  equal(found, join(dir, 'node'));
 });
 
 test('绝对路径原样返回（两平台一致）', () => {

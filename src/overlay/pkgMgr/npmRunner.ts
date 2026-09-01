@@ -151,7 +151,7 @@ export abstract class BasePkgMgrRunner implements PkgMgrRunner {
     const env: NodeJS.ProcessEnv = { ...process.env };
     // registry env 注入：npm_config_registry（npm/pnpm 装包识别）+ COREPACK_NPM_REGISTRY
     // （corepack 下载 pnpm 本体识别——实测缺它时 corepack 恒走 registry.npmjs.org，国内网络 ConnectTimeout）
-    const registry = opts.registry || process.env.HULL_REGISTRY;
+    const registry = normalizeRegistry(opts.registry || process.env.HULL_REGISTRY);
     if (registry) {
       env.npm_config_registry = registry;
       env.COREPACK_NPM_REGISTRY = registry;
@@ -375,6 +375,11 @@ export class PnpmRunner extends BasePkgMgrRunner {
         stagingDir,
         // CON-R-pkgmgr-002：POSIX .bin 变 symlink（Windows 忽略）
         '--config.prefer-symlinked-executables=true',
+        // ⚠️ node-linker=hoisted（2026-09-01 Windows 首装根治）：默认 isolated 布局在普通权限
+        // （无 symlink 权限）下 pnpm 用绝对路径 junction（EPERM 降级），swap rename 后全部悬空，
+        // 重建又撞 Windows Defender 扫描窗口（EISDIR 3~10 分钟）。hoisted 布局顶层依赖是
+        // 真实目录（无 junction）→ swap 后天然有效，无需 relink/兜底，普通用户可用。
+        '--config.node-linker=hoisted',
       ],
     };
   }
@@ -458,7 +463,9 @@ export class PnpmRunner extends BasePkgMgrRunner {
 export function corepackBinFor(nodePath: string, platform: NodeJS.Platform = process.platform): string {
   const dir = dirname(nodePath);
   if (platform === 'win32') return join(dir, 'node_modules', 'corepack', 'dist', 'corepack.js');
-  return join(dir, 'corepack');
+  // 显式 POSIX 请求 → 正斜杠确定性输出（POSIX 宿主 join 本就产正斜杠，replace 无操作；
+  // win32 宿主 join 产反斜杠——不归一则按平台参数的契约失真，回归守卫测试无法跨平台）
+  return join(dir, 'corepack').replace(/\\/g, '/');
 }
 
 /** 平台布局：npm-cli.js。
@@ -467,7 +474,8 @@ export function corepackBinFor(nodePath: string, platform: NodeJS.Platform = pro
 export function npmCliPathFor(nodePath: string, platform: NodeJS.Platform = process.platform): string {
   const dir = dirname(nodePath);
   if (platform === 'win32') return join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js');
-  return join(dir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  // POSIX 请求 → 正斜杠确定性输出（同 corepackBinFor：POSIX 宿主无操作，win32 宿主归一）
+  return join(dir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js').replace(/\\/g, '/');
 }
 
 export interface ResolveExecutableOptions {
@@ -512,4 +520,13 @@ function createLineBuffer(onLine: (line: string) => void): (chunk: string) => vo
       idx = residue.indexOf('\n');
     }
   };
+}
+
+/** registry 归一化：剥尾部斜杠——corepack 拼 `${registry}/pnpm/<ver>`，带尾斜杠
+ *  （settings 可存 `https://registry.npmmirror.com/`）→ `//pnpm/` → npmmirror 404，
+ *  pnpm 本体下载失败、首装必败（2026-09-01 冷装实测真凶）。空/纯斜杠 → undefined。 */
+export function normalizeRegistry(registry: string | undefined): string | undefined {
+  if (!registry) return undefined;
+  const trimmed = registry.replace(/\/+$/, '');
+  return trimmed || undefined;
 }

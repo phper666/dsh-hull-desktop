@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import { equal, deepEqual, ok } from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
-import { PnpmRunner, NATIVE_DEP_PKGS, COREPACK_PNPM_VERSION } from './npmRunner';
+import { PnpmRunner, NATIVE_DEP_PKGS, COREPACK_PNPM_VERSION, corepackBinFor } from './npmRunner';
 import type { PkgMgrSpawnOptions } from './types';
 
 class FakeChild extends EventEmitter {
@@ -52,7 +52,9 @@ function makeRunner(opts: {
   };
 }
 
-const COREPACK_BIN = '/usr/local/fake-node/bin/corepack';
+// corepack 入口按平台推导（win32 是 node_modules/corepack/dist/corepack.js，
+// 硬编码 POSIX 路径在 Windows 必挂——断言先抛 → emit('exit') 不执行 → install promise 挂起 → 测试进程不退出）
+const COREPACK_BIN = corepackBinFor('/usr/local/fake-node/bin/node');
 
 test('pnpm ① 参数串：corepack pnpm@<固定版本> add / --prefix / prefer-symlinked-executables / 写 package.json', async () => {
   const { runner, getChild, getSpawn, getSpawns, writes, runOpts } = makeRunner();
@@ -68,6 +70,7 @@ test('pnpm ① 参数串：corepack pnpm@<固定版本> add / --prefix / prefer-
     '--prefix',
     '/tmp/staging',
     '--config.prefer-symlinked-executables=true',
+    '--config.node-linker=hoisted',
   ]);
   equal(s!.opts.cwd, '/tmp/staging');
   deepEqual(writes, ['/tmp/staging']); // staging 根 package.json 先写
