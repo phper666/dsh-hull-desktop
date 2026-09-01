@@ -424,8 +424,15 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   });
 
   // S2：首装/重装编排（自动触发 + 引导态重装共用同一入口）
+  // ⚠️ 防重入锁（2026-09-01 实测）：hull:install 的 Installing 检查有竞态——runInstallFlow
+  // 是 void 异步，第一次点击后 handler 已返回但 install() 尚未把 phase 置为 Installing，
+  // 快速连续点击会并发进入多次 installFlow.run → 后续并发的 install() 直接返回快照后
+  // 继续 swap() 空 staging（预改写 seen=0）→ 空 dsh → 安装错乱。用 installRunning 锁兜住。
+  let installRunning = false;
   const runInstallFlow = async (targetVersion: string): Promise<void> => {
-    if (quitting) return;
+    if (quitting || installRunning) return;
+    installRunning = true;
+    try {
     // PK2 补充：首装前确保捆绑 node 解压——否则 nodePath 走 PATH 兜底（'node'），
     // pnpm 的 corepackBin（nodePath 同目录/corepack）路径错 → spawn corepack pnpm 127（command not found）
     await ensureBundledNode(userDataPath, logger);
@@ -435,10 +442,43 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     if (result.ok) {
       logger.info(`dsh 安装成功 v${result.version}`);
       // B7：install success 即提交；start() 失败归 S1 failed 态（占位页重试），不触发安装回滚
-      runtime.start().catch((err: Error) => logger.warn(`安装后启动失败: ${err.message}`));
+      try {
+        await runtime.start();
+      } catch (err) {
+        // Windows junction 窗口兜底（2026-09-01 冷装实测）：swap 后立即 relink 常被
+        // pnpm 收尾/Windows Defender 对新路径 dsh 的扫描锁住（EISDIR/EPERM），
+        // 窗口实测 3~5 分钟（120s 仍失败、几分钟后成功）。启动失败后轮询重建：
+        // 每 30s 尝试一次（内部带退避），成功立即启动，最长 6 分钟。
+        if (overlay.hasRelinkFailure()) {
+          logger.warn(`安装后启动失败（junction 重建未完成），轮询等待重建: ${(err as Error).message}`);
+          winMgr.showPlaceholder('installing', '正在完成 dsh 启动准备…');
+          let relinkOk = false;
+          for (let i = 0; i < 12; i++) {
+            await new Promise((r) => setTimeout(r, 30_000));
+            if (quitting) return;
+            const r = await overlay.ensureJunctions();
+            logger.info(`junction 重建兜底[${i + 1}]: fixed=${r.fixed} seen=${r.seen} failed=${r.failed.length}`);
+            if (r.failed.length === 0) {
+              relinkOk = true;
+              break;
+            }
+          }
+          if (quitting) return;
+          if (relinkOk) {
+            runtime.start().catch((e: Error) => logger.warn(`兜底重建后启动失败: ${e.message}`));
+          } else {
+            showNotInstalled(`dsh 安装后启动失败（junction 重建持续失败）: ${(err as Error).message}`);
+          }
+        } else {
+          logger.warn(`安装后启动失败: ${(err as Error).message}`);
+        }
+      }
     } else {
       // failed/cancelled → 引导态（错误提示 + 安装按钮重试）
       showNotInstalled(result.message);
+    }
+    } finally {
+      installRunning = false;
     }
   };
 
@@ -465,7 +505,10 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   // S2 IPC（契约 v0.2 #6~#8）：install / cancelInstall / installStatus（renderer 250ms 轮询，B6）
   ipcMain.handle('hull:install', async () => {
     if (quitting) return { ok: false, message: '正在退出' };
-    if (overlay.installStatus().phase === InstallPhase.Installing) return { ok: false, message: '安装进行中' };
+    // installRunning 锁（runInstallFlow 重入防护）+ Installing 阶段检查，双保险防并发
+    if (installRunning || overlay.installStatus().phase === InstallPhase.Installing) {
+      return { ok: false, message: '安装进行中' };
+    }
     // S4 版本通道：resolveTarget 解析真实目标版本（latest → registry 最新 / pinned → 锁定版）；失败回退 latest
     let target = 'latest';
     try {
