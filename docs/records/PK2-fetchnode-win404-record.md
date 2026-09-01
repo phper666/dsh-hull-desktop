@@ -63,3 +63,38 @@ Windows 实测连带发现并修复 **pkgMgr 跨平台缺陷**（另一独立 bu
 - 详见 docs/lessons/2026-08-31-pkgmgr-win-node-dist-layout-lesson.md
 
 同会话环境排障（非代码 bug，已入 README）：Windows dev `npx electron --version` 报 extract-zip 绑定 `ERR_DLOPEN_FAILED`——真实根因 **VC++ 运行库缺失**（装 vc_redist.x64 即愈），npm#4828（删 node_modules 重装）为文件缺失时次选。
+
+## 后续 Windows 首装全链路修复（2026-09-01，Windows 实测通过后合并入本记录）
+
+会话从「win 包缺 node」一路追到 Windows 首装全链路，累计修复：
+
+### 二阶段：pnpm 安装链路（dev/打包共用）
+
+| commit | 问题 | 修复 |
+|---|---|---|
+| 7e219c8 | corepack 下载 pnpm 本体恒走 npmjs（国内 ConnectTimeout）——corepack 只认 COREPACK_NPM_REGISTRY 不认 npm_config_registry | install/rebuild/peerFixup 三阶段双变量透传 |
+| 40201d6 | corepack 0.34+ bin 字段是 ./dist/corepack.js，bin/ 目录为空——win 入口取错 | corepackBinFor win 分支改 dist/ |
+| a514aed（另会话） | registry 尾斜杠 → corepack 拼 //pnpm/ 404；**pnpm isolated 布局普通权限下用绝对 junction，swap rename 后悬空是首装必挂根因** | normalizeRegistry 剥尾斜杠；**--config.node-linker=hoisted**——hoisted 顶层依赖为真实目录，swap 后天然有效（根治，不再依赖 junction 重建） |
+
+### 三阶段：swap/启动链路
+
+| commit | 问题 | 修复 |
+|---|---|---|
+| 7c7ac59 | win32 post-swap bin symlink EPERM（无管理员/开发者模式）→ 回滚 → 安装必败 | win32 降级告警不回滚（spawn 走 dshEntryPath 真实入口不依赖 symlink） |
+| 56067b7~9535115 | pnpm junction 绝对路径 → swap rename 后悬空 → dshEntryPath/插件解析 MODULE_NOT_FOUND | relinkStaleJunctions 重建（前缀改写 + 分隔符归一化 + 覆盖 .pnpm/node_modules 虚拟 store）；后续被 a514aed hoisted 根治替代为主防线 |
+| fbf7cca（另会话） | swap 后重建撞 Defender 扫描窗口（EISDIR/EPERM 3~10 分钟）| swap 前预改写（target 前缀 staging→dsh）+ 指数退避 + ensureJunctions 轮询兜底 |
+| e7b9dc2（另会话） | 首装快速连点并发 swap 空 staging → 空 dsh；启动失败 junction 未完成 | installRunning 防重入锁 + 启动轮询 ensureJunctions（30s×最长 6 分钟）|
+| 698d1d2 | 冷启动超 60s 误判失败（Defender 拖慢）+ process.kill(-pid) Windows 无效残留进程 | ready 超时 60→180s + taskkill /T /F |
+
+### 四阶段：UI/进度（dev/打包共用）
+
+| commit | 问题 | 修复 |
+|---|---|---|
+| 695f5c6 | toast setAttribute('closable') 单参数 → 新 Chromium 抛错 | 补空串参数 |
+| 6a99076 | pnpm 首装进度恒 20%（只解析 npm http fetch 行）| 双格式解析（Progress: resolved/added）|
+
+### 最终验证
+
+- **Windows 全新环境开箱即用：✅ 通过（2026-09-01，用户实测）**
+- 738/738 单测 + typecheck 干净 + runtime/overlay 专项全绿
+- 关键教训：**Windows 首装 pnpm 必须 hoisted 布局**（普通权限无 symlink/junction 安全语义），isolated 布局的绝对 junction 与 swap rename 原子替换根本冲突
