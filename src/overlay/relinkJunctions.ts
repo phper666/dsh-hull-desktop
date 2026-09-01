@@ -140,8 +140,44 @@ function relink(linkPath: string, oldRoot: string, newRoot: string, res: RelinkR
   }
 }
 
-/** 扫描 rootDir 的 node_modules 链，重建 target 指向 oldRoot 的悬空链接。 */
-export function relinkStaleJunctions(rootDir: string, oldRoot: string): RelinkResult {
+/** 扫描 rootDir 的 node_modules 链，重建 target 指向 oldRoot 的悬空链接。
+ *  swap 后修复用：newRoot = rootDir（target 前缀 oldRoot → rootDir）。
+ *  ⚠️ 异步 + 失败重试退避：swap 后立即调用时，Windows Defender 对 rename 后的
+ *  dsh 目录扫描可能锁住删/建 junction（EISDIR/EPERM 窗口，2026-09-01 冷装实测，
+ *  userData 下几分钟后消失；Temp 下不触发）。重试间隔 500ms*2^n 封顶 10s。
+ *  仍失败 → 返回剩余 failed（调用方记录，走启动轮询兜底）。 */
+export async function relinkStaleJunctions(
+  rootDir: string,
+  oldRoot: string,
+  retries = 10
+): Promise<RelinkResult> {
+  return relinkJunctionsToTarget(rootDir, oldRoot, rootDir, retries);
+}
+
+/** 通用 junction target 前缀改写（方案4，2026-09-01）：把 rootDir 内 target 前缀为
+ *  oldRoot 的 junction 重建为 newRoot 前缀。
+ *  - swap 前预改写：relinkJunctionsToTarget(stagingDir, stagingDir, dshDir) ——
+ *    junction target 指向未来的 dsh（swap 后 dsh 出现即有效），无需 swap 后重建，
+ *    避开 Defender 对新路径 dsh 的扫描窗口；junction 创建本身无需提权（普通用户可用）。
+ *  - swap 后修复：relinkStaleJunctions(dshDir, stagingDir)（newRoot = rootDir）。 */
+export async function relinkJunctionsToTarget(
+  rootDir: string,
+  oldRoot: string,
+  newRoot: string,
+  retries = 10
+): Promise<RelinkResult> {
+  let res = relinkOnce(rootDir, oldRoot, newRoot);
+  let attempt = 0;
+  while (res.failed.length > 0 && attempt < retries) {
+    await sleep(Math.min(500 * 2 ** attempt, 10_000));
+    res = relinkOnce(rootDir, oldRoot, newRoot);
+    attempt += 1;
+  }
+  return res;
+}
+
+/** 单次全扫重建（同步；重试循环的原子单元） */
+function relinkOnce(rootDir: string, oldRoot: string, newRoot: string): RelinkResult {
   const res: RelinkResult = { fixed: 0, failed: [], seen: 0 };
   const nm = join(rootDir, 'node_modules');
   try {
@@ -149,6 +185,10 @@ export function relinkStaleJunctions(rootDir: string, oldRoot: string): RelinkRe
   } catch {
     return res;
   }
-  walkNm(nm, oldRoot, rootDir, res);
+  walkNm(nm, oldRoot, newRoot, res);
   return res;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync } 
 import { join } from 'node:path';
 
 import { HullError } from '../shared/errors';
-import { relinkStaleJunctions } from './relinkJunctions';
+import { relinkStaleJunctions, relinkJunctionsToTarget, type RelinkResult } from './relinkJunctions';
 import { InstallPhase, NOOP_LOGGER, type InstallProgress, type InstallSnapshot, type RuntimeLogger } from '../shared/types';
 
 /** INSTALL_ERRORS 六码（契约 v0.2 错误集）+ 内部码（S3 rollback 域，非契约六码） */
@@ -87,6 +87,8 @@ export class OverlayManager extends EventEmitter {
   private cancelled = false;
   private swapping = false;
   private targetVersion: string | null = null;
+  /** win32 swap 后 junction 重建是否残留失败（Windows 扫描/句柄窗口；main 启动兜底用） */
+  private relinkFailed = false;
   /** npm http fetch 行计数（首装进度渐进；对齐 Updater.pushOutput，50→60 每 25 行 +1%） */
   private npmFetchCount = 0;
   /** npm 输出环形缓冲（最近 N 行，首装输出框数据源；snapshot().output 透传） */
@@ -175,6 +177,21 @@ export class OverlayManager extends EventEmitter {
     return this.fs.exists(this.previousDir);
   }
 
+  /** 上次 win32 swap 的 junction 重建是否残留失败（main 启动兜底判断用） */
+  hasRelinkFailure(): boolean {
+    return this.relinkFailed;
+  }
+
+  /**
+   * junction 重建兜底（main 启动失败后调用）：窗口（pnpm 收尾/Defender 扫描）过后
+   * 补跑一次带退避的重建，把悬空链接修复。幂等：无 stale 链接 → 立即返回。
+   */
+  async ensureJunctions(): Promise<RelinkResult> {
+    const r = await relinkStaleJunctions(this.dshDir, this.stagingDir, 4);
+    this.relinkFailed = r.failed.length > 0;
+    return r;
+  }
+
   /**
    * 仅安装到 staging（契约 v0.2 #2，不含 swap）：
    * installing 中重复 install 忽略；起始清 stale staging（幂等）；末尾 pre-swap 门禁。
@@ -235,6 +252,21 @@ export class OverlayManager extends EventEmitter {
     try {
       this.setProgress({ phase: 'swap', pct: 100 });
       await this.sleepImpl(0); // 取消窗口拦截点：swap 起始后 cancel 忽略（B3）
+      // ④a win32 预改写（方案4，swap 前）：staging 内 junction target 前缀 staging → dsh
+      //     （target 指向 swap 后出现的 dsh，rename 后直接有效——避开 swap 后 Defender
+      //     扫描新路径 dsh 的 EISDIR/EPERM 窗口；junction 创建无需提权，普通用户可用）。
+      //     预改写失败 → 不阻断 swap，swap 后 ④b 重建 + 启动轮询兜底。
+      let prelinkFailed = false;
+      if (this.platform === 'win32' && this.fs.exists(this.stagingDir)) {
+        try {
+          const pre = await relinkJunctionsToTarget(this.stagingDir, this.stagingDir, this.dshDir, 2);
+          prelinkFailed = pre.failed.length > 0;
+          this.logger.info(`win32 junction 预改写: fixed=${pre.fixed} seen=${pre.seen} failed=${pre.failed.length}`);
+        } catch (err) {
+          prelinkFailed = true;
+          this.logger.warn(`win32 junction 预改写失败（走 swap 后重建兜底）: ${(err as Error).message}`);
+        }
+      }
       // 版本预检（显式 targetVersion 匹配；latest 跳过——门禁已验 bin 字段）
       const stagingVersion = this.readVersionFrom(this.stagingDir);
       if (this.targetVersion && this.targetVersion !== 'latest' && stagingVersion !== this.targetVersion) {
@@ -252,11 +284,17 @@ export class OverlayManager extends EventEmitter {
       //     junction（指向 dsh-staging），rename 后全部悬空 → dsh 启动 dshEntryPath
       //     MODULE_NOT_FOUND。swap 后把 node_modules 链内 target 前缀 dsh-staging → dsh。
       //     POSIX pnpm 用相对 symlink 不需要（不调用）。
+      //     预改写（④a）成功时此处全跳过（target 已是 dsh，不匹配 staging）；仅预改写
+      //     失败时才会命中——Windows 冷装实测 swap 后立即重建有 Defender 扫描窗口
+      //     （EISDIR/EPERM），这里快速试一次（retries=0 不阻塞），失败记录 relinkFailed，
+      //     由 main 启动轮询兜底（窗口过后 ensureJunctions 补跑）修复。
       if (this.platform === 'win32') {
         try {
-          const r = relinkStaleJunctions(this.dshDir, this.stagingDir);
+          const r = await relinkStaleJunctions(this.dshDir, this.stagingDir, 0);
+          this.relinkFailed = r.failed.length > 0;
           this.logger.info(`win32 junction 重建: fixed=${r.fixed} seen=${r.seen} failed=${r.failed.length}${r.failed.length ? ' ' + r.failed.map((f) => `${f.path} → ${f.error}`).join('; ') : ''}`);
         } catch (err) {
+          this.relinkFailed = true;
           this.rollbackSwap(`win32 junction 重建失败: ${(err as Error).message}`);
         }
       }
