@@ -74,13 +74,13 @@ test.describe('E2E-07 设置页', () => {
     let app: ElectronApplication | null = null;
     try {
       seedFakeDsh(tmp.dir);
-      seedSettings(tmp.dir);
+      seedSettings(tmp.dir, { theme: 'dark' }); // 显式存量值：默认档已改 system（CON-R-theme-004 v1.3），跟随 OS 会使默认断言不稳定
       app = await launchApp({ userData: tmp.dir });
       await waitForReady(app);
 
       const shell = await openSettings(app);
       await expect(shell.locator('#theme-seg')).toBeVisible();
-      // 默认暗色
+      // 默认暗色（seeded）
       await expect(shell.locator('body')).toHaveAttribute('data-theme', 'dark');
       await expect(shell.locator('#theme-seg button[data-theme="dark"]')).toHaveAttribute('aria-pressed', 'true');
 

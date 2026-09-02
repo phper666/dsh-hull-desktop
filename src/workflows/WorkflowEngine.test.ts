@@ -1,5 +1,5 @@
 import { test } from 'node:test';
-import { equal, ok, rejects, throws } from 'node:assert/strict';
+import { deepEqual, equal, ok, rejects, throws } from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,7 +11,7 @@ import type { ExecutionEngine } from '../exec/ExecutionEngine';
 import { WorkflowEngine, type WorkflowEngineDeps } from './WorkflowEngine';
 import { WorkflowStore } from './WorkflowStore';
 
-function makeEnv(opts: { execFail?: boolean } = {}) {
+function makeEnv(opts: { execFail?: boolean; invokeAction?: (connectionId: string, params: Record<string, string>) => Promise<{ ok: boolean; message: string }>; tokenUsage?: (period: 'day' | 'month' | 'all') => Promise<{ totalTokens: number }> } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'hull-workflows-'));
   const store = new WorkflowStore(dir);
   const calls: string[] = [];
@@ -31,6 +31,8 @@ function makeEnv(opts: { execFail?: boolean } = {}) {
       }) as unknown as ExecutionEngine['executeTask'],
     } as unknown as ExecutionEngine,
     notify: (title: string, body: string) => calls.push(`notify:${title}:${body}`),
+    invokeAction: opts.invokeAction,
+    tokenUsage: opts.tokenUsage,
     now: (() => {
       let n = 0;
       return () => (n += 100);
@@ -112,6 +114,13 @@ test('停用的工作流拒绝执行 + 不存在抛错（async → rejects）', 
   await rejects(() => engine.run('nope'), /不存在/);
 });
 
+test('运行记录标记触发来源：默认 manual', async () => {
+  const { engine, store } = makeEnv();
+  const w = store.save({ name: '来源标记', steps: [] });
+  const r = await engine.run(w.id);
+  equal(r.trigger, 'manual');
+});
+
 test('运行日志环形裁剪（≤50）', async () => {
   const { engine, store } = makeEnv();
   for (let i = 0; i < 7; i++) {
@@ -120,4 +129,107 @@ test('运行日志环形裁剪（≤50）', async () => {
   }
   equal(store.runs().length, 7);
   ok(true);
+});
+
+// ── v2：同工作流并发互斥 ──
+
+test('互斥：上一次运行未结束 → 第二次拒绝；结束后可再次运行', async () => {
+  const { engine, store } = makeEnv();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const prevFetch = globalThis.fetch;
+  (globalThis as { fetch: unknown }).fetch = (async () => {
+    await gate;
+    return { ok: true, status: 200 };
+  }) as unknown as typeof fetch;
+  try {
+    const w = store.save({ name: '互斥', steps: [{ id: 's1', type: 'http', config: { url: 'https://example.com/x' } }] });
+    const first = engine.run(w.id);
+    await rejects(() => engine.run(w.id), /尚未结束/);
+    release();
+    const run = await first;
+    equal(run.status, 'success');
+    const second = await engine.run(w.id);
+    equal(second.status, 'success');
+  } finally {
+    globalThis.fetch = prevFetch;
+  }
+});
+
+// ── v2：connection-action 步骤 ──
+
+test('connection-action：成功透传结果 / 失败 fail-fast / 缺连接配置报错', async () => {
+  const calls: Array<[string, Record<string, string>]> = [];
+  const { engine, store } = makeEnv({
+    invokeAction: async (connectionId, params) => {
+      calls.push([connectionId, params]);
+      return connectionId === 'conn-ok'
+        ? { ok: true, message: '短信已发送至 138****1111' }
+        : { ok: false, message: '凭据无效' };
+    },
+  });
+  const w1 = store.save({ name: '发短信', steps: [{ id: 's1', type: 'connection-action', config: { connectionId: 'conn-ok', params: '{"phoneNumbers":"13800001111"}' } }] });
+  const r1 = await engine.run(w1.id);
+  equal(r1.status, 'success');
+  equal(r1.log[0].message, '短信已发送至 138****1111');
+  deepEqual(calls[0], ['conn-ok', { phoneNumbers: '13800001111' }]);
+
+  const w2 = store.save({ name: '失败链', steps: [{ id: 's1', type: 'connection-action', config: { connectionId: 'conn-bad', params: '{}' } }, { id: 's2', type: 'notification', config: { message: '不应到达' } }] });
+  const r2 = await engine.run(w2.id);
+  equal(r2.status, 'failed');
+  equal(r2.log.length, 1);
+  ok(r2.log[0].message.includes('凭据无效'));
+
+  const w3 = store.save({ name: '缺配置', steps: [{ id: 's1', type: 'connection-action', config: { params: '{}' } }] });
+  const r3 = await engine.run(w3.id);
+  equal(r3.status, 'failed');
+  ok(r3.log[0].message.includes('connectionId'));
+
+  const w4 = store.save({ name: 'params 非 JSON', steps: [{ id: 's1', type: 'connection-action', config: { connectionId: 'conn-ok', params: 'not-json' } }] });
+  const r4 = await engine.run(w4.id);
+  equal(r4.status, 'failed');
+  ok(r4.log[0].message.includes('JSON'));
+});
+
+test('connection-action：未装配 invokeAction → 明确报错', async () => {
+  const { engine, store } = makeEnv();
+  const w = store.save({ name: '未装配', steps: [{ id: 's1', type: 'connection-action', config: { connectionId: 'c1', params: '{}' } }] });
+  const r = await engine.run(w.id);
+  equal(r.status, 'failed');
+  ok(r.log[0].message.includes('未装配'));
+});
+
+// ── v2：token-budget 步骤 ──
+
+test('token-budget：未超限通过 / 超限 fail+notify / 阈值非法报错 / 未装配报错', async () => {
+  const { engine, store, calls } = makeEnv({ tokenUsage: async (period) => ({ totalTokens: period === 'day' ? 900 : 5000 }) });
+
+  const w1 = store.save({ name: '预算内', steps: [{ id: 's1', type: 'token-budget', config: { period: 'day', thresholdTokens: '1000' } }] });
+  const r1 = await engine.run(w1.id);
+  equal(r1.status, 'success');
+  ok(r1.log[0].message.includes('900'));
+  ok(r1.log[0].message.includes('今日'));
+
+  const w2 = store.save({ name: '超限告警', steps: [{ id: 's1', type: 'token-budget', config: { period: 'day', thresholdTokens: '500', notifyOnExceed: 'true' } }] });
+  const r2 = await engine.run(w2.id);
+  equal(r2.status, 'failed');
+  ok(r2.log[0].message.includes('900'));
+  ok(r2.log[0].message.includes('500'));
+  ok(calls.some((c) => c.startsWith('notify:Hull 工作流:')), '超限时发系统通知');
+
+  const w3 = store.save({ name: '超限不通知', steps: [{ id: 's1', type: 'token-budget', config: { period: 'day', thresholdTokens: '500' } }] });
+  const before = calls.filter((c) => c.startsWith('notify:')).length;
+  await engine.run(w3.id);
+  equal(calls.filter((c) => c.startsWith('notify:')).length, before, '未开 notifyOnExceed 不发通知');
+
+  const w4 = store.save({ name: '阈值非法', steps: [{ id: 's1', type: 'token-budget', config: { period: 'day', thresholdTokens: 'abc' } }] });
+  const r4 = await engine.run(w4.id);
+  equal(r4.status, 'failed');
+  ok(r4.log[0].message.includes('thresholdTokens'));
+
+  const { engine: bareEngine, store: bareStore } = makeEnv();
+  const w5 = bareStore.save({ name: '未装配', steps: [{ id: 's1', type: 'token-budget', config: { period: 'day', thresholdTokens: '1' } }] });
+  const r5 = await bareEngine.run(w5.id);
+  equal(r5.status, 'failed');
+  ok(r5.log[0].message.includes('未装配'));
 });

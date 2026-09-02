@@ -137,6 +137,7 @@ contextBridge.exposeInMainWorld('workflows', {
   delete: (id: string) => invoke('workflows:delete', id),
   run: (id: string) => invoke('workflows:run', id),
   runs: (workflowId?: string) => invoke('workflows:runs', workflowId),
+  cronPreview: (expr: string) => invoke('workflows:cronPreview', { expr }),
 });
 
 contextBridge.exposeInMainWorld('connections', {
