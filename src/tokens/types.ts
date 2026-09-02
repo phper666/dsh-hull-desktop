@@ -22,16 +22,16 @@ export type TokenPlatform =
   | 'copilot'
   | 'kiro';
 
-/** 统计粒度 = 时间范围（hour=近24小时、day=近30天、week=近12周、month=近12月）；全视图（总计/序列/透视）按范围过滤 */
-export type UsageGranularity = 'hour' | 'day' | 'week' | 'month';
+/** 统计粒度 = 时间范围（hour=近1小时、day=近1天、month=近1月(30天)、year=近1年(365天)）；全视图（总计/序列/透视）按范围过滤；序列分桶粒度按范围推导（hour→10分钟、day→小时、month→天、year→月） */
+export type UsageGranularity = 'hour' | 'day' | 'month' | 'year';
 
-export const USAGE_GRANULARITIES: UsageGranularity[] = ['hour', 'day', 'week', 'month'];
+export const USAGE_GRANULARITIES: UsageGranularity[] = ['hour', 'day', 'month', 'year'];
 
 export const GRANULARITY_NAMES: Record<UsageGranularity, string> = {
-  hour: '小时',
-  day: '天',
-  week: '周',
-  month: '月',
+  hour: '1小时',
+  day: '1天',
+  month: '1月',
+  year: '1年',
 };
 
 /** 单条用量记录（一行会话事件的归一化） */
@@ -61,7 +61,7 @@ export interface UsageTotals {
 
 /** 时间桶（粒度聚合序列的一格） */
 export interface UsageBucket extends UsageTotals {
-  /** 桶键：hour=YYYY-MM-DD HH:00 / day=YYYY-MM-DD / week=YYYY-Www / month=YYYY-MM */
+  /** 桶键：min10=YYYY-MM-DD HH:MM（10 分钟）/ hour=YYYY-MM-DD HH:00 / day=YYYY-MM-DD / month=YYYY-MM */
   bucket: string;
   records: number;
 }

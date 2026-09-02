@@ -12,7 +12,7 @@
     return String(n);
   };
   const pct = (v, total) => (total > 0 ? Math.round((v / total) * 100) : 0);
-  const GRAN = [['hour', '24小时'], ['day', '30天'], ['week', '12周'], ['month', '12月']];
+  const GRAN = [['hour', '1小时'], ['day', '1天'], ['month', '1月'], ['year', '1年']];
   const granRange = (k) => { const g = GRAN.find(([kk]) => kk === k); return g ? `近${g[1]}` : k; };
   const PLATFORM_NAMES = {
     'claude-code': 'Claude Code', codex: 'Codex', dsh: 'dsh', opencode: 'OpenCode', cline: 'Cline', roo: 'Roo Code',

@@ -1,19 +1,31 @@
 /**
- * 用量聚合器：UsageRecord[] → 粒度桶序列 + 平台/模型透视。
+ * 用量聚合器：UsageRecord[] → 桶序列 + 平台/模型透视。
  * 纯函数（无 IO），单测覆盖；桶键本地时区。
- * 粒度 = 时间范围（hour=近24h / day=近30天 / week=近12周 / month=近12月）：
+ * 粒度 = 时间范围（hour=近1h / day=近1天 / month=近1月30天 / year=近1年365天）：
  * summarize 聚合前先按 generatedAt 时间窗过滤 records，全视图（总计/序列/透视）只含范围内记录。
+ * 序列分桶粒度按范围推导（RANGE_BUCKET）：1h 范围 → 10 分钟桶、1 天 → 小时桶、1 月 → 天桶、1 年 → 月桶。
  */
 import type { UsageBucket, UsageDimensionRow, UsageGranularity, UsageRecord, UsageSummary, UsageTotals } from './types';
 
 type MutableTotals = { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; reasoningTokens: number; totalTokens: number };
 
-/** 粒度 → 时间范围窗口（毫秒）：hour=近24h、day=近30天、week=近12周(84天)、month=近12月(365天) */
+/** 范围档 → 时间范围窗口（毫秒）：hour=近1h、day=近1天、month=近30天、year=近365天 */
 const GRAN_WINDOW_MS: Record<UsageGranularity, number> = {
-  hour: 24 * 3600_000,
-  day: 30 * 86400_000,
-  week: 12 * 7 * 86400_000,
-  month: 365 * 86400_000,
+  hour: 3600_000,
+  day: 86_400_000,
+  month: 30 * 86_400_000,
+  year: 365 * 86_400_000,
+};
+
+/** 序列分桶粒度（独立类型：'week' 保留兼容 bucketKey/isoWeekKey，范围推导不再产出） */
+export type BucketGran = 'min10' | 'hour' | 'day' | 'week' | 'month';
+
+/** 范围档 → 序列分桶粒度（解耦：1 小时范围用 10 分钟桶才有多桶） */
+const RANGE_BUCKET: Record<UsageGranularity, BucketGran> = {
+  hour: 'min10',
+  day: 'hour',
+  month: 'day',
+  year: 'month',
 };
 
 function emptyTotals(): MutableTotals {
@@ -45,14 +57,16 @@ export function isoWeekKey(d: Date): string {
   return `${t.getUTCFullYear()}-W${mm}`;
 }
 
-/** 桶键（本地时区） */
-export function bucketKey(ts: string, granularity: UsageGranularity): string {
+/** 桶键（本地时区）：min10=YYYY-MM-DD HH:MM（10 分钟取整）/ hour / day / week / month */
+export function bucketKey(ts: string, granularity: BucketGran): string {
   const d = new Date(ts);
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   const h = String(d.getHours()).padStart(2, '0');
   switch (granularity) {
+    case 'min10':
+      return `${y}-${m}-${day} ${h}:${String(Math.floor(d.getMinutes() / 10) * 10).padStart(2, '0')}`;
     case 'hour':
       return `${y}-${m}-${day} ${h}:00`;
     case 'week':
@@ -90,7 +104,7 @@ export function summarize(
 
   for (const r of scoped) {
     addTotals(grand, r);
-    const key = bucketKey(r.ts, granularity);
+    const key = bucketKey(r.ts, RANGE_BUCKET[granularity]);
     let b = buckets.get(key);
     if (!b) {
       b = { ...emptyTotals(), records: 0 };
