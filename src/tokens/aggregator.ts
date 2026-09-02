@@ -1,10 +1,20 @@
 /**
  * 用量聚合器：UsageRecord[] → 粒度桶序列 + 平台/模型透视。
  * 纯函数（无 IO），单测覆盖；桶键本地时区。
+ * 粒度 = 时间范围（hour=近24h / day=近30天 / week=近12周 / month=近12月）：
+ * summarize 聚合前先按 generatedAt 时间窗过滤 records，全视图（总计/序列/透视）只含范围内记录。
  */
 import type { UsageBucket, UsageDimensionRow, UsageGranularity, UsageRecord, UsageSummary, UsageTotals } from './types';
 
 type MutableTotals = { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; reasoningTokens: number; totalTokens: number };
+
+/** 粒度 → 时间范围窗口（毫秒）：hour=近24h、day=近30天、week=近12周(84天)、month=近12月(365天) */
+const GRAN_WINDOW_MS: Record<UsageGranularity, number> = {
+  hour: 24 * 3600_000,
+  day: 30 * 86400_000,
+  week: 12 * 7 * 86400_000,
+  month: 365 * 86400_000,
+};
 
 function emptyTotals(): MutableTotals {
   return { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 0 };
@@ -63,19 +73,22 @@ export interface ScanSourceInfo {
   error?: string;
 }
 
-/** 汇总：桶序列（升序）+ 平台/模型透视 + 全局总计 */
+/** 汇总：按粒度时间范围过滤 records → 桶序列（升序）+ 平台/模型透视 + 全局总计 */
 export function summarize(
   records: UsageRecord[],
   granularity: UsageGranularity,
   sources: ScanSourceInfo[],
   generatedAt = new Date().toISOString()
 ): UsageSummary {
+  // 粒度 = 时间范围：只聚合 generatedAt 往前 windowMs 内的记录
+  const cutoff = new Date(generatedAt).getTime() - GRAN_WINDOW_MS[granularity];
+  const scoped = records.filter((r) => new Date(r.ts).getTime() >= cutoff);
   const grand = emptyTotals();
   const buckets = new Map<string, MutableTotals & { records: number }>();
   const byPlatform = new Map<string, MutableTotals>();
   const byModel = new Map<string, MutableTotals>();
 
-  for (const r of records) {
+  for (const r of scoped) {
     addTotals(grand, r);
     const key = bucketKey(r.ts, granularity);
     let b = buckets.get(key);

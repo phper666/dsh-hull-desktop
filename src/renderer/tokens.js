@@ -12,7 +12,8 @@
     return String(n);
   };
   const pct = (v, total) => (total > 0 ? Math.round((v / total) * 100) : 0);
-  const GRAN = [['hour', '小时'], ['day', '天'], ['week', '周'], ['month', '月']];
+  const GRAN = [['hour', '24小时'], ['day', '30天'], ['week', '12周'], ['month', '12月']];
+  const granRange = (k) => { const g = GRAN.find(([kk]) => kk === k); return g ? `近${g[1]}` : k; };
   const PLATFORM_NAMES = {
     'claude-code': 'Claude Code', codex: 'Codex', dsh: 'dsh', opencode: 'OpenCode', cline: 'Cline', roo: 'Roo Code',
     gemini: 'Gemini CLI', kimi: 'Kimi Code', goose: 'Goose', continue: 'Continue', zed: 'Zed', warp: 'Warp',
@@ -104,7 +105,7 @@
             </svg>
           </div>
           <h2>暂无 Token 用量数据</h2>
-          <p>使用以下任一支持的 AI 编程工具产生会话后，这里会自动统计输入 / 输出 / 缓存 / 推理 token（${GRAN.map(([k, n]) => n).join(' / ')}粒度）。扫描只读，不会修改各平台目录。</p>
+          <p>使用以下任一支持的 AI 编程工具产生会话后，这里会自动统计输入 / 输出 / 缓存 / 推理 token（${GRAN.map(([k, n]) => '近' + n).join(' / ')}）。扫描只读，不会修改各平台目录。</p>
           <div class="tk-src-grid">${srcCards || '<div class="tk-muted">未配置任何扫描源</div>'}</div>
         </div>`;
       return;
@@ -127,7 +128,7 @@
     const hero = `
       <div class="tk-hero">
         <div class="tk-hero-main">
-          <div class="tk-hero-label">合计 Token 消耗 · ${GRAN.find(([k]) => k === s.granularity)?.[1] || s.granularity}</div>
+          <div class="tk-hero-label">合计 Token 消耗 · ${granRange(s.granularity)}</div>
           <div class="tk-hero-val" title="${t.totalTokens}">${fmt(total)}</div>
         </div>
         <div class="tk-hero-comp">
@@ -180,8 +181,8 @@
       .join('');
     const seriesBlock = `
       <div class="tk-section">
-        <h3>时间序列（${GRAN.find(([k]) => k === s.granularity)?.[1] || s.granularity}）</h3>
-        ${n ? `<div class="tk-chart" role="img" aria-label="各${GRAN.find(([k]) => k === s.granularity)?.[1] || ''}段 token 消耗柱状图"><div class="tk-bars">${cols}</div></div>` : '<div class="tk-muted">无数据</div>'}
+        <h3>时间序列（${granRange(s.granularity)}）</h3>
+        ${n ? `<div class="tk-chart" role="img" aria-label="各时间段 token 消耗柱状图"><div class="tk-bars">${cols}</div></div>` : '<div class="tk-muted">无数据</div>'}
       </div>`;
 
     /* —— 明细表（按平台 / 按模型）—— */
@@ -221,11 +222,11 @@
       ${tiles}
       ${seriesBlock}
       <div class="tk-section">
-        <h3>按平台</h3>
+        <h3>按平台（${granRange(s.granularity)}）</h3>
         ${table(s.byPlatform || [], 'platform')}
       </div>
       <div class="tk-section">
-        <h3>按模型</h3>
+        <h3>按模型（${granRange(s.granularity)}）</h3>
         ${table(s.byModel || [], 'model')}
       </div>`;
   }

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import { equal, deepEqual } from 'node:assert/strict';
 
 import { bucketKey, isoWeekKey, summarize } from './aggregator';
+import type { ScanSourceInfo } from './aggregator';
 import type { UsageRecord } from './types';
 
 const rec = (ts: string, platform: UsageRecord['platform'], model: string, inputTokens: number, outputTokens: number, cacheReadTokens = 0, cacheWriteTokens = 0): UsageRecord => ({
@@ -29,7 +30,7 @@ test('汇总：总计/透视/序列与排序', () => {
     rec('2026-08-30T09:30:00+08:00', 'codex', 'gpt-5.2', 2000, 400),
     rec('2026-08-29T09:00:00+08:00', 'dsh', 'deepseek-v4', 100, 50),
   ];
-  const s = summarize(records, 'day', [{ platform: 'claude-code', home: '/x', files: 2, records: 2 }]);
+  const s = summarize(records, 'day', [{ platform: 'claude-code', home: '/x', files: 2, records: 2 }], '2026-08-30T23:00:00Z');
   // 总计
   equal(s.totals.inputTokens, 3600);
   equal(s.totals.outputTokens, 750);
@@ -51,8 +52,32 @@ test('汇总：总计/透视/序列与排序', () => {
 });
 
 test('空记录 → 零总计空序列', () => {
-  const s = summarize([], 'month', []);
+  const s = summarize([], 'month', [], '2026-08-30T23:00:00Z');
   equal(s.totals.totalTokens, 0);
   deepEqual(s.series, []);
   deepEqual(s.byPlatform, []);
+});
+
+test('粒度=时间范围：hour/day/month 窗口过滤全视图（总计+序列）', () => {
+  const G = '2026-09-02T12:00:00Z';
+  const records = [
+    rec('2026-09-02T11:00:00Z', 'claude-code', 'm1', 100, 10), // 近 1h
+    rec('2026-08-31T12:00:00Z', 'codex', 'm2', 200, 20), // 近 2 天
+    rec('2026-07-24T12:00:00Z', 'dsh', 'm3', 300, 30), // 40 天前（月窗口内，日/时窗口外）
+  ];
+  const sources: ScanSourceInfo[] = [{ platform: 'claude-code', home: '/x', files: 1, records: 1 }];
+
+  const sH = summarize(records, 'hour', sources, G);
+  equal(sH.totals.totalTokens, 110, 'hour 只含 24h 内 1 条');
+  equal(sH.series.length, 1, 'hour 序列 1 桶');
+  equal(sH.byModel.length, 1, 'hour 透视只含 1 模型');
+
+  const sD = summarize(records, 'day', sources, G);
+  equal(sD.totals.totalTokens, 330, 'day 含近 2 条、不含 40 天前');
+  equal(sD.series.length, 2, 'day 序列 2 桶');
+
+  const sM = summarize(records, 'month', sources, G);
+  equal(sM.totals.totalTokens, 660, 'month 含全部 3 条');
+  equal(sM.series.length, 3, 'month 序列 3 桶（9月/8月/7月 各 1 条）');
+  equal(sM.byPlatform.length, 3);
 });

@@ -22,6 +22,7 @@ export type TokenPlatform =
   | 'copilot'
   | 'kiro';
 
+/** 统计粒度 = 时间范围（hour=近24小时、day=近30天、week=近12周、month=近12月）；全视图（总计/序列/透视）按范围过滤 */
 export type UsageGranularity = 'hour' | 'day' | 'week' | 'month';
 
 export const USAGE_GRANULARITIES: UsageGranularity[] = ['hour', 'day', 'week', 'month'];
