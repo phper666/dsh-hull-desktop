@@ -58,6 +58,8 @@ export interface UsageTotals {
   cacheWriteTokens: number;
   reasoningTokens: number;
   totalTokens: number;
+  /** 估算成本 USD（本地价格表 × token 用量，非官方账单）；行内含未定价模型 → null（诚实不估算） */
+  costUsd: number | null;
 }
 
 /** 时间桶（粒度聚合序列的一格） */

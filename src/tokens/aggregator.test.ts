@@ -173,3 +173,70 @@ test('all 档：不过滤全部计入（含去年记录），序列 month 桶', 
   const sY = summarize(records, 'year', [], G);
   equal(sY.totals.totalTokens, 660, 'year 不含去年记录');
 });
+
+/* —— 成本（costUsd）语义：全定价 → 数值累加；任一未知 → null —— */
+const close = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+
+test('成本：全定价模型 → totals/series/byModel 数值累加（手算）', () => {
+  const now = new Date(2026, 8, 2, 12, 0);
+  const G = now.toISOString();
+  // deepseek-v4-flash（input 0.28 / output 0.42 / cacheRead 0.028 / cacheWrite 0.28，$/1M）
+  const records = [
+    rec(L(2026, 8, 2, 10, 0), 'codex', 'deepseek-v4-flash', 1_000_000, 500_000, 100_000, 50_000),
+    rec(L(2026, 8, 2, 11, 0), 'codex', 'deepseek-v4-flash', 500_000, 250_000),
+  ];
+  const s = summarize(records, 'day', [], G);
+  const c1 = (1e6 * 0.28 + 5e5 * 0.42 + 1e5 * 0.028 + 5e4 * 0.28) / 1e6; // 0.5068
+  const c2 = (5e5 * 0.28 + 2.5e5 * 0.42) / 1e6; // 0.245
+  close(s.totals.costUsd as number, c1 + c2);
+  close(s.byModel[0].costUsd as number, c1 + c2);
+  equal(s.series.length, 2);
+  close(s.series[0].costUsd as number, c1);
+  close(s.series[1].costUsd as number, c2);
+  close(s.byPlatform[0].costUsd as number, c1 + c2);
+});
+
+test('成本：byPlatform/byModel 全已知 → 跨模型累加（总 0.8068）', () => {
+  const now = new Date(2026, 8, 2, 12, 0);
+  const G = now.toISOString();
+  const records = [
+    rec(L(2026, 8, 2, 10, 0), 'codex', 'deepseek-v4-flash', 1e6, 2e5), // 0.28 + 0.084 = 0.364
+    rec(L(2026, 8, 2, 11, 0), 'codex', 'glm-5.2', 5e5, 1e5), // 0.30 + 0.24 = 0.54
+  ];
+  const s = summarize(records, 'day', [], G);
+  const c1 = (1e6 * 0.28 + 2e5 * 0.42) / 1e6; // 0.364
+  const c2 = (5e5 * 0.6 + 1e5 * 2.4) / 1e6; // 0.54
+  close(s.totals.costUsd as number, c1 + c2);
+  close(s.byPlatform[0].costUsd as number, c1 + c2);
+  // byModel 按 totalTokens 降序：deepseek(1.2M) > glm(0.6M)
+  close(s.byModel[0].costUsd as number, c1);
+  close(s.byModel[1].costUsd as number, c2);
+});
+
+test('成本：混入未知模型 → totals/byPlatform null，series 行级各自语义', () => {
+  const now = new Date(2026, 8, 2, 12, 0);
+  const G = now.toISOString();
+  const records = [
+    rec(L(2026, 8, 2, 10, 0), 'codex', 'deepseek-v4-flash', 1000, 500),
+    rec(L(2026, 8, 2, 11, 0), 'codex', 'unknown-model-x', 2000, 1000),
+  ];
+  const s = summarize(records, 'day', [], G);
+  equal(s.totals.costUsd, null, '总计含未知 → null');
+  equal(s.byPlatform[0].costUsd, null, '平台行混合 → null');
+  // byModel 行级：已知模型数值、未知模型 null
+  const priced = s.byModel.find((r) => r.model === 'deepseek-v4-flash')!;
+  const unknown = s.byModel.find((r) => r.model === 'unknown-model-x')!;
+  close(priced.costUsd as number, (1000 * 0.28 + 500 * 0.42) / 1e6);
+  equal(unknown.costUsd, null);
+  // series 行级：桶 1 数值、桶 2 null
+  equal(s.series.length, 2);
+  close(s.series[0].costUsd as number, (1000 * 0.28 + 500 * 0.42) / 1e6);
+  equal(s.series[1].costUsd, null);
+});
+
+test('成本：空记录 → costUsd 0（不误标 null）', () => {
+  const s = summarize([], 'month', [], '2026-08-30T23:00:00Z');
+  equal(s.totals.costUsd, 0);
+  deepEqual(s.series, []);
+  deepEqual(s.byPlatform, []);
+});

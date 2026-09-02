@@ -12,6 +12,15 @@
     return String(n);
   };
   const pct = (v, total) => (total > 0 ? Math.round((v / total) * 100) : 0);
+  /* 成本格式（估算，非官方账单）：≥$1K 用 K、≥$1 两位小数、更小四位小数；null（含未定价模型）→ '—' */
+  const fmtUsd = (n) => {
+    if (n === null || n === undefined) return '—';
+    n = Number(n);
+    if (!Number.isFinite(n)) return '—';
+    if (n >= 1000) return '$' + (n / 1000).toFixed(2) + 'K';
+    if (n >= 1) return '$' + n.toFixed(2);
+    return '$' + n.toFixed(4);
+  };
   const GRAN = [['hour', '1小时'], ['day', '1天'], ['month', '1月'], ['year', '1年'], ['all', '全部']];
   /* 日历对齐范围标签（hour=本小时整点起、day=今天 0 点、month=本月 1 号、year=今年 1/1、all=全部历史） */
   const RANGE_LABELS = { hour: '本小时', day: '今天', month: '本月', year: '今年', all: '全部' };
@@ -107,7 +116,7 @@
             </svg>
           </div>
           <h2>暂无 Token 用量数据</h2>
-          <p>使用以下任一支持的 AI 编程工具产生会话后，这里会自动统计输入 / 输出 / 缓存 / 推理 token（${GRAN.map(([k]) => RANGE_LABELS[k]).join(' / ')}）。扫描只读，不会修改各平台目录。</p>
+          <p>使用以下任一支持的 AI 编程工具产生会话后，这里会自动统计输入 / 输出 / 缓存 / 推理 token（${GRAN.map(([k]) => RANGE_LABELS[k]).join(' / ')}）。扫描只读，不会修改各平台目录。成本为本地价格表估算，非官方账单。</p>
           <div class="tk-src-grid">${srcCards || '<div class="tk-muted">未配置任何扫描源</div>'}</div>
         </div>`;
       return;
@@ -162,6 +171,11 @@
             <div class="tk-mini"><i style="width:${rw ? (read / rw) * 100 : 0}%"></i></div>
           </div>
         </div>
+        <div class="tk-tile cost">
+          <div class="tk-tile-k">成本（估算）</div>
+          <div class="tk-tile-v">${fmtUsd(t.costUsd)}</div>
+          <div class="tk-tile-sub">${t.costUsd === null || t.costUsd === undefined ? '含未定价模型' : '本地价格表估算'}</div>
+        </div>
       </div>`;
 
     /* —— 时间序列：纵向柱图（纯 CSS）+ 悬停提示 —— */
@@ -197,8 +211,9 @@
           rea: a.rea + (r.reasoningTokens || 0),
           c: a.c + (r.cacheReadTokens || 0) + (r.cacheWriteTokens || 0),
           tot: a.tot + (r.totalTokens || 0),
+          cost: a.cost === null || r.costUsd === null || r.costUsd === undefined ? null : a.cost + (r.costUsd || 0),
         }),
-        { in: 0, out: 0, rea: 0, c: 0, tot: 0 }
+        { in: 0, out: 0, rea: 0, c: 0, tot: 0, cost: 0 }
       );
       const rowsHtml = rows
         .map((r) => {
@@ -209,13 +224,14 @@
             <td class="${mode === 'platform' ? 'tk-sub' : ''}">${model}</td>
             ${num(r.inputTokens)}${num(r.outputTokens)}${num(r.reasoningTokens)}${num((r.cacheReadTokens || 0) + (r.cacheWriteTokens || 0))}
             <td class="num tk-total">${fmt(r.totalTokens)}</td>
+            <td class="num" title="本地价格表估算，非官方账单">${fmtUsd(r.costUsd)}</td>
           </tr>`;
         })
         .join('');
       return `<div class="tk-tbl-wrap"><table class="tk-table">
-        <thead><tr><th>平台</th><th>模型</th><th class="num">输入</th><th class="num">输出</th><th class="num">推理</th><th class="num">缓存</th><th class="num">合计</th></tr></thead>
+        <thead><tr><th>平台</th><th>模型</th><th class="num">输入</th><th class="num">输出</th><th class="num">推理</th><th class="num">缓存</th><th class="num">合计</th><th class="num">成本</th></tr></thead>
         <tbody>${rowsHtml}</tbody>
-        <tfoot><tr><td colspan="2">小计</td><td class="num">${fmt(sums.in)}</td><td class="num">${fmt(sums.out)}</td><td class="num">${fmt(sums.rea)}</td><td class="num">${fmt(sums.c)}</td><td class="num tk-total">${fmt(sums.tot)}</td></tr></tfoot>
+        <tfoot><tr><td colspan="2">小计</td><td class="num">${fmt(sums.in)}</td><td class="num">${fmt(sums.out)}</td><td class="num">${fmt(sums.rea)}</td><td class="num">${fmt(sums.c)}</td><td class="num tk-total">${fmt(sums.tot)}</td><td class="num">${fmtUsd(sums.cost)}</td></tr></tfoot>
       </table></div>`;
     };
 

@@ -4,10 +4,15 @@
  * 粒度 = 日历对齐范围（本地时区）：hour=本小时整点起、day=今天 0 点、month=本月 1 号、year=今年 1/1、all=不过滤：
  * summarize 按 generatedAt 所在日历边界过滤 records（all 不过滤），全视图（总计/序列/透视）只含边界后记录。
  * 序列分桶粒度按范围推导（RANGE_BUCKET）：hour 范围 → 10 分钟桶、day → 小时桶、month → 天桶、year/all → 月桶。
+ * 成本（costUsd）：行内全部 record 模型命中 PRICING_SEED → 数值累加；任一未命中 → null（诚实不估算，UI 显示「—」）。
  */
 import type { UsageBucket, UsageDimensionRow, UsageGranularity, UsageRecord, UsageSummary, UsageTotals } from './types';
+import { computeCost, matchPrice } from './pricing';
 
-type MutableTotals = { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; reasoningTokens: number; totalTokens: number };
+type MutableTotals = {
+  inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; reasoningTokens: number; totalTokens: number;
+  costUsd: number; costKnown: boolean;
+};
 
 /** 日历对齐边界（本地时区，Date 无参构造即本地）：hour=本小时整点、day=今天 0 点、month=本月 1 号、year=今年 1/1、all=0（不过滤） */
 export function rangeCutoffMs(granularity: UsageGranularity, now: Date): number {
@@ -34,7 +39,7 @@ const RANGE_BUCKET: Record<UsageGranularity, BucketGran> = {
 };
 
 function emptyTotals(): MutableTotals {
-  return { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 0 };
+  return { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 0, costUsd: 0, costKnown: true };
 }
 
 function addTotals(t: MutableTotals, r: UsageRecord): void {
@@ -44,11 +49,17 @@ function addTotals(t: MutableTotals, r: UsageRecord): void {
   t.cacheWriteTokens += r.cacheWriteTokens;
   t.reasoningTokens += r.reasoningTokens || 0;
   t.totalTokens += r.inputTokens + r.outputTokens + r.cacheReadTokens + r.cacheWriteTokens;
+  const p = matchPrice(r.model);
+  if (!p) {
+    t.costKnown = false; // 行内任一未知 → 整行 null（已未知则不再累加）
+  } else if (t.costKnown) {
+    t.costUsd += computeCost(r, p);
+  }
 }
 
 function finalize(t: MutableTotals): UsageTotals {
-  const { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, reasoningTokens, totalTokens } = t;
-  return { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, reasoningTokens, totalTokens };
+  const { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, reasoningTokens, totalTokens, costUsd, costKnown } = t;
+  return { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, reasoningTokens, totalTokens, costUsd: costKnown ? costUsd : null };
 }
 
 /** ISO 周键（ISO-8601：周一起始，含 1/4 的那周为第 1 周）——YYYY-Www */
