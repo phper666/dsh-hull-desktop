@@ -58,11 +58,11 @@ export class Logger implements RuntimeLogger {
     this.append('error', message);
   }
 
-  /** dsh 子进程输出落盘（FR-8）：统一写 dsh.log（带 [dsh pid=<pid>] 前缀，同一轮转规则；
-   *  旧 dsh-<pid>.log 不再创建，历史文件不删） */
+  /** dsh 子进程输出落盘（FR-8）：统一写 dsh.log（带时间戳 + [dsh pid=<pid>] 前缀——与 hull.log 格式一致，
+   *  否则 pkgmgr 逐包输出无时间轴无法排查安装慢/卡包；同一轮转规则。旧 dsh-<pid>.log 不再创建，历史文件不删） */
   dshLog(pid: number, line: string): void {
     const text = line.endsWith('\n') ? line : `${line}\n`;
-    this.appendTo(this.dshPath, `[dsh pid=${pid}] ${text}`);
+    this.appendTo(this.dshPath, `[${Logger.formatTime(new Date())}] [dsh pid=${pid}] ${text}`);
   }
 
   /** 上海时区标准时间戳（YYYY-MM-DD HH:mm:ss.SSS，Asia/Shanghai）——不用 toISOString（UTC Z 后缀非本地可读） */

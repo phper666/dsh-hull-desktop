@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync } 
 import { join } from 'node:path';
 
 import { HullError } from '../shared/errors';
+import { relinkStaleJunctions, relinkJunctionsToTarget, type RelinkResult } from './relinkJunctions';
 import { InstallPhase, NOOP_LOGGER, type InstallProgress, type InstallSnapshot, type RuntimeLogger } from '../shared/types';
 
 /** INSTALL_ERRORS 六码（契约 v0.2 错误集）+ 内部码（S3 rollback 域，非契约六码） */
@@ -55,6 +56,8 @@ export interface OverlayManagerOptions {
   logger?: RuntimeLogger;
   /** fs 门面（测试注入；默认 node:fs） */
   fs?: OverlayFs;
+  /** 宿主平台（测试注入；默认 process.platform）——win32 symlink 失败降级告警不回滚 */
+  platform?: NodeJS.Platform;
   /** npm install 执行器（默认抛 npm-install-failed——未接入时不可用） */
   runNpmInstall?: NpmInstallFn;
   /** 休眠（测试 seam；swap 取消窗口拦截点） */
@@ -84,6 +87,8 @@ export class OverlayManager extends EventEmitter {
   private cancelled = false;
   private swapping = false;
   private targetVersion: string | null = null;
+  /** win32 swap 后 junction 重建是否残留失败（Windows 扫描/句柄窗口；main 启动兜底用） */
+  private relinkFailed = false;
   /** npm http fetch 行计数（首装进度渐进；对齐 Updater.pushOutput，50→60 每 25 行 +1%） */
   private npmFetchCount = 0;
   /** npm 输出环形缓冲（最近 N 行，首装输出框数据源；snapshot().output 透传） */
@@ -93,6 +98,7 @@ export class OverlayManager extends EventEmitter {
   private readonly userDataPath: string;
   private readonly logger: RuntimeLogger;
   private readonly fs: OverlayFs;
+  private readonly platform: NodeJS.Platform;
   private readonly runNpmInstall: NpmInstallFn;
   private readonly sleepImpl: (ms: number) => Promise<void>;
 
@@ -101,6 +107,7 @@ export class OverlayManager extends EventEmitter {
     this.userDataPath = options.userDataPath;
     this.logger = options.logger ?? NOOP_LOGGER;
     this.fs = options.fs ?? DEFAULT_FS;
+    this.platform = options.platform ?? process.platform;
     this.runNpmInstall =
       options.runNpmInstall ??
       (async () => {
@@ -128,14 +135,25 @@ export class OverlayManager extends EventEmitter {
     };
   }
 
-  /** npm 输出行钩子（main 的 npmRunner onLine → 本方法；首装进度 + 输出缓冲）。
+  /** pkgmgr 输出行钩子（main 的 pkgMgr onLine → 本方法；首装进度 + 输出缓冲）。
    *  仅 installing 段收集（对齐 Updater.pushOutput：其他段不污染缓冲）。
-   *  npm http fetch 行计数 → pct 渐进（50→60，每 25 行 +1%，封顶 60——installing 段留余量给 swap 90）。 */
-  onNpmLine(line: string): void {
+   *  进度解析双格式：
+   *  - npm：`npm http fetch` 行计数（每 25 行 +1%，封顶 60）
+   *  - pnpm：`Progress: resolved N, … added X[, done]`（added/resolved 比例映射 20→60——
+   *    曾只认 npm 格式 → pnpm 首装进度恒 20%） */
+  onPkgMgrLine(line: string): void {
     if (this.phase !== InstallPhase.Installing) return;
     this.output.push(line);
     if (this.output.length > OverlayManager.MAX_OUTPUT_LINES) {
       this.output.splice(0, this.output.length - OverlayManager.MAX_OUTPUT_LINES);
+    }
+    const pnpm = /Progress: resolved (\d+),.*?added (\d+)(, done)?/.exec(line);
+    if (pnpm) {
+      const resolved = Number(pnpm[1]);
+      const added = Number(pnpm[2]);
+      const pct = pnpm[3] ? 60 : resolved > 0 ? 20 + Math.floor((40 * added) / resolved) : 20;
+      this.setProgress({ phase: 'npm-install', pct: Math.min(60, pct) });
+      return;
     }
     if (/^npm http fetch/.test(line)) {
       this.npmFetchCount += 1;
@@ -157,6 +175,21 @@ export class OverlayManager extends EventEmitter {
   /** previous 存在性（S3 canRollback/W3 前置；swapBack 可用条件） */
   canRollback(): boolean {
     return this.fs.exists(this.previousDir);
+  }
+
+  /** 上次 win32 swap 的 junction 重建是否残留失败（main 启动兜底判断用） */
+  hasRelinkFailure(): boolean {
+    return this.relinkFailed;
+  }
+
+  /**
+   * junction 重建兜底（main 启动失败后调用）：窗口（pnpm 收尾/Defender 扫描）过后
+   * 补跑一次带退避的重建，把悬空链接修复。幂等：无 stale 链接 → 立即返回。
+   */
+  async ensureJunctions(): Promise<RelinkResult> {
+    const r = await relinkStaleJunctions(this.dshDir, this.stagingDir, 4);
+    this.relinkFailed = r.failed.length > 0;
+    return r;
   }
 
   /**
@@ -219,6 +252,21 @@ export class OverlayManager extends EventEmitter {
     try {
       this.setProgress({ phase: 'swap', pct: 100 });
       await this.sleepImpl(0); // 取消窗口拦截点：swap 起始后 cancel 忽略（B3）
+      // ④a win32 预改写（方案4，swap 前）：staging 内 junction target 前缀 staging → dsh
+      //     （target 指向 swap 后出现的 dsh，rename 后直接有效——避开 swap 后 Defender
+      //     扫描新路径 dsh 的 EISDIR/EPERM 窗口；junction 创建无需提权，普通用户可用）。
+      //     预改写失败 → 不阻断 swap，swap 后 ④b 重建 + 启动轮询兜底。
+      let prelinkFailed = false;
+      if (this.platform === 'win32' && this.fs.exists(this.stagingDir)) {
+        try {
+          const pre = await relinkJunctionsToTarget(this.stagingDir, this.stagingDir, this.dshDir, 2);
+          prelinkFailed = pre.failed.length > 0;
+          this.logger.info(`win32 junction 预改写: fixed=${pre.fixed} seen=${pre.seen} failed=${pre.failed.length}`);
+        } catch (err) {
+          prelinkFailed = true;
+          this.logger.warn(`win32 junction 预改写失败（走 swap 后重建兜底）: ${(err as Error).message}`);
+        }
+      }
       // 版本预检（显式 targetVersion 匹配；latest 跳过——门禁已验 bin 字段）
       const stagingVersion = this.readVersionFrom(this.stagingDir);
       if (this.targetVersion && this.targetVersion !== 'latest' && stagingVersion !== this.targetVersion) {
@@ -232,9 +280,35 @@ export class OverlayManager extends EventEmitter {
         // ④ 回滚（回滚结果与后续 throw 分离，防内层 catch 自吞）
         this.rollbackSwap(`原子替换失败: ${(err as Error).message}`);
       }
-      // ⑤ post-swap bin symlink（🟡-3：失败告警 + 重试一次 → 仍败走回滚）
+      // ④b win32 junction 重建（#8，2026-08-31 Windows 实测）：pnpm 依赖链接用绝对路径
+      //     junction（指向 dsh-staging），rename 后全部悬空 → dsh 启动 dshEntryPath
+      //     MODULE_NOT_FOUND。swap 后把 node_modules 链内 target 前缀 dsh-staging → dsh。
+      //     POSIX pnpm 用相对 symlink 不需要（不调用）。
+      //     预改写（④a）成功时此处全跳过（target 已是 dsh，不匹配 staging）；仅预改写
+      //     失败时才会命中——Windows 冷装实测 swap 后立即重建有 Defender 扫描窗口
+      //     （EISDIR/EPERM），这里快速试一次（retries=0 不阻塞），失败记录 relinkFailed，
+      //     由 main 启动轮询兜底（窗口过后 ensureJunctions 补跑）修复。
+      if (this.platform === 'win32') {
+        try {
+          const r = await relinkStaleJunctions(this.dshDir, this.stagingDir, 0);
+          this.relinkFailed = r.failed.length > 0;
+          this.logger.info(`win32 junction 重建: fixed=${r.fixed} seen=${r.seen} failed=${r.failed.length}${r.failed.length ? ' ' + r.failed.map((f) => `${f.path} → ${f.error}`).join('; ') : ''}`);
+        } catch (err) {
+          this.relinkFailed = true;
+          this.rollbackSwap(`win32 junction 重建失败: ${(err as Error).message}`);
+        }
+      }
+      // ⑤ post-swap bin symlink（🟡-3：失败告警 + 重试一次；POSIX 仍败走回滚。
+      //    win32 例外：创建 symlink 需管理员/开发者模式，EPERM 是权限常态——spawn 走
+      //    dshEntryPath 真实 JS 入口（P2 CON-R-pkgmgr-004）不依赖 bin/dsh，降级告警不回滚）
       const linkErr = this.createBinSymlinkWithRetry();
-      if (linkErr) this.rollbackSwap(`post-swap bin symlink 失败: ${linkErr}`);
+      if (linkErr) {
+        if (this.platform === 'win32') {
+          this.logger.warn(`post-swap bin symlink 失败（Windows 无 symlink 权限，已跳过——spawn 走 dshEntryPath 真实入口不受影响）: ${linkErr}`);
+        } else {
+          this.rollbackSwap(`post-swap bin symlink 失败: ${linkErr}`);
+        }
+      }
       // ⑥ 版本记录
       this.version = this.readVersionFrom(this.dshDir);
       this.transition(InstallPhase.Ready, `dsh 就绪（v${this.version ?? 'unknown'}）`);

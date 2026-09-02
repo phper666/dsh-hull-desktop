@@ -27,12 +27,15 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/** 平台注册表（PK2：各平台归档格式/布局/二进制路径不同——BE 扫描发现） */
+/** 平台注册表（PK2：各平台归档格式/布局/二进制路径不同——BE 扫描发现）。
+ *  dist：Node 官方 dist 目录名（≠ 本仓库平台标识）——win 官方是 `win-x64`，非 `win32-x64`；
+ *  下载 URL 与 zip 内层目录都叫 `win-x64`，写错（win32-x64）→ 404。vendor 目录名仍用平台标识
+ *  （`win32-x64`），electron-builder.yml extraResources 引用不变。 */
 const PLATFORMS = {
-  'darwin-arm64': { ext: 'tar.gz', tarFlags: '-xzf', bin: join('bin', 'node') },
-  'darwin-x64': { ext: 'tar.gz', tarFlags: '-xzf', bin: join('bin', 'node') }, // cicd 决策 6：mac Intel
-  'linux-x64': { ext: 'tar.xz', tarFlags: '-xJf', bin: join('bin', 'node') },
-  'win32-x64': { ext: 'zip', tarFlags: null, bin: 'node.exe' }, // win zip 根为 node.exe（无 bin/）
+  'darwin-arm64': { dist: 'darwin-arm64', ext: 'tar.gz', tarFlags: '-xzf', bin: join('bin', 'node') },
+  'darwin-x64': { dist: 'darwin-x64', ext: 'tar.gz', tarFlags: '-xzf', bin: join('bin', 'node') }, // cicd 决策 6：mac Intel
+  'linux-x64': { dist: 'linux-x64', ext: 'tar.xz', tarFlags: '-xJf', bin: join('bin', 'node') },
+  'win32-x64': { dist: 'win-x64', ext: 'zip', tarFlags: null, bin: 'node.exe' }, // win zip 根为 node.exe（无 bin/）
 };
 
 const DEFAULT_PLATFORM = 'darwin-arm64'; // 向后兼容：不带 --platform 行为不变
@@ -112,7 +115,7 @@ async function main() {
   const version = parseVersion(process.argv.slice(2));
   const { name: platform, spec } = parsePlatform(process.argv.slice(2));
   const targetDir = join(VENDOR_DIR, `node-${version}-${platform}`);
-  const archiveName = `node-v${version}-${platform}.${spec.ext}`;
+  const archiveName = `node-v${version}-${spec.dist}.${spec.ext}`; // dist：官方归档名（win 用 win-x64）
   const archivePath = join(VENDOR_DIR, archiveName);
   const nodeBin = join(targetDir, spec.bin);
 
@@ -162,13 +165,18 @@ async function main() {
   extractArchive(archivePath, extractTmp, spec, platform);
   rmSync(archivePath, { force: true }); // 校验通过后清理归档，目录即产物
 
-  const extracted = join(extractTmp, `node-v${version}-${platform}`);
+  const extracted = join(extractTmp, `node-v${version}-${spec.dist}`); // zip/tar 内层目录 = 官方 dist 名
   if (!existsSync(join(extracted, spec.bin))) {
     rmSync(extractTmp, { recursive: true, force: true });
     throw new Error(`解压产物缺少 ${spec.bin}: ${extracted}`);
   }
   rmSync(targetDir, { recursive: true, force: true });
-  spawnSync('mv', [extracted, targetDir], { stdio: 'inherit' });
+  // mv 跨平台不可靠（win 无 mv.exe；Git Bash 才有）——失败显式抛错，不让残缺产物蒙混（CI 曾因静默跳过发布无 node 包）
+  const mv = spawnSync('mv', [extracted, targetDir], { stdio: 'inherit' });
+  if (mv.status !== 0) {
+    rmSync(extractTmp, { recursive: true, force: true });
+    throw new Error(`mv 失败（exit ${mv.status ?? mv.error?.message}）：${extracted} → ${targetDir}`);
+  }
   rmSync(extractTmp, { recursive: true, force: true });
   chmodSync(nodeBin, 0o755);
   // 版本文件（PK2 extractNode 完整性校验依据：node-version.txt 随树复制到 userData/node）

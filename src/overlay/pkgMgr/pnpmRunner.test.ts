@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import { equal, deepEqual, ok } from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
-import { PnpmRunner, NATIVE_DEP_PKGS, COREPACK_PNPM_VERSION } from './npmRunner';
+import { PnpmRunner, NATIVE_DEP_PKGS, COREPACK_PNPM_VERSION, corepackBinFor } from './npmRunner';
 import type { PkgMgrSpawnOptions } from './types';
 
 class FakeChild extends EventEmitter {
@@ -52,7 +52,9 @@ function makeRunner(opts: {
   };
 }
 
-const COREPACK_BIN = '/usr/local/fake-node/bin/corepack';
+// corepack 入口按平台推导（win32 是 node_modules/corepack/dist/corepack.js，
+// 硬编码 POSIX 路径在 Windows 必挂——断言先抛 → emit('exit') 不执行 → install promise 挂起 → 测试进程不退出）
+const COREPACK_BIN = corepackBinFor('/usr/local/fake-node/bin/node');
 
 test('pnpm ① 参数串：corepack pnpm@<固定版本> add / --prefix / prefer-symlinked-executables / 写 package.json', async () => {
   const { runner, getChild, getSpawn, getSpawns, writes, runOpts } = makeRunner();
@@ -68,6 +70,7 @@ test('pnpm ① 参数串：corepack pnpm@<固定版本> add / --prefix / prefer-
     '--prefix',
     '/tmp/staging',
     '--config.prefer-symlinked-executables=true',
+    '--config.node-linker=hoisted',
   ]);
   equal(s!.opts.cwd, '/tmp/staging');
   deepEqual(writes, ['/tmp/staging']); // staging 根 package.json 先写
@@ -176,15 +179,35 @@ test('pnpm ④ 非零退出（无网络错误码）→ npm-install-failed', asyn
   equal(r.code, 'npm-install-failed');
 });
 
-test('pnpm ⑤ registry env 透传 → npm_config_registry（pnpm 识别同一变量）', async () => {
+test('pnpm ⑤ registry env 透传 → npm_config_registry + COREPACK_NPM_REGISTRY（corepack 下载 pnpm 本体用后者）', async () => {
   const { runner, getChild, getSpawn, getSpawns } = makeRunner();
   const p = runner.install('/tmp/staging', 'latest', { registry: 'https://mirror.example.com' });
   equal(getSpawn()!.opts.env.npm_config_registry, 'https://mirror.example.com');
+  equal(getSpawn()!.opts.env.COREPACK_NPM_REGISTRY, 'https://mirror.example.com', 'corepack 拉 pnpm 本体走同一镜像');
   getChild().emit('exit', 0, null);
   getChild().emit('exit', 0, null); // rebuild 成功
   const r = await p;
   equal(r.ok, true);
   ok(getSpawns().length === 2, '主 install + rebuild 两次 spawn');
+  equal(getSpawns()[1].opts.env.COREPACK_NPM_REGISTRY, 'https://mirror.example.com', 'rebuild 同透传（COREPACK_HOME 缓存空时 corepack 再拉 pnpm）');
+  equal(getSpawns()[1].opts.env.npm_config_registry, 'https://mirror.example.com', 'rebuild 装原生包也走镜像');
+});
+
+test('pnpm ⑤b 未传 registry → HULL_REGISTRY 兜底注入两个变量', async () => {
+  const { runner, getChild, getSpawn } = makeRunner();
+  const orig = process.env.HULL_REGISTRY;
+  process.env.HULL_REGISTRY = 'https://hull-fallback.example.com';
+  try {
+    const p = runner.install('/tmp/staging', 'latest', { registry: '' });
+    equal(getSpawn()!.opts.env.npm_config_registry, 'https://hull-fallback.example.com');
+    equal(getSpawn()!.opts.env.COREPACK_NPM_REGISTRY, 'https://hull-fallback.example.com');
+    getChild().emit('exit', 0, null);
+    getChild().emit('exit', 0, null);
+    await p;
+  } finally {
+    if (orig === undefined) delete process.env.HULL_REGISTRY;
+    else process.env.HULL_REGISTRY = orig;
+  }
 });
 
 test('pnpm ⑥ onLine 逐行回调 + 取消（cancelled 不误映射）', async () => {

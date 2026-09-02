@@ -681,7 +681,7 @@
     // P1：迁移 wa-alert（Web Awesome）——手写 .toast div 移除；组件自带进出场与 aria-live
     const t = document.createElement('wa-alert');
     t.setAttribute('variant', 'brand');
-    t.setAttribute('closable');
+    t.setAttribute('closable', '');
     t.style.cssText = 'position:fixed; right:16px; bottom:16px; z-index:100;';
     t.textContent = msg;
     document.body.appendChild(t);

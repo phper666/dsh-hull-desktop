@@ -40,6 +40,8 @@ export const COREPACK_PNPM_VERSION = '11.23.0';
 export abstract class BasePkgMgrRunner implements PkgMgrRunner {
   protected readonly nodePath: string;
   protected readonly corepackHome?: string;
+  /** install() 解析出的 registry（rebuild/peerFixup 的 spawnOnce 同透传） */
+  private activeRegistry: string | null = null;
   protected readonly spawnFn: PkgMgrSpawnFn;
   protected readonly logger: RuntimeLogger;
   protected readonly now: () => number;
@@ -60,7 +62,7 @@ export abstract class BasePkgMgrRunner implements PkgMgrRunner {
 
   /** 捆绑 corepack 二进制路径（A 方案：nodePath 同 bin 目录；nodePath 为绝对路径——resolveExecutablePath 已解析） */
   protected corepackBin(): string {
-    return join(dirname(this.nodePath), 'corepack');
+    return corepackBinFor(this.nodePath);
   }
 
   /** COREPACK_HOME env 注入（壳控缓存；未配 → 不设，corepack 用用户默认缓存） */
@@ -118,6 +120,11 @@ export abstract class BasePkgMgrRunner implements PkgMgrRunner {
       try {
         const env: NodeJS.ProcessEnv = { ...process.env };
         this.corepackEnv(env); // COREPACK_HOME 壳控（rebuild 同走 corepack）
+        // registry 同透传 install 的选择（缺 → corepack 再拉 pnpm / pnpm 装包走默认源，国内网络挂）
+        if (this.activeRegistry) {
+          env.npm_config_registry = this.activeRegistry;
+          env.COREPACK_NPM_REGISTRY = this.activeRegistry;
+        }
         child = this.spawnFn(command, args, {
           cwd,
           stdio: ['ignore', 'pipe', 'pipe'],
@@ -142,9 +149,14 @@ export abstract class BasePkgMgrRunner implements PkgMgrRunner {
   async install(stagingDir: string, targetVersion: string, opts: PkgMgrRunOptions): Promise<PkgMgrResult> {
     this.cancelled = false;
     const env: NodeJS.ProcessEnv = { ...process.env };
-    // registry env 注入（npm_config_registry 通用变量——npm/pnpm 均识别）
-    if (opts.registry) env.npm_config_registry = opts.registry;
-    else if (process.env.HULL_REGISTRY) env.npm_config_registry = process.env.HULL_REGISTRY;
+    // registry env 注入：npm_config_registry（npm/pnpm 装包识别）+ COREPACK_NPM_REGISTRY
+    // （corepack 下载 pnpm 本体识别——实测缺它时 corepack 恒走 registry.npmjs.org，国内网络 ConnectTimeout）
+    const registry = normalizeRegistry(opts.registry || process.env.HULL_REGISTRY);
+    if (registry) {
+      env.npm_config_registry = registry;
+      env.COREPACK_NPM_REGISTRY = registry;
+      this.activeRegistry = registry; // rebuild/peerFixup 同透传（COREPACK_HOME 缓存空时 corepack 会再拉 pnpm）
+    }
     this.corepackEnv(env); // A 方案：COREPACK_HOME 壳控（pnpm 走 corepack）
     const { command, args } = this.buildArgs(stagingDir, targetVersion, env);
     const child = this.spawnFn(command, args, {
@@ -297,9 +309,9 @@ export class NpmRunner extends BasePkgMgrRunner {
     return 'npm';
   }
 
-  /** 捆绑 npm-cli 路径（nodePath 推导：<nodeDir>/lib/node_modules/npm/bin/npm-cli.js） */
+  /** 捆绑 npm-cli 路径（nodePath 推导；平台布局差异见 npmCliPathFor） */
   get npmCliPath(): string {
-    return join(dirname(this.nodePath), '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+    return npmCliPathFor(this.nodePath);
   }
 
   protected buildArgs(
@@ -363,6 +375,11 @@ export class PnpmRunner extends BasePkgMgrRunner {
         stagingDir,
         // CON-R-pkgmgr-002：POSIX .bin 变 symlink（Windows 忽略）
         '--config.prefer-symlinked-executables=true',
+        // ⚠️ node-linker=hoisted（2026-09-01 Windows 首装根治）：默认 isolated 布局在普通权限
+        // （无 symlink 权限）下 pnpm 用绝对路径 junction（EPERM 降级），swap rename 后全部悬空，
+        // 重建又撞 Windows Defender 扫描窗口（EISDIR 3~10 分钟）。hoisted 布局顶层依赖是
+        // 真实目录（无 junction）→ swap 后天然有效，无需 relink/兜底，普通用户可用。
+        '--config.node-linker=hoisted',
       ],
     };
   }
@@ -438,13 +455,52 @@ export class PnpmRunner extends BasePkgMgrRunner {
   }
 }
 
-/** 相对可执行名 → 绝对路径（PATH 查找；绝对路径原样返回）。npmCliPath 推导依赖绝对 node 路径 */
-function resolveExecutablePath(cmd: string): string {
+/** 平台布局：corepack JS 入口（node 显式跑，见 PnpmRunner.buildArgs 注释）。
+ *  - POSIX：bin/corepack 是 symlink → dist/corepack.js（node 可直接执行）——现状不变
+ *  - win32：node.exe 同级无 JS 入口（无扩展名 corepack 是 sh 脚本，node 跑不了）。
+ *    ⚠️ corepack 0.34+ 的 package.json bin = ./dist/corepack.js，bin/ 目录为空——
+ *    真实 JS 在 node_modules/corepack/dist/corepack.js（system node 与捆绑 win zip 同构，实测 2026-08-31） */
+export function corepackBinFor(nodePath: string, platform: NodeJS.Platform = process.platform): string {
+  const dir = dirname(nodePath);
+  if (platform === 'win32') return join(dir, 'node_modules', 'corepack', 'dist', 'corepack.js');
+  // 显式 POSIX 请求 → 正斜杠确定性输出（POSIX 宿主 join 本就产正斜杠，replace 无操作；
+  // win32 宿主 join 产反斜杠——不归一则按平台参数的契约失真，回归守卫测试无法跨平台）
+  return join(dir, 'corepack').replace(/\\/g, '/');
+}
+
+/** 平台布局：npm-cli.js。
+ *  - POSIX：bin/node → 上一级 lib/node_modules/npm/bin/npm-cli.js——现状不变
+ *  - win32：node.exe 同级直挂 node_modules/npm/bin/npm-cli.js（无 lib 层） */
+export function npmCliPathFor(nodePath: string, platform: NodeJS.Platform = process.platform): string {
+  const dir = dirname(nodePath);
+  if (platform === 'win32') return join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  // POSIX 请求 → 正斜杠确定性输出（同 corepackBinFor：POSIX 宿主无操作，win32 宿主归一）
+  return join(dir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js').replace(/\\/g, '/');
+}
+
+export interface ResolveExecutableOptions {
+  platform?: NodeJS.Platform;
+  /** 默认 process.env.PATH（测试注入用） */
+  pathEnv?: string;
+  /** 默认 existsSync（测试注入用） */
+  exists?: (p: string) => boolean;
+}
+
+/** 相对可执行名 → 绝对路径（PATH 查找；绝对路径原样返回）。npmCliPath 推导依赖绝对 node 路径。
+ *  ⚠️ Windows 坑（曾致 dsh-staging\corepack MODULE_NOT_FOUND）：
+ *  ① PATH 分隔符是 `;` 非 `:`（用 path.delimiter，跨平台正确）；
+ *  ② 目录下是 node.exe——无后缀匹配不到，需补 .exe 候选 */
+export function resolveExecutablePath(cmd: string, opts: ResolveExecutableOptions = {}): string {
   if (isAbsolute(cmd)) return cmd;
-  const dirs = (process.env.PATH ?? '').split(':');
+  const platform = opts.platform ?? process.platform;
+  const exists = opts.exists ?? existsSync;
+  const dirs = (opts.pathEnv ?? process.env.PATH ?? '').split(platform === 'win32' ? ';' : ':');
+  const exts = platform === 'win32' ? ['', '.exe'] : [''];
   for (const dir of dirs) {
-    const candidate = join(dir, cmd);
-    if (existsSync(candidate)) return candidate;
+    for (const ext of exts) {
+      const candidate = join(dir, cmd + ext);
+      if (exists(candidate)) return candidate;
+    }
   }
   return cmd; // 找不到 → 原样返回，spawn 报错更清晰
 }
@@ -464,4 +520,13 @@ function createLineBuffer(onLine: (line: string) => void): (chunk: string) => vo
       idx = residue.indexOf('\n');
     }
   };
+}
+
+/** registry 归一化：剥尾部斜杠——corepack 拼 `${registry}/pnpm/<ver>`，带尾斜杠
+ *  （settings 可存 `https://registry.npmmirror.com/`）→ `//pnpm/` → npmmirror 404，
+ *  pnpm 本体下载失败、首装必败（2026-09-01 冷装实测真凶）。空/纯斜杠 → undefined。 */
+export function normalizeRegistry(registry: string | undefined): string | undefined {
+  if (!registry) return undefined;
+  const trimmed = registry.replace(/\/+$/, '');
+  return trimmed || undefined;
 }
