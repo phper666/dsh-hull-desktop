@@ -5,7 +5,7 @@ import { bucketKey, isoWeekKey, summarize } from './aggregator';
 import type { UsageRecord } from './types';
 
 const rec = (ts: string, platform: UsageRecord['platform'], model: string, inputTokens: number, outputTokens: number, cacheReadTokens = 0, cacheWriteTokens = 0): UsageRecord => ({
-  ts, platform, model, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens,
+  ts, platform, model, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, reasoningTokens: 0,
 });
 
 test('桶键：hour/day/month', () => {

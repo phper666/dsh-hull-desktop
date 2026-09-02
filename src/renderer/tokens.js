@@ -11,7 +11,11 @@
     return String(n);
   };
   const GRAN = [['hour', '小时'], ['day', '天'], ['week', '周'], ['month', '月']];
-  const PLATFORM_NAMES = { 'claude-code': 'Claude Code', codex: 'Codex', dsh: 'dsh' };
+  const PLATFORM_NAMES = {
+    'claude-code': 'Claude Code', codex: 'Codex', dsh: 'dsh', opencode: 'OpenCode', cline: 'Cline', roo: 'Roo Code',
+    gemini: 'Gemini CLI', kimi: 'Kimi Code', goose: 'Goose', continue: 'Continue', zed: 'Zed', warp: 'Warp',
+    zcode: 'ZCode', qoder: 'Qoder', copilot: 'Copilot', kiro: 'Kiro',
+  };
 
   let granularity = 'day';
   const root = document.getElementById('tokens-root');
@@ -73,9 +77,8 @@
       body.innerHTML = `
         <div class="tk-empty">
           <h2>暂无 Token 用量数据</h2>
-          <p>使用以下任一支持的 AI 编程工具产生会话后，这里会自动统计输入 / 输出 / 缓存 token（${GRAN.map(([k, n]) => n).join(' / ')}粒度）。</p>
+          <p>使用以下任一支持的 AI 编程工具产生会话后，这里会自动统计输入 / 输出 / 缓存 / 推理 token（${GRAN.map(([k, n]) => n).join(' / ')}粒度）。数据路径见下，扫描只读，不会修改各平台目录。</p>
           <div class="src">${srcRows}</div>
-          <div class="hint-note">路线图适配器：Gemini CLI、OpenCode、Cursor、Zed、GitHub Copilot、Qoder、ZCode 等（格式逐一验证后上线）。扫描只读，不会修改各平台目录。</div>
         </div>`;
       return;
     }
@@ -96,11 +99,11 @@
       .join('');
 
     const table = (rows) =>
-      `<table class="tk-table"><thead><tr><th>平台</th><th>模型</th><th class="num">输入</th><th class="num">输出</th><th class="num">缓存</th><th class="num">合计</th></tr></thead><tbody>${
+      `<table class="tk-table"><thead><tr><th>平台</th><th>模型</th><th class="num">输入</th><th class="num">输出</th><th class="num">推理</th><th class="num">缓存</th><th class="num">合计</th></tr></thead><tbody>${
         rows
           .map(
             (r) =>
-              `<tr><td>${esc(PLATFORM_NAMES[r.platform] || r.platform)}</td><td>${esc(r.model)}</td><td class="num">${fmt(r.inputTokens)}</td><td class="num">${fmt(r.outputTokens)}</td><td class="num">${fmt(r.cacheReadTokens + r.cacheWriteTokens)}</td><td class="num">${fmt(r.totalTokens)}</td></tr>`
+              `<tr><td>${esc(PLATFORM_NAMES[r.platform] || r.platform)}</td><td>${esc(r.model)}</td><td class="num">${fmt(r.inputTokens)}</td><td class="num">${fmt(r.outputTokens)}</td><td class="num">${fmt(r.reasoningTokens)}</td><td class="num">${fmt(r.cacheReadTokens + r.cacheWriteTokens)}</td><td class="num">${fmt(r.totalTokens)}</td></tr>`
           )
           .join('')
       }</tbody></table>`;

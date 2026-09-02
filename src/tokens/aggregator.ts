@@ -4,10 +4,10 @@
  */
 import type { UsageBucket, UsageDimensionRow, UsageGranularity, UsageRecord, UsageSummary, UsageTotals } from './types';
 
-type MutableTotals = { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; totalTokens: number };
+type MutableTotals = { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; reasoningTokens: number; totalTokens: number };
 
 function emptyTotals(): MutableTotals {
-  return { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0 };
+  return { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 0 };
 }
 
 function addTotals(t: MutableTotals, r: UsageRecord): void {
@@ -15,12 +15,13 @@ function addTotals(t: MutableTotals, r: UsageRecord): void {
   t.outputTokens += r.outputTokens;
   t.cacheReadTokens += r.cacheReadTokens;
   t.cacheWriteTokens += r.cacheWriteTokens;
+  t.reasoningTokens += r.reasoningTokens || 0;
   t.totalTokens += r.inputTokens + r.outputTokens + r.cacheReadTokens + r.cacheWriteTokens;
 }
 
 function finalize(t: MutableTotals): UsageTotals {
-  const { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens } = t;
-  return { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens };
+  const { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, reasoningTokens, totalTokens } = t;
+  return { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, reasoningTokens, totalTokens };
 }
 
 /** ISO 周键（ISO-8601：周一起始，含 1/4 的那周为第 1 周）——YYYY-Www */
