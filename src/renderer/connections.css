@@ -13,12 +13,9 @@
 }
 .cn-title { font-size: 13px; font-weight: 700; }
 .cn-spacer { flex: 1; }
-.cn-btn { padding: 5px 12px; border-radius: var(--radius-md); border: none; cursor: pointer; font-size: 12px; background: var(--hull-border); color: var(--hull-text-dim); transition: background var(--dur-fast) var(--ease-out); }
-.cn-btn:hover { background: var(--hull-hover); color: var(--hull-text); }
-.cn-btn.primary { background: var(--hull-accent); color: var(--hull-text-inverse); }
-.cn-btn.primary:hover { background: var(--hull-accent-hover); }
-.cn-btn.danger { background: var(--hull-danger-soft); color: var(--hull-danger); }
-.cn-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.cn-btn { /* 继承壳级 .btn（padding 5px / hover 变色在 shell 基类差异） */ }
+.cn-btn.primary { /* 壳级 .btn 修饰符列表 + 全局 .primary */ }
+.cn-btn.danger { /* 壳级 .btn 修饰符列表 */ }
 
 /* 平台选择卡片（新建第一步） */
 .cn-platforms { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; padding: 14px; }
@@ -43,8 +40,7 @@
 .cn-card .lasterr { margin-top: 6px; font-size: 11px; color: var(--hull-danger); word-break: break-all; }
 .cn-card-ops { margin-top: 8px; display: flex; gap: 6px; justify-content: flex-end; }
 
-/* 状态徽标 */
-.cn-badge { font-size: 11px; padding: 1px 8px; border-radius: var(--radius-pill); white-space: nowrap; }
+/* 状态徽标（结构继承壳级 .badge；下方仅语义变体） */
 .cn-badge.connected { background: var(--hull-success-soft); color: var(--hull-success); }
 .cn-badge.failed { background: var(--hull-danger-soft); color: var(--hull-danger); }
 .cn-badge.unverified { background: var(--hull-warning-faint); color: var(--hull-warning); }
@@ -55,14 +51,11 @@
 .cn-f { display: flex; flex-direction: column; gap: 4px; }
 .cn-f label { font-size: 12px; color: var(--hull-text-dim); }
 .cn-f label .req { color: var(--hull-danger); }
-.cn-f .input { width: 100%; border: 1px solid var(--hull-border); border-radius: var(--radius-md); padding: 7px 10px; font-size: 13px; color: var(--hull-text); background: var(--hull-panel); outline: none; transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
-.cn-f .input:focus { border-color: var(--hull-accent); box-shadow: 0 0 0 2px var(--hull-accent-soft); }
+.cn-f .input { width: 100%; font-size: 13px; } /* 其余继承壳级 .input */
+.cn-f .input:focus { box-shadow: 0 0 0 2px var(--hull-accent-soft); } /* border-color 由壳级 :focus 提供 */
 .cn-f .hint { font-size: 11px; color: var(--hull-text-sub); }
 .cn-f-row { display: flex; align-items: center; gap: 8px; }
-.cn-switch { position: relative; width: 40px; height: 22px; background: var(--hull-text-sub); border-radius: var(--radius-pill); border: none; cursor: pointer; flex-shrink: 0; transition: background var(--dur-fast) var(--ease-out); }
-.cn-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: var(--hull-text-inverse); border-radius: 50%; transition: left var(--dur-fast) var(--ease-out); box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
-.cn-switch[aria-checked="true"] { background: var(--hull-accent); }
-.cn-switch[aria-checked="true"]::after { left: 20px; }
+.cn-switch { /* 继承壳级 .switch */ }
 .cn-form-ops { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .cn-verify-msg { font-size: 12px; }
 .cn-verify-msg.ok { color: var(--hull-success); }

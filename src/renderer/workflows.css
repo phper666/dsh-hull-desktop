@@ -12,12 +12,7 @@
 }
 .wf-title { font-size: 13px; font-weight: 700; }
 .wf-spacer { flex: 1; }
-.wf-btn { padding: 5px 12px; border-radius: var(--radius-md); border: none; cursor: pointer; font-size: 12px; background: var(--hull-border); color: var(--hull-text-dim); transition: background var(--dur-fast) var(--ease-out); }
-.wf-btn:hover { background: var(--hull-hover); color: var(--hull-text); }
-.wf-btn.primary { background: var(--hull-accent); color: var(--hull-text-inverse); }
-.wf-btn.primary:hover { background: var(--hull-accent-hover); }
-.wf-btn.danger { background: var(--hull-danger-soft); color: var(--hull-danger); }
-.wf-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.wf-btn { /* 继承壳级 .btn（padding 5px / hover 变色在 shell 基类差异）；primary/danger/disabled 在壳级修饰符列表 */ }
 
 .wf-list { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
 .wf-card { background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: var(--radius-lg); padding: 12px 14px; }
@@ -28,12 +23,9 @@
 .wf-steps-preview { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 11px; color: var(--hull-text-dim); }
 .wf-steps-preview .arrow { color: var(--hull-text-sub); }
 
-.wf-switch { position: relative; width: 40px; height: 22px; background: var(--hull-text-sub); border-radius: var(--radius-pill); border: none; cursor: pointer; flex-shrink: 0; transition: background var(--dur-fast) var(--ease-out); }
-.wf-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: var(--hull-text-inverse); border-radius: 50%; transition: left var(--dur-fast) var(--ease-out); box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
-.wf-switch[aria-checked="true"] { background: var(--hull-accent); }
-.wf-switch[aria-checked="true"]::after { left: 20px; }
+.wf-switch { /* 继承壳级 .switch */ }
 
-.wf-badge { font-size: 11px; padding: 1px 8px; border-radius: var(--radius-pill); }
+/* 状态徽标（结构继承壳级 .badge；下方仅语义变体） */
 .wf-badge.success { background: var(--hull-success-soft); color: var(--hull-success); }
 .wf-badge.failed { background: var(--hull-danger-soft); color: var(--hull-danger); }
 .wf-badge.running { background: var(--hull-info-soft); color: var(--hull-info); }
@@ -41,8 +33,7 @@
 
 /* 编辑器 */
 .wf-editor { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
-.wf-editor .input { width: 100%; max-width: 420px; border: 1px solid var(--hull-border); border-radius: var(--radius-md); padding: 7px 10px; font-size: 13px; color: var(--hull-text); background: var(--hull-panel); outline: none; }
-.wf-editor .input:focus { border-color: var(--hull-accent); }
+.wf-editor .input { width: 100%; max-width: 420px; } /* 其余继承壳级 .input；字体由 .wf-f 12px 提供（原有效值） */
 .wf-steps { display: flex; flex-direction: column; gap: 8px; }
 .wf-step { background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: var(--radius-lg); padding: 10px 12px; }
 .wf-step-head { display: flex; align-items: center; gap: 8px; }

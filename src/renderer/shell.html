@@ -221,30 +221,139 @@
   .srow .label { font-size: 13px; font-weight: 500; color: var(--hull-text); }
   .srow .sub { font-size: 12px; color: var(--hull-text-dim); margin-top: 2px; }
   .srow .control { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 180px; }
-  .sbtn { border: 1px solid var(--hull-border); background: var(--hull-panel); border-radius: var(--radius-md); padding: 6px 12px; font-size: 13px; cursor: pointer; color: var(--hull-text); }
-  .sbtn:hover { background: var(--hull-hover); }
-  .sbtn.primary { background: var(--hull-primary); border-color: var(--hull-primary); color: var(--hull-text-inverse); }
-  .sbtn.primary:hover { background: var(--hull-primary-hover); }
+  /* ── 壳级共享基类（P1-e：六页按钮/输入/徽标/switch/弹窗收敛于此，值取既有页面定义，零观感变化）──
+     页面 css 删重复定义只留上下文覆盖；本块位于 <style> 后段，同特异性靠后覆盖页面旧值。
+     修饰符组合（.cn-btn primary / .wf-btn primary / .sbtn primary 等）必须在修饰符列表显式列出，
+     否则基类 bg（靠后）会盖过全局 .primary/.ghost（靠前）。 */
+
+  /* 按钮基类：neutral-fill 主形态（sk/kb/cn/wf 原值）；描边变体 .sbtn/.tk-btn 见差异 */
+  .btn, .sbtn, .sk-btn, .kb-btn, .kb-view, .cn-btn, .wf-btn, .tk-btn {
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 6px 12px;
+    border: none;
+    background: var(--hull-border);
+    color: var(--hull-text-dim);
+    transition: background-color var(--dur-fast) var(--ease-out),
+                color var(--dur-fast) var(--ease-out),
+                border-color var(--dur-fast) var(--ease-out),
+                box-shadow var(--dur-fast) var(--ease-out);
+  }
+  .btn:hover, .sbtn:hover, .sk-btn:hover, .kb-btn:hover, .kb-view:hover, .cn-btn:hover, .wf-btn:hover, .tk-btn:hover { background: var(--hull-hover); }
+  .btn:active, .tk-btn:active { background: var(--hull-accent-soft); }
+  .btn:disabled, .sbtn:disabled, .cn-btn:disabled, .wf-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn:focus-visible, .sbtn:focus-visible, .sk-btn:focus-visible, .kb-btn:focus-visible, .kb-view:focus-visible, .cn-btn:focus-visible, .wf-btn:focus-visible, .tk-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--hull-bg), 0 0 0 4px var(--hull-accent-soft);
+    border-color: var(--hull-accent);
+  }
+  /* 按钮差异（本块内靠后 = 覆盖基类；值=各页既有） */
+  .cn-btn, .wf-btn { padding: 5px 12px; }
+  .tk-btn { padding: 5px 12px; border: 1px solid var(--hull-border); background: var(--hull-panel); }
+  .sbtn { font-size: 13px; border: 1px solid var(--hull-border); background: var(--hull-panel); color: var(--hull-text); }
+  .cn-btn:hover, .wf-btn:hover, .tk-btn:hover { color: var(--hull-text); }
+  .tk-btn:hover { border-color: var(--hull-accent-medium); }
+  /* 按钮语义修饰（primary/danger 集中定义，含各页既有 hover；置于基类后确保 bg 覆盖） */
+  .btn.primary, .sbtn.primary, .cn-btn.primary, .wf-btn.primary, .sk-primary-btn, .kb-primary { background: var(--hull-accent); color: var(--hull-text-inverse); }
+  .btn.primary:hover, .sbtn.primary:hover, .cn-btn.primary:hover, .wf-btn.primary:hover, .sk-primary-btn:hover, .kb-primary:hover { background: var(--hull-accent-hover); }
+  .sbtn.primary { border-color: var(--hull-primary); }
+  .btn.danger, .cn-btn.danger, .wf-btn.danger, .sk-danger-btn, .kb-danger { background: var(--hull-danger-soft); color: var(--hull-danger); }
+  .sk-danger-btn:hover, .kb-danger:hover { background: var(--hull-danger-hover); }
+  /* cn/wf danger 原无 hover 反馈（hover 保持 danger-soft），钉住现状 */
+  .cn-btn.danger:hover, .wf-btn.danger:hover { background: var(--hull-danger-soft); }
   .sbtn.danger { color: var(--hull-danger); border-color: var(--hull-danger-hover); }
-  .sbtn:disabled { opacity: 0.45; cursor: not-allowed; }
-  .switch { position: relative; width: 40px; height: 22px; background: var(--hull-text-sub); border-radius: var(--radius-pill); border: none; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); flex-shrink: 0; }
-  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: var(--hull-text-inverse); border-radius: 50%; transition: left var(--dur-fast) var(--ease-out); box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
-  .switch[aria-checked="true"] { background: var(--hull-primary); }
-  .switch[aria-checked="true"]::after { left: 20px; }
+
+  /* 输入基类（input/select/textarea 同基；值=各页既有 7px 内边距；仅类选择器——
+     .cn-f .input/.wf-editor .input 由 .input 类选择器覆盖，不列复合选择器（复合会抬特异性压页面 denser 变体）） */
+  .input, .sk-input, .sk-select, .kb-input {
+    border: 1px solid var(--hull-border);
+    border-radius: var(--radius-md);
+    padding: 7px 10px;
+    background: var(--hull-panel);
+    color: var(--hull-text);
+    outline: none;
+  }
+  .input:focus, .sk-input:focus, .sk-select:focus, .kb-input:focus { border-color: var(--hull-accent); }
+  #kb-q { border: 1px solid var(--hull-border); border-radius: var(--radius-md); padding: 7px 10px; background: var(--hull-panel); color: var(--hull-text); outline: none; }
+  #kb-q:focus { border-color: var(--hull-accent); }
+  .sk-input, .sk-select, .kb-input, #kb-q { font-size: 12px; }
+  .cn-f .input { font-size: 13px; }
+  /* 设置页输入特例（壳内原值 6px + primary 软环） */
+  #settings .input { padding: 6px 10px; width: 240px; font-size: 13px; }
+  #settings .input:focus { border-color: var(--hull-primary); box-shadow: 0 0 0 2px var(--hull-primary-soft); }
+
+  /* 徽标基类（结构共用；语义色各页自有变体 + 壳级 badge--* 收敛目标） */
+  .badge, .sk-badge, .cn-badge, .wf-badge {
+    display: inline-block;
+    font-size: 11px;
+    padding: 1px 8px;
+    border-radius: var(--radius-pill);
+    white-space: nowrap;
+  }
+  .badge--ok { background: var(--hull-success-soft); color: var(--hull-success); }
+  .badge--warn { background: var(--hull-warning-soft); color: var(--hull-warning-alt); }
+  .badge--err { background: var(--hull-danger-soft); color: var(--hull-danger); }
+  .badge--info { background: var(--hull-info-soft); color: var(--hull-info); }
+  .badge--muted { background: var(--hull-neutral-soft); color: var(--hull-text-note); }
+  /* 徽标默认（壳内 .badge 原 primary-soft 底 2px；页面 badge 原 border 底） */
+  .badge { padding: 2px 8px; background: var(--hull-primary-soft); color: var(--hull-primary); }
+  .sk-badge { background: var(--hull-border); color: var(--hull-text-dim); }
+
+  /* switch 基类（壳级 40×22；skills .sk-switch 为独立小尺寸组件，不收编） */
+  .switch, .cn-switch, .wf-switch {
+    position: relative; width: 40px; height: 22px;
+    background: var(--hull-text-sub);
+    border-radius: var(--radius-pill); border: none; cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-out);
+    flex-shrink: 0;
+  }
+  .switch::after, .cn-switch::after, .wf-switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px;
+    width: 18px; height: 18px; background: var(--hull-text-inverse);
+    border-radius: 50%; transition: left var(--dur-fast) var(--ease-out);
+    box-shadow: 0 1px 2px var(--hull-shadow); /* 主题化：原 rgba(0,0,0,0.2)，P2-j 亮色收敛 */
+  }
+  .switch[aria-checked="true"], .cn-switch[aria-checked="true"], .wf-switch[aria-checked="true"] { background: var(--hull-accent); }
+  .switch[aria-checked="true"]::after, .cn-switch[aria-checked="true"]::after, .wf-switch[aria-checked="true"]::after { left: 20px; }
+
+  /* 弹窗基类（overlay + box；shadow-2/hull-card 提升留待批3 surface ladder，批1 零观感变化） */
+  .modal-wrap, .sk-modal-wrap, .kb-modal {
+    position: fixed; inset: 0; z-index: 100;
+    background: var(--hull-overlay);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .modal-box, .sk-modal, .kb-modal-box {
+    border: 1px solid var(--hull-border);
+    border-radius: var(--radius-xl);
+    overflow-y: auto;
+  }
+  /* 弹窗差异（kb-modal 绝对定位贴 board 容器；sk/kb 盒体各自尺寸） */
+  .kb-modal { position: absolute; }
+  .sk-modal { width: min(520px, 90%); max-height: 80vh; padding: 16px; background: var(--hull-bg); color: var(--hull-text); font-size: 13px; }
+  .kb-modal-box { width: 440px; max-width: 90vw; max-height: 82vh; padding: 18px; background: var(--hull-panel); }
+
+  /* P2-i：nav 品牌锚点（纯 CSS，同 tokens .tk-mark 模式） */
+  #nav-title::before {
+    content: "";
+    display: inline-block;
+    width: 12px; height: 12px;
+    border-radius: 3px;
+    margin-right: 8px;
+    vertical-align: -2px;
+    background: linear-gradient(135deg, var(--hull-accent-hover), var(--hull-accent));
+  }
   .badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
-  .badge { font-size: 11px; padding: 2px 8px; border-radius: var(--radius-pill); background: var(--hull-primary-soft); color: var(--hull-primary); white-space: nowrap; }
   .badge.ok { background: var(--hull-success-soft); color: var(--hull-success); }
   .badge.warn { background: var(--hull-warning-soft); color: var(--hull-warning-alt); }
   .badge.err { background: var(--hull-danger-soft); color: var(--hull-danger); }
   .badge.muted { background: var(--hull-neutral-soft); color: var(--hull-text-note); }
   .hint { font-size: 11px; color: var(--hull-text-dim); margin-top: 4px; text-align: right; }
-  .input { width: 240px; border: 1px solid var(--hull-border); border-radius: var(--radius-md); padding: 6px 10px; font-size: 13px; color: var(--hull-text); background: var(--hull-panel); outline: none; }
-  .input:focus { border-color: var(--hull-primary); box-shadow: 0 0 0 2px var(--hull-primary-soft); }
   .input.error { border-color: var(--hull-danger); background: var(--hull-danger-soft); }
   .error-text { font-size: 11px; color: var(--hull-danger); max-width: 240px; text-align: right; }
   .channel-wrap { display: flex; gap: 8px; align-items: center; }
   .select { border: 1px solid var(--hull-border); border-radius: var(--radius-md); padding: 6px 8px; font-size: 13px; background: var(--hull-panel); outline: none; color: var(--hull-text); }
-  .version-input { width: 140px; }
+  #settings .version-input { width: 140px; }
   .status-alert { margin: 8px 16px 12px; padding: 8px 12px; border-radius: var(--radius-md); font-size: 12px; background: var(--hull-danger-soft); color: var(--hull-danger); border: 1px solid var(--hull-danger-hover); display: none; }
   .status-alert.show { display: block; }
   /* upgrade 视图：双通道反馈内联在各自 scard 底部，去掉嵌套卡片感 */

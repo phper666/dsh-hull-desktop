@@ -22,9 +22,7 @@
 .tk-gran button { margin: 0; padding: 5px 12px; border: none; border-radius: 0; background: transparent; color: var(--hull-text-dim); font-size: 12px; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .tk-gran button:hover:not([aria-pressed="true"]) { background: var(--hull-hover); color: var(--hull-text); }
 .tk-gran button[aria-pressed="true"] { background: var(--hull-accent); color: var(--hull-text-inverse); }
-.tk-btn { padding: 5px 12px; border-radius: var(--radius-md); border: 1px solid var(--hull-border); cursor: pointer; font-size: 12px; background: var(--hull-panel); color: var(--hull-text-dim); transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out); }
-.tk-btn:hover { background: var(--hull-hover); color: var(--hull-text); border-color: var(--hull-accent-medium); }
-.tk-btn:active { background: var(--hull-accent-soft); }
+.tk-btn { /* 继承壳级 .btn（padding 5px / 描边 / hover·active 在 shell 基类差异与修饰符列表） */ }
 
 /* —— 合计英雄卡：大数字 + 构成分解 —— */
 .tk-hero {
