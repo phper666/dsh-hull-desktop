@@ -3,6 +3,13 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-09-02 UI 视觉优化 P1/P2 剩余项（ticket t100109，PR #7）
+
+- 类型：UI 体系重构（无共识规则变化）
+- 内容：3 批——①壳级组件基类（.btn/.input/.badge/.switch/.modal）+ 6 渲染文件别名收敛（按钮 6 套/输入 5 套/徽标 5 套/switch 3 套/弹窗 2 套→1）+ switch rgba 主题化 + nav-title logo；②--text-* 字阶 token + 166 处 font-size/spacing 等值迁移；③nav 7 inline SVG 图标 + connections/workflows/shell 设置页 surface ladder + 4 页空态 SVG 锚点 + 亮色 shadow 分层；含 workflows.js 存量死引用修复（`void loadList` 中断初始化致视图空白）
+- 核验：CSS 级联审计（修掉 2 个特异性回归）+ fake-DOM 冒烟 4 页 + 用户亮/暗两主题走查通过（2026-09-02）
+- 文档：docs/design/UI-P1P2-视觉剩余项-design.md（3 批实施，先结构后视觉）
+
 ## 2026-09-02 Token 视图筛选语义修订（t100104 追加，验证反馈闭环）
 
 - 类型：功能语义修订（用户 dev 验证反馈两轮 + 长期数据诉求）
