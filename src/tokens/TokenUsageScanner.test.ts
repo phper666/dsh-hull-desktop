@@ -4,7 +4,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { parseClaudeLine, parseCodexLine, parseDshLine, platformSources, scanAllSources } from './TokenUsageScanner';
+import { parseClaudeLine } from './adapters/claude';
+import { parseCodexFile } from './adapters/codex';
+import { parseDshLine } from './adapters/dsh';
+import { platformSources, scanAllSources } from './TokenUsageScanner';
+import type { TokenPlatform } from './types';
 
 const CLAUDE_LINE =
   JSON.stringify({
@@ -30,6 +34,8 @@ const DSH_LINE =
     message: { model: 'deepseek-v4', usage: { input_tokens: 640, output_tokens: 210 } },
   }) + '\n';
 
+const ALL_PLATFORMS: TokenPlatform[] = ['claude-code', 'codex', 'dsh', 'opencode', 'cline', 'roo', 'gemini', 'kimi', 'goose', 'continue', 'zed', 'warp', 'zcode', 'qoder', 'copilot', 'kiro'];
+
 test('parseClaudeLine：assistant+usage → 记录（含缓存读/写）；非 assistant → null', () => {
   const r = parseClaudeLine(CLAUDE_LINE, '1970-01-01T00:00:00Z');
   ok(r, '应解析出记录');
@@ -44,13 +50,16 @@ test('parseClaudeLine：assistant+usage → 记录（含缓存读/写）；非 a
   equal(parseClaudeLine('not-json', 'x'), null);
 });
 
-test('parseCodexLine：防御式深找 usage 形态（payload.info 层）', () => {
-  const r = parseCodexLine(CODEX_LINE, '1970-01-01T00:00:00Z');
-  ok(r, '应解析出记录');
-  equal(r?.platform, 'codex');
-  equal(r?.inputTokens, 800);
-  equal(r?.outputTokens, 150);
-  equal(r?.model, 'gpt-5.2');
+test('parseCodexFile：防御式提取 usage 形态（payload.info 层）；input 拆出 cached 子集', () => {
+  const recs = parseCodexFile(CODEX_LINE, '1970-01-01T00:00:00Z');
+  equal(recs.length, 1);
+  const r = recs[0];
+  equal(r.platform, 'codex');
+  equal(r.inputTokens, 500); // 800 - 300 cached
+  equal(r.cacheReadTokens, 300);
+  equal(r.outputTokens, 150);
+  equal(r.reasoningTokens, 50);
+  equal(r.model, 'gpt-5.2');
 });
 
 test('parseDshLine：message.usage 优先；会话头行跳过', () => {
@@ -60,6 +69,16 @@ test('parseDshLine：message.usage 优先；会话头行跳过', () => {
   equal(r?.model, 'deepseek-v4');
   equal(r?.inputTokens, 640);
   equal(parseDshLine('{"type":"session","createdAt":1}', 'x'), null);
+});
+
+test('platformSources：注册表含全部 16 平台（id 唯一）', () => {
+  const srcs = platformSources('/nonexistent-home-for-test');
+  equal(srcs.length, 16);
+  const platforms = srcs.map((s) => s.platform);
+  equal(new Set(platforms).size, 16, '平台 id 无重复');
+  for (const p of ALL_PLATFORMS) {
+    ok(platforms.includes(p), `注册表应含 ${p}`);
+  }
 });
 
 test('scanAllSources：env 注入平台 home → 端到端扫描（含 dsh zstd 解压）', () => {
@@ -80,12 +99,21 @@ test('scanAllSources：env 注入平台 home → 端到端扫描（含 dsh zstd 
     writeFileSync(join(dir, '.dsh', 'sessions', 'w', 'session-x', 'session.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(DSH_LINE + '\n')));
 
     const { records, sources } = scanAllSources(platformSources(join(dir, 'home-fake')));
+    equal(sources.length, 16, '注册表应含 16 平台');
     equal(records.filter((r) => r.platform === 'claude-code').length, 1);
     equal(records.filter((r) => r.platform === 'codex').length, 1);
     equal(records.filter((r) => r.platform === 'dsh').length, 1);
+    // env 注入三平台：各 1 文件 1 记录；其余平台指向假 home → 无文件
+    for (const platform of ['claude-code', 'codex', 'dsh'] as const) {
+      const src = sources.find((s) => s.platform === platform);
+      ok(src, `应含 ${platform}`);
+      equal(src?.files, 1, `${platform} 应扫到 1 文件`);
+      equal(src?.records, 1, `${platform} 应出 1 记录`);
+      ok(!src?.error, `${platform} 无错误：${src?.error || ''}`);
+    }
     for (const src of sources) {
-      equal(src.files, 1, `${src.platform} 应扫到 1 文件`);
-      equal(src.records, 1, `${src.platform} 应出 1 记录`);
+      if (src.platform === 'claude-code' || src.platform === 'codex' || src.platform === 'dsh') continue;
+      equal(src.files, 0, `${src.platform} 假 home 应无文件`);
       ok(!src.error, `${src.platform} 无错误：${src.error || ''}`);
     }
     // 复用路径再扫一次（幂等，不抛）
