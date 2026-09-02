@@ -197,8 +197,8 @@ export async function verifySmtp(fields: Record<string, string>): Promise<Verify
     };
     timer = setTimeout(() => finish({ ok: false, message: '连接超时（10s）' }), VERIFY_TIMEOUT_MS);
 
-    // 状态机：banner(220) → EHLO → [AUTH LOGIN 用户名/密码] → 235 → QUIT
-    let stage: 'banner' | 'ehlo' | 'auth-user' | 'auth-pass' = 'banner';
+    // 状态机：banner(220) → EHLO → [AUTH LOGIN 用户名挑战(334) → 密码挑战(334) → 235] → QUIT
+    let stage: 'banner' | 'ehlo' | 'auth-user' | 'auth-pass' | 'auth-accepted' = 'banner';
     let buf = '';
     const onData = (chunk: Buffer | string) => {
       if (settled) return;
@@ -223,7 +223,11 @@ export async function verifySmtp(fields: Record<string, string>): Promise<Verify
           stage = 'auth-pass';
           socket?.write(Buffer.from(fields.username, 'utf8').toString('base64') + '\r\n');
         } else if (stage === 'auth-pass') {
-          if (code !== 235) return finish({ ok: false, message: `认证失败（密码被拒）: ${line.slice(4) || line}` });
+          if (code !== 334) return finish({ ok: false, message: `认证失败（密码挑战缺失）: ${line.slice(4) || line}` });
+          stage = 'auth-accepted';
+          socket?.write(Buffer.from(fields.password, 'utf8').toString('base64') + '\r\n');
+        } else if (stage === 'auth-accepted') {
+          if (code !== 235) return finish({ ok: false, message: `认证失败（凭据被拒）: ${line.slice(4) || line}` });
           socket?.write('QUIT\r\n');
           return finish({ ok: true, message: 'SMTP 连接成功（认证通过）' });
         }
