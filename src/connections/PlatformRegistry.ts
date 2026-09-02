@@ -10,14 +10,19 @@ import type { FieldSchema, PlatformAdapter, PlatformId, VerifyResult } from './t
 
 const VERIFY_TIMEOUT_MS = 10_000;
 
-async function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
+async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = VERIFY_TIMEOUT_MS): Promise<Response> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), VERIFY_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     return await fetch(url, { ...init, signal: ctrl.signal });
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** 动作调用共用 fetch（发短信等：30s 超时，与 10s 验证区分） */
+export function sendFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  return fetchWithTimeout(url, init, 30_000);
 }
 
 function networkError(err: unknown): VerifyResult {
@@ -68,19 +73,18 @@ export function percentEncode(str: string): string {
   return encodeURIComponent(str).replace(/\+/g, '%20').replace(/\*/g, '%2A').replace(/%7E/g, '~');
 }
 
-/** 构造签名后完整 query（确定性：nonce/timestamp 注入 → 可单测） */
-export function buildAliyunQueryString(fields: Record<string, string>, nonce: string, timestamp: string): string {
+/** 构造签名后完整 query（通用：action + 业务参数，供验证与 SendSms 等动作复用；确定性：nonce/timestamp 注入 → 可单测） */
+export function buildAliyunSignedQuery(fields: Record<string, string>, action: string, biz: Record<string, string>, nonce: string, timestamp: string): string {
   const params: Record<string, string> = {
     AccessKeyId: fields.accessKeyId || '',
-    Action: 'QuerySmsTemplateList',
+    Action: action,
     Format: 'JSON',
-    PageIndex: '1',
-    PageSize: '1',
     SignatureMethod: 'HMAC-SHA1',
     SignatureNonce: nonce,
     SignatureVersion: '1.0',
     Timestamp: timestamp,
     Version: '2017-05-25',
+    ...biz,
   };
   const canonical = Object.keys(params)
     .sort()
@@ -89,6 +93,11 @@ export function buildAliyunQueryString(fields: Record<string, string>, nonce: st
   const stringToSign = `GET&${percentEncode('/')}&${percentEncode(canonical)}`;
   const signature = crypto.createHmac('sha1', `${fields.accessKeySecret || ''}&`).update(stringToSign).digest('base64');
   return `${canonical}&Signature=${percentEncode(signature)}`;
+}
+
+/** v1 模板列表验证 query（兼容保留，委托通用构造） */
+export function buildAliyunQueryString(fields: Record<string, string>, nonce: string, timestamp: string): string {
+  return buildAliyunSignedQuery(fields, 'QuerySmsTemplateList', { PageIndex: '1', PageSize: '1' }, nonce, timestamp);
 }
 
 export async function verifyAliyunSms(fields: Record<string, string>): Promise<VerifyResult> {

@@ -1,16 +1,21 @@
 /**
  * 工作流执行引擎：顺序执行步骤，每步独立结果与耗时，单步失败即中止（fail-fast）。
- * 步骤处理器 DI 注入（dsh-card 需 kanban+exec；notification 需通知器）——可测可替换。
+ * 步骤处理器 DI 注入（dsh-card 需 kanban+exec；connection-action 需 invokeAction；token-budget 需 tokenUsage）——可测可替换。
+ * v2：同工作流互斥（手动/定时共用）——上一次运行未结束则拒绝，防并发写同一 runs.json。
  */
 import type { KanbanStore } from '../kanban/KanbanStore';
 import type { ExecutionEngine } from '../exec/ExecutionEngine';
-import type { WorkflowDef, WorkflowRun, WorkflowStep } from './types';
+import type { WorkflowRun, WorkflowStep } from './types';
 
 export interface WorkflowEngineDeps {
   store: WorkflowStoreShape;
   kanban: KanbanStore;
   exec: ExecutionEngine;
   notify: (title: string, body: string) => void;
+  /** 工作台连接动作（v2）：main 装配 ConnectionsStore.getCredentials + invokeConnectionAction */
+  invokeAction?: (connectionId: string, params: Record<string, string>) => Promise<{ ok: boolean; message: string }>;
+  /** Token 用量查询（v2）：main 装配 scanAllSources + summarize（period 日历对齐语义与 tokens 视图一致） */
+  tokenUsage?: (period: 'day' | 'month' | 'all') => Promise<{ totalTokens: number }>;
   now?: () => number;
   uuid?: () => string;
 }
@@ -25,9 +30,21 @@ export interface WorkflowStoreShape {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class WorkflowEngine {
+  private readonly running = new Set<string>();
+
   constructor(private readonly deps: WorkflowEngineDeps) {}
 
-  async run(workflowId: string): Promise<WorkflowRun> {
+  async run(workflowId: string, source: 'manual' | 'cron' = 'manual'): Promise<WorkflowRun> {
+    if (this.running.has(workflowId)) throw new Error('该工作流上一次运行尚未结束');
+    this.running.add(workflowId);
+    try {
+      return await this.runInner(workflowId, source);
+    } finally {
+      this.running.delete(workflowId);
+    }
+  }
+
+  private async runInner(workflowId: string, source: 'manual' | 'cron'): Promise<WorkflowRun> {
     const def = this.deps.store.get(workflowId);
     if (!def) throw new Error('工作流不存在（已被删除）');
     if (!def.enabled) throw new Error('工作流已停用，请先启用');
@@ -37,6 +54,7 @@ export class WorkflowEngine {
       workflowName: def.name,
       startedAt: new Date().toISOString(),
       status: 'running',
+      trigger: source,
       log: [],
     };
     this.deps.store.saveRun(run);
@@ -100,6 +118,38 @@ export class WorkflowEngine {
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return `${method} ${url} → HTTP ${res.status}`;
+      }
+      case 'connection-action': {
+        const connectionId = step.config.connectionId || '';
+        if (!connectionId) throw new Error('connection-action 需要选择连接（connectionId）');
+        if (!this.deps.invokeAction) throw new Error('工作台连接动作能力未装配');
+        let params: Record<string, string> = {};
+        if (step.config.params) {
+          try {
+            const parsed: unknown = JSON.parse(step.config.params);
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('非对象');
+            params = parsed as Record<string, string>;
+          } catch {
+            throw new Error('params 需为 JSON 对象字符串');
+          }
+        }
+        const r = await this.deps.invokeAction(connectionId, params);
+        if (!r.ok) throw new Error(r.message);
+        return r.message;
+      }
+      case 'token-budget': {
+        if (!this.deps.tokenUsage) throw new Error('Token 用量能力未装配');
+        const period = (step.config.period === 'month' || step.config.period === 'all' ? step.config.period : 'day') as 'day' | 'month' | 'all';
+        const threshold = Number(step.config.thresholdTokens);
+        if (!Number.isFinite(threshold) || threshold <= 0) throw new Error('token-budget 需要正数 thresholdTokens');
+        const { totalTokens } = await this.deps.tokenUsage(period);
+        const label = period === 'day' ? '今日' : period === 'month' ? '本月' : '累计';
+        if (totalTokens >= threshold) {
+          const msg = `Token 预算超限：${label}用量 ${totalTokens} ≥ 阈值 ${threshold}`;
+          if (step.config.notifyOnExceed === 'true') this.deps.notify('Hull 工作流', msg);
+          throw new Error(msg);
+        }
+        return `Token 预算正常：${label}用量 ${totalTokens} / 阈值 ${threshold}`;
       }
       case 'notification': {
         const message = step.config.message || '工作流通知';

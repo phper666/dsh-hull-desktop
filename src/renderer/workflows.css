@@ -38,6 +38,8 @@
 .wf-badge.failed { background: var(--hull-danger-soft); color: var(--hull-danger); }
 .wf-badge.running { background: var(--hull-info-soft); color: var(--hull-info); }
 .wf-badge.muted { background: var(--hull-border); color: var(--hull-text-muted); }
+.wf-badge.cron { background: var(--hull-accent-soft); color: var(--hull-accent); }
+.wf-card .meta.next { color: var(--hull-accent); }
 
 /* 编辑器 */
 .wf-editor { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
@@ -55,6 +57,10 @@
 .wf-f .input, .wf-f select, .wf-f textarea { border: 1px solid var(--hull-border); border-radius: var(--radius-sm); padding: 6px 8px; font-size: 12px; color: var(--hull-text); background: var(--hull-bg); outline: none; font-family: inherit; }
 .wf-f textarea { min-height: 52px; resize: vertical; font-family: var(--font-mono); }
 .wf-f .input:focus, .wf-f select:focus, .wf-f textarea:focus { border-color: var(--hull-accent); }
+.wf-trigger { display: flex; gap: 14px; }
+.wf-radio { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--hull-text-dim); cursor: pointer; }
+.wf-radio input { accent-color: var(--hull-accent); }
+#wf-cron-preview.err { color: var(--hull-danger); }
 .wf-hint { font-size: 11px; color: var(--hull-text-sub); }
 .wf-empty { margin: auto; text-align: center; color: var(--hull-text-muted); }
 .wf-empty h2 { font-size: 17px; font-weight: 600; margin: 0 0 8px; color: var(--hull-text); }
