@@ -109,7 +109,7 @@ export function summarize(
     [...m.entries()]
       .map(([k, t]) => {
         const [platform, model] = k.split('::');
-        return { platform: platform as UsageRecord['platform'], model: model ?? 'unknown', ...finalize(t) };
+        return { platform: platform as UsageRecord['platform'], model: model || 'unknown', ...finalize(t) };
       })
       .sort((a, b) => b.totalTokens - a.totalTokens);
 

@@ -77,7 +77,9 @@ export function scanAllSources(sources: PlatformSource[] = platformSources()): {
           const text = src.readFile ? src.readFile(file) : readFileSync(file, 'utf8');
           const fallbackTs = fileFallbackTs(file);
           if (src.parseFile) {
-            records.push(...src.parseFile(text, fallbackTs));
+            const recs = src.parseFile(text, fallbackTs);
+            records.push(...recs);
+            info.records += recs.length;
             continue;
           }
           for (const line of text.split('\n')) {
@@ -93,12 +95,12 @@ export function scanAllSources(sources: PlatformSource[] = platformSources()): {
               seen.add(dedupeKey);
             }
             records.push(rec);
+            info.records += 1;
           }
         } catch {
           // 单文件失败隔离（损坏/解压失败）→ 跳过
         }
       }
-      info.records = records.filter((r) => r.platform === src.platform).length;
     } catch (err) {
       info.error = (err as Error).message;
     }

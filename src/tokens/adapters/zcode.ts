@@ -54,7 +54,14 @@ function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-/** 查询 db：遍历表找含 token 列的表 → UsageRecord[] */
+/** 所需列白名单：token 归一化键 + model/ts 键（不拉内容列/正文） */
+const NEEDED_COLS = new Set<string>([
+  ...Object.keys(TOKEN_KEY_MAP),
+  'model', 'model_id', 'modelID',
+  'created_at', 'timestamp', 'createdAt',
+]);
+
+/** 查询 db：遍历表找含 token 列的表 → 只 SELECT 所需列 → UsageRecord[] */
 export function parseZcodeSource(dbPath: string, fallbackTs = new Date(0).toISOString()): UsageRecord[] {
   const tables = querySqlite(dbPath, "SELECT name FROM sqlite_master WHERE type='table'");
   if (!tables) return [];
@@ -64,9 +71,9 @@ export function parseZcodeSource(dbPath: string, fallbackTs = new Date(0).toISOS
     if (!name) continue;
     const cols = querySqlite(dbPath, `PRAGMA table_info(${quoteIdent(name)})`);
     if (!cols) continue;
-    const hasTokenCol = cols.some((c) => /token/i.test(String(c.name ?? '')));
-    if (!hasTokenCol) continue;
-    const rows = querySqlite(dbPath, `SELECT * FROM ${quoteIdent(name)}`);
+    const selCols = cols.map((c) => String(c.name ?? '')).filter((c) => NEEDED_COLS.has(c));
+    if (!selCols.some((c) => /token/i.test(c))) continue;
+    const rows = querySqlite(dbPath, `SELECT ${selCols.map(quoteIdent).join(', ')} FROM ${quoteIdent(name)}`);
     if (!rows) continue;
     for (const row of rows) {
       const rec = zcodeRowToRecord(row, fallbackTs);

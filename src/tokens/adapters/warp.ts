@@ -68,19 +68,27 @@ function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-/** 查询 db：找含 token 列的表，解析 token_usage JSON → UsageRecord[] */
+/** 已知 Warp 数据表白名单（不扫全库所有含 token 列的表——避免误扫/大表全拉） */
+const WARP_TABLES = ['ConversationUsageMetadata'];
+
+/** 所需列白名单：token JSON 列 + model/ts 列（不拉内容列/正文） */
+const TS_COLS = ['timestamp', 'created_at', 'model'];
+
+/** 查询 db：白名单表内找 token 列 → 只 SELECT 所需列 → 解析 token_usage JSON → UsageRecord[] */
 export function parseWarpSource(dbPath: string, fallbackTs = new Date(0).toISOString()): UsageRecord[] {
   const tables = querySqlite(dbPath, "SELECT name FROM sqlite_master WHERE type='table'");
   if (!tables) return [];
   const out: UsageRecord[] = [];
   for (const t of tables) {
     const name = String(t.name ?? '');
-    if (!name) continue;
+    if (!WARP_TABLES.includes(name)) continue;
     const cols = querySqlite(dbPath, `PRAGMA table_info(${quoteIdent(name)})`);
     if (!cols) continue;
-    const tokenCol = cols.map((c) => String(c.name ?? '')).find((n) => /token_usage|token|usage/i.test(n));
+    const colNames = cols.map((c) => String(c.name ?? ''));
+    const tokenCol = colNames.find((n) => /token_usage|token|usage/i.test(n));
     if (!tokenCol) continue;
-    const rows = querySqlite(dbPath, `SELECT * FROM ${quoteIdent(name)}`);
+    const needed = [...new Set([tokenCol, ...colNames.filter((n) => TS_COLS.includes(n))])];
+    const rows = querySqlite(dbPath, `SELECT ${needed.map(quoteIdent).join(', ')} FROM ${quoteIdent(name)}`);
     if (!rows) continue;
     for (const row of rows) out.push(...warpRowToRecords(row, tokenCol, fallbackTs));
   }

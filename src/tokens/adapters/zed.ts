@@ -55,10 +55,25 @@ function zedRowToRecord(row: Record<string, unknown>, fallbackTs: string): Usage
   return toRecord({ ts, platform: 'zed', model }, usage);
 }
 
-/** 查询单 db 的 threads 表 → UsageRecord[] */
+/** 所需列白名单：token 列 + model/ts 列（不拉内容列/正文） */
+const NEEDED_COLS = [
+  'cumulative_token_usage', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens',
+  'reasoning_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens',
+  'model', 'updated_at', 'created_at',
+];
+
+function quoteIdent(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+/** 查询单 db 的 threads 表（只 SELECT 所需列）→ UsageRecord[] */
 export function parseZedSource(dbPath: string, fallbackTs = new Date(0).toISOString()): UsageRecord[] {
   if (!hasTable(dbPath, 'threads')) return [];
-  const rows = querySqlite(dbPath, 'SELECT * FROM threads');
+  const cols = querySqlite(dbPath, 'PRAGMA table_info("threads")');
+  if (!cols) return [];
+  const selCols = cols.map((c) => String(c.name ?? '')).filter((c) => NEEDED_COLS.includes(c));
+  if (selCols.length === 0) return [];
+  const rows = querySqlite(dbPath, `SELECT ${selCols.map(quoteIdent).join(', ')} FROM "threads"`);
   if (!rows) return [];
   const out: UsageRecord[] = [];
   for (const row of rows) {

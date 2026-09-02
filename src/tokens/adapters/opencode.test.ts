@@ -31,8 +31,10 @@ test('parseOpenCodeEntry：byModel 拆多条 UsageRecord（2 模型，ts 由 ms 
     ok(r.inputTokens > 0 && r.outputTokens > 0);
   }
   equal(byModel['new-api/glm-5.3-flash'].inputTokens, 2704149);
+  equal(byModel['new-api/glm-5.3-flash'].outputTokens, 55577 + 61966, 'output 含 reasoning（reasoning>output 用例）');
   equal(byModel['new-api/glm-5.3-flash'].cacheReadTokens, 58605248);
   equal(byModel['new-api/glm-5.3-flash'].reasoningTokens, 61966);
+  equal(byModel['new-api/deepseek-v4-flash-ga-260731'].outputTokens, 60869 + 9057, 'output 含 reasoning');
   equal(byModel['new-api/deepseek-v4-flash-ga-260731'].cacheWriteTokens, 123);
   equal(byModel['new-api/deepseek-v4-flash-ga-260731'].cacheReadTokens, 43660032);
 });

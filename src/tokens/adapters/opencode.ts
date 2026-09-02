@@ -24,15 +24,17 @@ export function parseOpenCodeEntry(entry: unknown, fallbackTs: string): UsageRec
     if (!v || typeof v !== 'object') continue;
     const m = v as Record<string, unknown>;
     const cache = (m.cache ?? {}) as Record<string, unknown>;
+    // 对齐 anthropic 约定（与 claude/codex 一致）：opencode byModel.output 不含 reasoning，output 补入 reasoning 避免合计低估
+    const reasoningTokens = num(m.reasoning);
     const rec: UsageRecord = {
       ts,
       platform: 'opencode',
       model,
       inputTokens: num(m.input),
-      outputTokens: num(m.output),
+      outputTokens: num(m.output) + reasoningTokens,
       cacheReadTokens: num(cache.read),
       cacheWriteTokens: num(cache.write),
-      reasoningTokens: num(m.reasoning),
+      reasoningTokens,
     };
     if (rec.inputTokens === 0 && rec.outputTokens === 0 && rec.cacheReadTokens === 0 && rec.cacheWriteTokens === 0 && rec.reasoningTokens === 0) continue;
     out.push(rec);

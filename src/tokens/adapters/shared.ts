@@ -10,7 +10,8 @@ import { statSync } from 'node:fs';
 import type { UsageRecord } from '../types';
 
 export function num(v: unknown): number {
-  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
 }
 
 export function safeJson(line: string): Record<string, unknown> | null {

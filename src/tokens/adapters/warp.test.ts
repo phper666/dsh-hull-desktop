@@ -14,14 +14,14 @@ test('warp：token_usage JSON 数组（按模型）→ 每模型一条记录', (
   const dbPath = join(dir, 'index.sqlite');
   const db = new DatabaseSync(dbPath);
   try {
-    db.exec('CREATE TABLE conversations (id TEXT, conversation_usage_metadata TEXT, created_at INTEGER)');
+    db.exec('CREATE TABLE ConversationUsageMetadata (id TEXT, token_usage TEXT, created_at INTEGER)');
     const meta = JSON.stringify({
       token_usage: [
         { model: 'gpt-5', input_tokens: 800, output_tokens: 200, cache_read_input_tokens: 100 },
         { model: 'claude-4', input_tokens: 400, output_tokens: 80 },
       ],
     });
-    db.prepare('INSERT INTO conversations (id, conversation_usage_metadata, created_at) VALUES (?,?,?)').run('c1', meta, 1785000000000);
+    db.prepare('INSERT INTO ConversationUsageMetadata (id, token_usage, created_at) VALUES (?,?,?)').run('c1', meta, 1785000000000);
   } finally {
     db.close();
   }
@@ -36,13 +36,15 @@ test('warp：token_usage JSON 数组（按模型）→ 每模型一条记录', (
   equal(recs[1].model, 'claude-4');
 });
 
-test('warp：无含 token 列的表 → []', () => {
+test('warp：无白名单表（含 token 列的表）→ []', () => {
   const dir = mkdtempSync(join(tmpdir(), 'hull-warp-noschema-'));
   const dbPath = join(dir, 'index.sqlite');
   const db = new DatabaseSync(dbPath);
   try {
     db.exec('CREATE TABLE other (id TEXT, name TEXT)');
     db.prepare('INSERT INTO other (id, name) VALUES (?,?)').run('x', 'y');
+    db.exec('CREATE TABLE usage_events (id TEXT, token_usage TEXT)');
+    db.prepare('INSERT INTO usage_events (id, token_usage) VALUES (?,?)').run('e0', JSON.stringify({ token_usage: [{ model: 'm', input_tokens: 1, output_tokens: 1 }] }));
   } finally {
     db.close();
   }
@@ -58,8 +60,8 @@ test('warp：token_usage 空/非法 JSON → 跳过', () => {
   const dbPath = join(dir, 'index.sqlite');
   const db = new DatabaseSync(dbPath);
   try {
-    db.exec('CREATE TABLE usage_events (id TEXT, token_usage TEXT)');
-    db.prepare('INSERT INTO usage_events (id, token_usage) VALUES (?,?)').run('e1', 'not-json');
+    db.exec('CREATE TABLE ConversationUsageMetadata (id TEXT, token_usage TEXT)');
+    db.prepare('INSERT INTO ConversationUsageMetadata (id, token_usage) VALUES (?,?)').run('e1', 'not-json');
   } finally {
     db.close();
   }
@@ -78,8 +80,8 @@ test('warp：createWarpSource → listFiles 存在性 + parseFile', () => {
     const dbPath = join(rel, 'index.sqlite');
     const db = new DatabaseSync(dbPath);
     try {
-      db.exec('CREATE TABLE conversations (id TEXT, conversation_usage_metadata TEXT)');
-      db.prepare('INSERT INTO conversations (id, conversation_usage_metadata) VALUES (?,?)').run('c1', JSON.stringify({ token_usage: [{ model: 'gpt-5', input_tokens: 321, output_tokens: 12 }] }));
+      db.exec('CREATE TABLE ConversationUsageMetadata (id TEXT, token_usage TEXT)');
+      db.prepare('INSERT INTO ConversationUsageMetadata (id, token_usage) VALUES (?,?)').run('c1', JSON.stringify({ token_usage: [{ model: 'gpt-5', input_tokens: 321, output_tokens: 12 }] }));
     } finally {
       db.close();
     }

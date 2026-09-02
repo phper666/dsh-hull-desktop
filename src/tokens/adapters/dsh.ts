@@ -1,7 +1,7 @@
 /**
  * dsh adapter（~/.dsh/sessions 递归 *.jsonl.zstd，支持 DSH_HOME env）：
  * - readFile 用 node:zlib zstdDecompressSync 解压（Node ≥22.15/23.8 内置；不可用抛错由调用方隔离）
- * - 行解析：message.usage 优先 + findUsageShape 兜底；session 头跳过；时间戳缺省用会话头 createdAt
+ * - 行解析：message.usage 优先 + findUsageShape 兜底；session 头跳过；时间戳缺省由调用方兜底（文件 mtime）
  * 只读（CON-R002 红线：绝不写 DSH_HOME）。
  */
 import { readdirSync, readFileSync } from 'node:fs';
