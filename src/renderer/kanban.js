@@ -35,6 +35,7 @@
   let filterQ = '';
   let dragTaskId = null;
   let approvalModal = null;
+  let openDepgraphTaskId = null; // U3：依赖图弹框当前打开的任务 id（exec 刷新时推最新数据）
   // T1/D5 按需渲染状态：时间线分页 + 日历粒度/游标
   // ponytail: 分页封顶首屏 DOM（CON-R-timeline-006 <300ms）；≥1000 卡实测超标再升级虚拟滚动（只换 renderTimeline 内部，聚合纯函数不动）
   const TIMELINE_PAGE_SIZE = 100;
@@ -489,6 +490,7 @@
       <div class="kb-detail-dates"><label>开始 <input type="date" id="kb-date-start" value="${esc(t.startDate || '')}" /></label><label>截止 <input type="date" id="kb-date-due" value="${esc(t.dueDate || '')}" /></label></div>
       ${t.description ? `<div class="kb-detail-desc kb-md">${mdRender(t.description)}</div>` : ''}
       ${sub.length ? `<div class="kb-sub-list"><h4>子任务</h4>${sub.map((s) => `<div class="kb-sub-item">${esc(s.title)} <span class="kb-exec kb-exec-${s.executionStatus}">${execNames[s.executionStatus] || s.executionStatus}</span></div>`).join('')}</div>` : ''}
+      ${sub.length ? `<div class="dg-entry" role="button" tabindex="0" title="点开查看依赖图"><span class="dg-et">依赖图</span><span class="dg-sum" id="dg-sum">…</span><span class="dg-open">查看依赖图 ↗</span></div>` : ''}
       <div class="kb-tl"><h4>时间线</h4>${tl.length === 0 ? '<div class="kb-empty-tl">暂无记录</div>' : tl.map((i) => {
         const who = i.author || (i.source.type === 'agent' ? 'agent' : i.source.type);
         const execTag = i.execution ? `<span class="kb-exec kb-exec-${i.execution.status}">${execNames[i.execution.status] || i.execution.status}${i.execution.exitCode !== null ? ` (${i.execution.exitCode})` : ''}</span>` : '';
@@ -502,6 +504,35 @@
       const cmtEditor = createEditor($('#kb-comment-text', w));
       w.kbOnClose.push(() => destroyEditor(cmtEditor));
       cmtEditor?.codemirror.focus();
+      // U3 依赖图摘要入口条（有子任务时）：依赖数 · 池水位 · 态计数；点击/Enter 开独立弹框
+      if (sub.length) {
+        const entry = w.querySelector('.dg-entry');
+        const sumEl = w.querySelector('#dg-sum');
+        const openDg = () => { openDepgraphTaskId = t.id; window.depgraph?.open(t, sub); };
+        entry.addEventListener('click', openDg);
+        entry.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDg(); } });
+        const deps = sub.reduce((n, s) => n + (s.dependencies || []).filter((d) => sub.some((x) => x.id === d)).length, 0);
+        const counts = { running: 0, queued: 0, idle: 0, paused: 0, interrupted: 0, cancelled: 0, failed: 0, succeeded: 0 };
+        for (const s of sub) counts[s.executionStatus || 'idle']++;
+        let halted = 0;
+        if (window.depgraphCore) {
+          const byId = {}; for (const s of sub) byId[s.id] = s;
+          halted = window.depgraphCore.haltedSet(byId, Object.keys(byId).filter((id) => ['failed', 'cancelled', 'interrupted'].includes(byId[id].executionStatus))).size;
+        }
+        (async () => {
+          let poolTxt = '池 --/--';
+          try {
+            if (exec && exec.getExecutionSnapshot) {
+              const r = await exec.getExecutionSnapshot(currentBoard.id);
+              if (r && r.ok && r.data && window.depgraphCore) {
+                const p = window.depgraphCore.poolState(r.data);
+                poolTxt = p.running >= p.maxParallel ? `池满 ${p.running}/${p.maxParallel}` : `池 ${p.running}/${p.maxParallel}`;
+              }
+            }
+          } catch { /* 快照不可用 → 保持 -- */ }
+          if (sumEl.isConnected) sumEl.textContent = `${deps} 依赖 · ${poolTxt} · 运行 ${counts.running} · 就绪 ${counts.queued} · 未执行 ${counts.idle} · 失败 ${counts.failed} · 中止 ${halted}`;
+        })();
+      }
       // T2 契约 UI 承接（Q-052）：开始/截止日期选择器，变更即时生效持久化（清空=显式 null）
       const saveDate = async (field, value) => {
         const r = await kanban.updateTask(currentBoard.id, t.id, { [field]: value || null });
@@ -528,17 +559,23 @@
   function editTask(taskId) {
     const t = taskById(taskId);
     if (!t) return;
+    // U3：前置依赖仅子任务可声明（store Q-014 同父约束）——同父兄弟列表，排除自身
+    const siblings = t.parentId ? (currentBoard?.tasks || []).filter((x) => x.parentId === t.parentId && x.id !== t.id) : [];
     modal('编辑卡片', `
       <div class="kb-f"><label>标题</label><input id="kb-tt" class="kb-input" value="${esc(t.title)}" /></div>
       <div class="kb-f"><label>描述</label><textarea id="kb-desc" class="kb-input">${esc(t.description || '')}</textarea></div>
       <div class="kb-f"><label>优先级</label><select id="kb-pri" class="kb-input">${['P0', 'P1', 'P2', '无'].map((p) => `<option ${t.priority === p ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
+      ${t.parentId ? `<div class="kb-f"><label>前置依赖</label><div class="kb-deps" id="kb-deps">${siblings.length ? siblings.map((s) => `<label class="kb-dep"><input type="checkbox" value="${s.id}" ${(t.dependencies || []).includes(s.id) ? 'checked' : ''} /> ${esc(s.title)}</label>`).join('') : '<span class="kb-muted">无同父兄弟任务</span>'}</div></div>` : ''}
       <div class="kb-modal-ops"><button class="kb-btn kb-primary" data-ok>保存</button><button class="kb-btn" data-close>取消</button></div>`, (w, close) => {
       // E1：预填现值（FE-1 editor.value(t.description ?? '')）；旧纯文本 = 合法 Markdown（E10 兼容）
       const descEditor = createEditor($('#kb-desc', w), t.description ?? '');
       w.kbOnClose.push(() => destroyEditor(descEditor));
       descEditor?.codemirror.focus(); // Q-046/E19：编辑弹窗初始 focus 在编辑器
       $('[data-ok]', w).addEventListener('click', async () => {
-        const r = await kanban.updateTask(currentBoard.id, t.id, { title: $('#kb-tt', w).value.trim(), description: (descEditor ? descEditor.value() : $('#kb-desc', w).value).trim() || null, priority: $('#kb-pri', w).value });
+        // U3：子任务保存附带 dependencies（同父兄弟勾选；顶层任务不可声明，store 校验兜底）
+        const patch = { title: $('#kb-tt', w).value.trim(), description: (descEditor ? descEditor.value() : $('#kb-desc', w).value).trim() || null, priority: $('#kb-pri', w).value };
+        if (t.parentId) patch.dependencies = [...w.querySelectorAll('#kb-deps input:checked')].map((c) => c.value);
+        const r = await kanban.updateTask(currentBoard.id, t.id, patch);
         if (r.ok) { close(); await loadBoard(currentBoard.id); } else alert('保存失败：' + (r.message || r.code));
       });
     });
@@ -608,7 +645,14 @@
   // ── 订阅 ──
   if (exec && exec.onExecutionUpdate) {
     exec.onExecutionUpdate(async (payload) => {
-      if (currentBoard && payload && payload.boardId === currentBoard.id) await loadBoard(currentBoard.id);
+      if (currentBoard && payload && payload.boardId === currentBoard.id) {
+        await loadBoard(currentBoard.id);
+        // U3：依赖图弹框开着 → 幂等 open 推最新数据重绘（depgraph 不反读 kanban，数据由 kanban 推）
+        if (window.depgraph && openDepgraphTaskId) {
+          const dt = taskById(openDepgraphTaskId);
+          if (dt && window.depgraph.isOpen()) window.depgraph.open(dt, childrenOf(dt.id));
+        }
+      }
     });
   }
   if (exec && exec.onPermissionRequest) {

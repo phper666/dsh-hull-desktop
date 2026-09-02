@@ -1,0 +1,117 @@
+/* U3 依赖图（docs/design/U3-依赖图可视化-kanban-depgraph-design.md §三/§五）
+   独立弹框 + 详情摘要入口条；--hull-* 令牌，暗色为主，对齐 kanban.css 风格 */
+
+/* ── 详情摘要入口条（kanban.js openDetail 内，有子任务时渲染） ── */
+.dg-entry {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin: 12px 0 4px;
+  background: var(--hull-card); border: 1px solid var(--hull-border); border-radius: var(--radius-md);
+  cursor: pointer; transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.dg-entry:hover { border-color: var(--hull-accent); box-shadow: var(--shadow-1); }
+.dg-et { font-size: 12px; font-weight: 600; white-space: nowrap; }
+.dg-sum {
+  flex: 1; min-width: 0; color: var(--hull-text-muted); font-size: 10.5px; font-family: var(--font-mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dg-open { font-size: 11px; color: var(--hull-info); white-space: nowrap; }
+
+/* ── 编辑表单「前置依赖」checkbox 组（U3 最小编辑，kanban.js editTask） ── */
+.kb-deps { display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow-y: auto; }
+.kb-dep { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--hull-text-dim); cursor: pointer; }
+.kb-dep:hover { color: var(--hull-text); }
+.kb-dep input { accent-color: var(--hull-accent); cursor: pointer; }
+
+/* ── 独立弹框（复刻 .kb-modal 遮罩；900px × 72vh，body 级 fixed） ── */
+.dg-modal { position: fixed; inset: 0; background: var(--hull-overlay); display: flex; align-items: center; justify-content: center; z-index: 200; }
+.dg-box {
+  width: 900px; max-width: 92vw; max-height: 72vh; background: var(--hull-panel);
+  border: 1px solid var(--hull-border); border-radius: var(--radius-xl); box-shadow: var(--shadow-2);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.dg-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--hull-border); }
+.dg-title { font-size: 14px; font-weight: 600; }
+.dg-chip { font-size: 10px; background: var(--hull-border); color: var(--hull-text-muted); border-radius: var(--radius-sm); padding: 1px 7px; white-space: nowrap; }
+.dg-pool { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--hull-text-muted); font-family: var(--font-mono); }
+.dg-slots { display: inline-flex; gap: 3px; }
+.dg-slot { width: 9px; height: 9px; border-radius: 50%; background: var(--hull-border); border: 1px solid var(--hull-text-sub); }
+.dg-slot.on { background: var(--hull-accent); border-color: var(--hull-accent-hover); box-shadow: 0 0 6px var(--hull-accent-soft); }
+.dg-pool.full .dg-slot.on { background: var(--hull-warning); border-color: var(--hull-warning-light); box-shadow: 0 0 6px var(--hull-warning-faint); }
+.dg-close { background: transparent; border: none; color: var(--hull-text-muted); cursor: pointer; font-size: 16px; padding: 2px 6px; border-radius: var(--radius-sm); line-height: 1; }
+.dg-close:hover { background: var(--hull-hover); color: var(--hull-text); }
+.dg-body { flex: 1; min-height: 0; overflow: auto; }
+.dg-canvas { position: relative; margin: auto; }
+.dg-svg { position: absolute; inset: 0; overflow: visible; }
+.dg-foot { padding: 9px 16px; border-top: 1px solid var(--hull-border); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 11px; color: var(--hull-text-muted); }
+.dg-hint { margin-left: auto; color: var(--hull-text-sub); }
+.dg-cycle { color: var(--hull-danger); border: 1px dashed var(--hull-danger-hover); border-radius: var(--radius-sm); padding: 1px 7px; white-space: nowrap; }
+
+/* ── 边（<g class="dg-edge …">，path 描边 + polygon 箭头，CSS currentColor 取色） ── */
+.dg-edge { color: var(--hull-border); opacity: 0.6; }
+.dg-edge path { stroke: currentColor; stroke-width: 2; fill: none; }
+.dg-edge polygon { fill: currentColor; }
+.dg-edge.st-active { color: var(--hull-accent); }
+.dg-edge.st-active path { stroke-width: 2.5; }
+.dg-edge.st-failed { color: var(--hull-danger); }
+.dg-edge.st-aborted { color: var(--hull-danger); opacity: 0.45; }
+.dg-edge.st-aborted path { stroke-dasharray: 5 4; }
+.dg-edge.lit path { stroke-width: 3; }
+.dg-edge.lit { opacity: 1; }
+.dg-edge.dim { opacity: 0.08; }
+
+/* ── 节点（HTML div 绝对定位，178×48） ── */
+.dg-node {
+  position: absolute; width: 178px; height: 48px; background: var(--hull-card);
+  border: 1px solid var(--hull-border); border-left: 3px solid var(--hull-border);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-1); padding: 6px 9px;
+  display: flex; flex-direction: column; gap: 3px; overflow: hidden;
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.dg-node:hover { border-color: var(--hull-accent); box-shadow: var(--shadow-2); z-index: 5; }
+.dg-n-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.dg-n-id { font-family: var(--font-mono); font-size: 10px; color: var(--hull-text-sub); background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: var(--radius-sm); padding: 0 5px; flex-shrink: 0; }
+.dg-n-title { flex: 1; font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dg-n-meta { display: flex; align-items: center; font-size: 10px; font-family: var(--font-mono); }
+.dg-n-badge { border-radius: var(--radius-xs); padding: 0 5px; white-space: nowrap; }
+
+/* 八态左条 + 徽标（方案 §五） */
+.dg-node.st-succeeded { border-left-color: var(--hull-success); }
+.dg-node.st-succeeded .dg-n-badge { color: var(--hull-success-light); }
+.dg-node.st-running { border-left-color: var(--hull-accent); box-shadow: 0 0 0 1px var(--hull-accent), 0 0 14px var(--hull-accent-soft); }
+.dg-node.st-running .dg-n-badge { color: var(--hull-info); animation: dg-pulse 1.2s infinite; }
+.dg-node.st-queued { border-left-color: var(--hull-warning); }
+.dg-node.st-queued .dg-n-badge { color: var(--hull-warning-light); }
+.dg-node.st-paused { border-left-color: var(--hull-warning-light); }
+.dg-node.st-paused .dg-n-badge { color: var(--hull-warning); }
+.dg-node.st-interrupted, .dg-node.st-cancelled { border-left-color: var(--hull-warning-alt); }
+.dg-node.st-interrupted .dg-n-badge, .dg-node.st-cancelled .dg-n-badge { color: var(--hull-warning-alt); }
+.dg-node.st-failed { border-left-color: var(--hull-danger); box-shadow: 0 0 0 1px var(--hull-danger), 0 0 14px var(--hull-danger-soft); }
+.dg-node.st-failed .dg-n-badge { color: var(--hull-danger); }
+.dg-node.st-idle .dg-n-badge { color: var(--hull-text-sub); }
+
+/* 运行中底部进度条（脉冲 shimmer） */
+.dg-node.st-running::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+  background: linear-gradient(90deg, var(--hull-accent) 40%, var(--hull-info) 55%, var(--hull-accent) 70%);
+  background-size: 200% 100%; animation: dg-slide 1.4s linear infinite;
+}
+@keyframes dg-slide { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@keyframes dg-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .dg-node.st-running::after, .dg-node.st-running .dg-n-badge { animation: none; } }
+
+/* 派生「已中止」：红虚线框 + 删除线（方案 §五末行） */
+.dg-node.st-halted { border-color: var(--hull-danger-hover); border-style: dashed; opacity: 0.65; }
+.dg-node.st-halted .dg-n-title { text-decoration: line-through; color: var(--hull-text-sub); }
+.dg-node.st-halted .dg-n-badge { color: var(--hull-danger); background: var(--hull-danger-faint); }
+
+/* ── 八态图例（弹框脚） ── */
+.dg-legend { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dg-lg { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.dg-lg i { width: 8px; height: 8px; border-radius: 50%; }
+.dg-lg .st-succeeded { background: var(--hull-success); }
+.dg-lg .st-running { background: var(--hull-accent); animation: dg-pulse 1.2s infinite; }
+.dg-lg .st-queued { background: var(--hull-warning); }
+.dg-lg .st-idle { background: var(--hull-text-sub); }
+.dg-lg .st-paused { background: var(--hull-warning-light); }
+.dg-lg .st-interrupted, .dg-lg .st-cancelled { background: var(--hull-warning-alt); }
+.dg-lg .st-failed { background: var(--hull-danger); }
+.dg-lg .st-halted { background: var(--hull-danger); opacity: 0.5; }

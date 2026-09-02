@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="tokens.css" />
   <link rel="stylesheet" href="connections.css" />
   <link rel="stylesheet" href="workflows.css" />
+  <link rel="stylesheet" href="depgraph.css" />
 <style>
   /* T1 主题变量（CON-R-theme-002）：暗色默认 + 亮色[data-theme="light"] */
   :root, [data-theme="dark"] {
@@ -1370,5 +1371,8 @@
   <script src="tokens.js"></script>
   <script src="connections.js"></script>
   <script src="workflows.js"></script>
+  <!-- U3 依赖图（kanban.js 之后加载；depgraph-core 供 kanban 摘要计数与单测共用，depgraph.js 挂 window.depgraph） -->
+  <script src="depgraph-core.js"></script>
+  <script src="depgraph.js"></script>
 </body>
 </html>
