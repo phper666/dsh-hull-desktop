@@ -186,7 +186,6 @@
   }
 
   // 初始：编辑器/列表由外部触发（进入视图即刷新）
-  void loadList;
   renderList();
   window.__workflowsRefresh = renderList;
 })();
