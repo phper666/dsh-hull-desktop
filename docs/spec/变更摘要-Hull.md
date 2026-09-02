@@ -3,6 +3,15 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-09-03 工作流 v2（cron 定时触发 + connection-action + token-budget）
+
+- 类型：功能需求实现（判级复杂，设计 §7 方案冻结；无共识规则变化）
+- 内容：①定时触发——5 字段 cron 解析器（零依赖、本地时区、vixie DOM/DOW 或语义）+ WorkflowScheduler（超长 delay 按 2^31-1 分片、错过不补跑、与手动共用 per-workflow 互斥、before-quit 清理），workflows.json trigger 字段级扩展不 bump version；②connection-action 步骤——工作台连接联动：阿里云/腾讯云 SendSms（签名链复用参数化）+ SMTP 发信（点填充/RFC2047/CRLF 头注入防护），凭据仅 main 侧解密、运行日志收件人掩码，salesforce 明确不支持动作；③token-budget 步骤——今天/本月/全部（与 tokens 视图同日历对齐）阈值检查，超限系统通知+步骤失败中止；④IPC workflows:cronPreview + list 注入 nextRunAt；⑤编辑器触发区+两新步骤表单+列表下次运行/定时徽标；运行记录标触发来源（manual/cron）
+- 顺带闭环：v1 verifySmtp 漏第二次 334 密码挑战（AUTH LOGIN 双挑战，认证路径从未真实验证）；E2E-01 navOrder 存量漂移（nav 4→7 项）；E2E-07 主题测试显式 seed（CON-R-theme-004 默认改 system 后）
+- 核验：单测 851 绿（新增 35：cron 11/Actions 8/引擎 5/调度器 8/store 3）+ 集成 8 + e2e 27 全绿；Semgrep 2 条 rejectUnauthorized 为存量已接受风险（记录登记）；SMTP 状态机经本地假服务器真实 socket 集成测
+- 文档：设计 docs/design/工作流-workflows-design.md §7 · 记录 docs/records/工作流v2-workflows-v2-record.md
+- commits：39e6f4c（fix）/ ffba8d5（feat）/ 530db1e（test）/ 9e4e2c5（docs）→ merge 563ef72
+
 ## 2026-09-02 UI 视觉优化 P1/P2 剩余项（ticket t100109，PR #7）
 
 - 类型：UI 体系重构（无共识规则变化）
