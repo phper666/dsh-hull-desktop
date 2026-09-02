@@ -2,7 +2,7 @@
 #connections:not(.hidden) { position: absolute; inset: 0; z-index: 10; display: block; }
 #connections-root {
   width: 100%; height: 100%; display: flex; flex-direction: column;
-  overflow-y: auto; background: var(--hull-bg); color: var(--hull-text); font-size: 13px;
+  overflow-y: auto; background: var(--hull-bg); color: var(--hull-text); font-size: var(--text-md);
 }
 
 /* 工具条 */
@@ -11,7 +11,7 @@
   border-bottom: 1px solid var(--hull-border); background: var(--hull-panel); flex-wrap: wrap;
   position: sticky; top: 0; z-index: 5;
 }
-.cn-title { font-size: 13px; font-weight: 700; }
+.cn-title { font-size: var(--text-md); font-weight: 700; }
 .cn-spacer { flex: 1; }
 .cn-btn { /* 继承壳级 .btn（padding 5px / hover 变色在 shell 基类差异） */ }
 .cn-btn.primary { /* 壳级 .btn 修饰符列表 + 全局 .primary */ }
@@ -27,18 +27,18 @@
 }
 .cn-platform:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--hull-bg), 0 0 0 4px var(--hull-accent-soft); border-color: var(--hull-accent); }
 .cn-platform:hover { border-color: var(--hull-accent); transform: translateY(-1px); }
-.cn-platform .name { font-weight: 600; font-size: 13px; }
-.cn-platform .desc { margin-top: 4px; font-size: 11px; color: var(--hull-text-muted); line-height: 1.5; }
+.cn-platform .name { font-weight: 600; font-size: var(--text-md); }
+.cn-platform .desc { margin-top: var(--space-1); font-size: var(--text-xs); color: var(--hull-text-muted); line-height: 1.5; }
 
 /* 连接卡片列表 */
 .cn-list { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
 .cn-card { background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: var(--radius-lg); padding: 12px 14px; }
-.cn-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.cn-card-head .name { font-weight: 600; font-size: 13px; }
-.cn-card .plat { font-size: 11px; color: var(--hull-text-muted); }
-.cn-card .fields { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--hull-text-note); font-family: var(--font-mono); word-break: break-all; }
-.cn-card .lasterr { margin-top: 6px; font-size: 11px; color: var(--hull-danger); word-break: break-all; }
-.cn-card-ops { margin-top: 8px; display: flex; gap: 6px; justify-content: flex-end; }
+.cn-card-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.cn-card-head .name { font-weight: 600; font-size: var(--text-md); }
+.cn-card .plat { font-size: var(--text-xs); color: var(--hull-text-muted); }
+.cn-card .fields { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); color: var(--hull-text-note); font-family: var(--font-mono); word-break: break-all; }
+.cn-card .lasterr { margin-top: 6px; font-size: var(--text-xs); color: var(--hull-danger); word-break: break-all; }
+.cn-card-ops { margin-top: var(--space-2); display: flex; gap: 6px; justify-content: flex-end; }
 
 /* 状态徽标（结构继承壳级 .badge；下方仅语义变体） */
 .cn-badge.connected { background: var(--hull-success-soft); color: var(--hull-success); }
@@ -47,22 +47,24 @@
 .cn-badge.verifying { background: var(--hull-info-soft); color: var(--hull-info); }
 
 /* 表单（schema 驱动） */
-.cn-form { padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 10px; max-width: 560px; }
-.cn-f { display: flex; flex-direction: column; gap: 4px; }
-.cn-f label { font-size: 12px; color: var(--hull-text-dim); }
+.cn-form { padding: var(--space-3) var(--space-4) var(--space-4); display: flex; flex-direction: column; gap: 10px; max-width: 560px; }
+.cn-f { display: flex; flex-direction: column; gap: var(--space-1); }
+.cn-f label { font-size: var(--text-sm); color: var(--hull-text-dim); }
 .cn-f label .req { color: var(--hull-danger); }
-.cn-f .input { width: 100%; font-size: 13px; } /* 其余继承壳级 .input */
+.cn-f .input { width: 100%; font-size: var(--text-md); } /* 其余继承壳级 .input */
 .cn-f .input:focus { box-shadow: 0 0 0 2px var(--hull-accent-soft); } /* border-color 由壳级 :focus 提供 */
-.cn-f .hint { font-size: 11px; color: var(--hull-text-sub); }
-.cn-f-row { display: flex; align-items: center; gap: 8px; }
+.cn-f .hint { font-size: var(--text-xs); color: var(--hull-text-sub); }
+.cn-f-row { display: flex; align-items: center; gap: var(--space-2); }
 .cn-switch { /* 继承壳级 .switch */ }
-.cn-form-ops { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
-.cn-verify-msg { font-size: 12px; }
+.cn-form-ops { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-1); }
+.cn-verify-msg { font-size: var(--text-sm); }
 .cn-verify-msg.ok { color: var(--hull-success); }
 .cn-verify-msg.err { color: var(--hull-danger); }
 
 /* 空态 */
 .cn-empty { margin: auto; text-align: center; color: var(--hull-text-muted); }
-.cn-empty h2 { font-size: 17px; font-weight: 600; margin: 0 0 8px; color: var(--hull-text); }
-.cn-back { padding: 6px 12px; margin: 0 14px; border-radius: var(--radius-md); border: none; background: var(--hull-border); color: var(--hull-text-dim); cursor: pointer; font-size: 12px; align-self: flex-start; }
+.cn-empty h2 { font-size: var(--text-xl); font-weight: 600; margin: 0 0 var(--space-2); color: var(--hull-text); }
+.cn-back { padding: 6px 12px; margin: 0 14px; border-radius: var(--radius-md); border: none; background: var(--hull-border); color: var(--hull-text-dim); cursor: pointer; font-size: var(--text-sm); align-self: flex-start; }
 .cn-back:hover { background: var(--hull-hover); }
+
+/* 间距特例：2px×1、6px×4、10px×5、14px×5（待归并档位） */
