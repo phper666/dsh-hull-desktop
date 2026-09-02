@@ -508,7 +508,11 @@
       if (sub.length) {
         const entry = w.querySelector('.dg-entry');
         const sumEl = w.querySelector('#dg-sum');
-        const openDg = () => { openDepgraphTaskId = t.id; window.depgraph?.open(t, sub); };
+        const openDg = () => {
+          openDepgraphTaskId = t.id;
+          const dg = window.depgraph;
+          if (dg) { dg.onClose(() => { openDepgraphTaskId = null; }); dg.open(t, sub); }
+        };
         entry.addEventListener('click', openDg);
         entry.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDg(); } });
         const deps = sub.reduce((n, s) => n + (s.dependencies || []).filter((d) => sub.some((x) => x.id === d)).length, 0);
@@ -559,13 +563,13 @@
   function editTask(taskId) {
     const t = taskById(taskId);
     if (!t) return;
-    // U3：前置依赖仅子任务可声明（store Q-014 同父约束）——同父兄弟列表，排除自身
-    const siblings = t.parentId ? (currentBoard?.tasks || []).filter((x) => x.parentId === t.parentId && x.id !== t.id) : [];
+    // U3：前置依赖仅子任务可声明（store Q-014 同父约束）——同父兄弟列表，排除自身与已依赖本任务的兄弟（防 UI 造 A→B→A 环，store 无环检测）
+    const siblings = t.parentId ? (currentBoard?.tasks || []).filter((x) => x.parentId === t.parentId && x.id !== t.id && !(x.dependencies || []).includes(t.id)) : [];
     modal('编辑卡片', `
       <div class="kb-f"><label>标题</label><input id="kb-tt" class="kb-input" value="${esc(t.title)}" /></div>
       <div class="kb-f"><label>描述</label><textarea id="kb-desc" class="kb-input">${esc(t.description || '')}</textarea></div>
       <div class="kb-f"><label>优先级</label><select id="kb-pri" class="kb-input">${['P0', 'P1', 'P2', '无'].map((p) => `<option ${t.priority === p ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
-      ${t.parentId ? `<div class="kb-f"><label>前置依赖</label><div class="kb-deps" id="kb-deps">${siblings.length ? siblings.map((s) => `<label class="kb-dep"><input type="checkbox" value="${s.id}" ${(t.dependencies || []).includes(s.id) ? 'checked' : ''} /> ${esc(s.title)}</label>`).join('') : '<span class="kb-muted">无同父兄弟任务</span>'}</div></div>` : ''}
+      ${t.parentId ? `<div class="kb-f"><label>前置依赖</label><div class="kb-deps" id="kb-deps">${siblings.length ? siblings.map((s) => `<label class="kb-dep"><input type="checkbox" value="${esc(s.id)}" ${(t.dependencies || []).includes(s.id) ? 'checked' : ''} /> ${esc(s.title)}</label>`).join('') : '<span class="kb-muted">无同父兄弟任务</span>'}</div></div>` : ''}
       <div class="kb-modal-ops"><button class="kb-btn kb-primary" data-ok>保存</button><button class="kb-btn" data-close>取消</button></div>`, (w, close) => {
       // E1：预填现值（FE-1 editor.value(t.description ?? '')）；旧纯文本 = 合法 Markdown（E10 兼容）
       const descEditor = createEditor($('#kb-desc', w), t.description ?? '');

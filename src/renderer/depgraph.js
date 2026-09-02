@@ -22,6 +22,7 @@
 
   let state = null; // { task, subtasks } —— kanban 推入的最新数据
   let wrap = null;  // 弹框 DOM（isConnected 判断开/关）
+  let onCloseCb = null; // kanban 关闭回调（复位 openDepgraphTaskId）
 
   function open(task, subtasks) {
     if (!task) return;
@@ -36,6 +37,9 @@
   }
 
   function isOpen() { return !!(wrap && wrap.isConnected); }
+
+  // kanban 侧注册关闭回调（复位其 openDepgraphTaskId，防陈旧图残留）
+  function onClose(cb) { onCloseCb = cb; }
 
   function buildModal() {
     wrap = document.createElement('div');
@@ -52,7 +56,7 @@
         <div class="dg-foot"><span class="dg-legend" id="dg-legend"></span><span class="dg-hint">ESC 或点遮罩关闭</span></div>
       </div>`;
     document.body.appendChild(wrap);
-    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } }; // stopPropagation：双层弹框不一个 ESC 全关
     document.addEventListener('keydown', onKey);
     wrap._onKey = onKey;
     wrap.addEventListener('click', (e) => { if (e.target === wrap || e.target.closest('[data-close]')) close(); });
@@ -66,11 +70,14 @@
     wrap.remove();
     wrap = null;
     state = null;
+    const cb = onCloseCb; onCloseCb = null;
+    cb?.();
   }
 
   // 池态：快照优先（全局并行池，running 不分板；try/catch 回退自算，标注 degraded）
   async function updatePool() {
-    if (!wrap || !state) return;
+    const w = wrap; // 捕获当前弹框：await 期间可能已关/重开，只写原弹框
+    if (!w || !state) return;
     let p = null;
     try {
       if (window.exec && window.exec.getExecutionSnapshot) {
@@ -78,19 +85,19 @@
         if (r && r.ok && r.data) p = core.poolState(r.data);
       }
     } catch { /* snapshot 不可用 → 回退 */ }
+    if (!w.isConnected || !state) return; // 异步期间已关/重开 → 放弃写入
     if (!p) p = core.poolState(state.subtasks);
-    if (!wrap || !state) return; // 异步期间已关
-    wrap.querySelector('#dg-maxp').textContent = '并发 ≤' + p.maxParallel;
-    wrap.querySelector('#dg-cnt').textContent = p.running + '/' + p.maxParallel;
-    wrap.querySelector('#dg-pool').classList.toggle('full', p.running >= p.maxParallel);
-    const slots = wrap.querySelector('#dg-slots');
+    w.querySelector('#dg-maxp').textContent = '并发 ≤' + p.maxParallel;
+    w.querySelector('#dg-cnt').textContent = p.running + '/' + p.maxParallel;
+    w.querySelector('#dg-pool').classList.toggle('full', p.running >= p.maxParallel);
+    const slots = w.querySelector('#dg-slots');
     slots.innerHTML = '';
     for (let i = 0; i < p.maxParallel; i++) {
       const s = document.createElement('span');
       s.className = 'dg-slot' + (i < p.running ? ' on' : '');
       slots.appendChild(s);
     }
-    if (p.degraded) wrap.querySelector('#dg-cnt').title = '快照不可用，按任务状态估算';
+    if (p.degraded) w.querySelector('#dg-cnt').title = '快照不可用，按任务状态估算';
   }
 
   function render() {
@@ -179,5 +186,5 @@
     return '';
   }
 
-  window.depgraph = { open, refresh, isOpen };
+  window.depgraph = { open, refresh, isOpen, onClose };
 })();

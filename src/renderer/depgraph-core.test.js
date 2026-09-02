@@ -191,3 +191,19 @@ test('layout：环容错不崩 + cycle 透出 + 环内无边', () => {
   assert.deepEqual([...res.cycle].sort(), ['a', 'b']);
   assert.strictEqual(res.edges.length, 0); // 同层环边跳过，避免退化 bezier
 });
+
+test('layerize/layout 空任务集：不崩返回空结构', () => {
+  const empty = [];
+  assert.deepEqual(core.layerize(empty, {}), { layers: [], cycle: [] });
+  const res = core.layout(empty, {});
+  assert.deepEqual(res.nodes, []);
+  assert.deepEqual(res.edges, []);
+  assert.deepEqual(res.cycle, []);
+});
+
+test('poolState：snapshot 缺 maxParallel → 默认 3', () => {
+  assert.deepEqual(core.poolState({ running: [{}], queued: [] }),
+    { running: 1, queued: 0, maxParallel: 3, degraded: false });
+  assert.deepEqual(core.poolState({ running: 0, queued: 0 }),
+    { running: 0, queued: 0, maxParallel: 3, degraded: false });
+});
