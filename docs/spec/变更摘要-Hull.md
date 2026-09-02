@@ -3,6 +3,13 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-09-02 Token 视图平台扩展 v2（ticket t100104，PR #6）
+
+- 类型：功能需求实现（无共识规则变化）
+- 内容：Token 视图 3→16 本地可解析平台（opencode/cline/roo/gemini/kimi JSONL 型 + goose/continue/zed/warp/zcode/qoder/copilot/kiro SQLite 型，node:sqlite 只读）；codex 新 rollout 格式累计值→增量状态机修复（consumeUsageDelta）；UI 驾驶舱改造（英雄卡/构成分解/柱状趋势/平台色点，双主题）；reasoningTokens 全链路
+- 核验：81 单测绿 + tsc ✓ + oracle review（H1 opencode 推理少计/M1 性能/M2 SQLite 只读列/M3 num 兼容，全修）+ 本机实测 16 平台无 ERR（opencode 1025 记录/19 模型出数）；UI demo 确认
+- 文档：设计 v2 docs/design/Token消耗查看-tokens-design.md · 记录 docs/records/Token消耗查看-tokens-v2-record.md · 调研 docs/research/2026-09-02-agent-token-format-research.md
+
 ## 2026-08-30 CON-R-theme-004 修订（共识 v1.3）：默认主题 dark → system
 
 - 类型：共识规则修订（用户决策 2026-08-30）
