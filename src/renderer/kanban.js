@@ -101,7 +101,7 @@
   }
 
   function renderEmpty() {
-    boardRoot.innerHTML = `<div class="kb-empty"><h2>没有看板</h2><p>创建一个任务看板开始规划</p><button class="kb-btn kb-primary" id="kb-newboard-empty">新建看板</button></div>`;
+    boardRoot.innerHTML = `<div class="kb-empty"><div class="empty-ico" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="9" height="34" rx="2"/><rect x="19.5" y="7" width="9" height="34" rx="2" opacity="0.55"/><rect x="32" y="7" width="9" height="34" rx="2" opacity="0.55"/><path d="M11 20h3M23.5 20h3M36 20h3" opacity="0.6"/></svg></div><h2>没有看板</h2><p>创建一个任务看板开始规划</p><button class="kb-btn kb-primary" id="kb-newboard-empty">新建看板</button></div>`;
     $('#kb-newboard-empty')?.addEventListener('click', promptNewBoard);
   }
 

@@ -50,7 +50,7 @@
         <button class="wf-btn primary" id="wf-add">＋ 新建工作流</button></div>
       <div class="wf-list">${cards || ''}</div>
       ${runs.length ? `<div class="wf-runs"><h3>最近运行</h3>${runs.slice(0, 8).map(runHtml).join('')}</div>` : ''}
-      ${workflows.length ? '' : '<div class="wf-empty"><h2>还没有工作流</h2><p>把「建卡 → 执行 → 通知」这类重复动作串成一条自动化链。</p></div>'}`;
+      ${workflows.length ? '' : '<div class="wf-empty"><div class="empty-ico" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="24" r="5"/><path d="M17 24h14"/><circle cx="38" cy="24" r="5" opacity="0.55"/><path d="M29 17l7 7-7 7" opacity="0.6"/></svg></div><h2>还没有工作流</h2><p>把「建卡 → 执行 → 通知」这类重复动作串成一条自动化链。</p></div>'}`;
     root.querySelector('#wf-add').addEventListener('click', () => { editor = { name: '', enabled: true, steps: [] }; renderEditor(); });
     for (const b of root.querySelectorAll('[data-toggle]'))
       b.addEventListener('click', async () => {

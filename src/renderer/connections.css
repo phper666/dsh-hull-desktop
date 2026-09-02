@@ -21,18 +21,20 @@
 .cn-platforms { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; padding: 14px; }
 .cn-platform {
   text-align: left; padding: 12px 14px; border-radius: var(--radius-lg);
-  background: var(--hull-panel); border: 1px solid var(--hull-border); cursor: pointer;
+  background: var(--hull-card); border: 1px solid var(--hull-border); cursor: pointer;
+  box-shadow: var(--shadow-1);
   white-space: normal; word-break: break-word; overflow: hidden;
-  transition: border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+  transition: border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 .cn-platform:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--hull-bg), 0 0 0 4px var(--hull-accent-soft); border-color: var(--hull-accent); }
-.cn-platform:hover { border-color: var(--hull-accent); transform: translateY(-1px); }
+.cn-platform:hover { border-color: var(--hull-accent); transform: translateY(-2px); box-shadow: var(--shadow-2); }
 .cn-platform .name { font-weight: 600; font-size: var(--text-md); }
 .cn-platform .desc { margin-top: var(--space-1); font-size: var(--text-xs); color: var(--hull-text-muted); line-height: 1.5; }
 
 /* 连接卡片列表 */
 .cn-list { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
-.cn-card { background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: var(--radius-lg); padding: 12px 14px; }
+.cn-card { background: var(--hull-card); border: 1px solid var(--hull-border); border-radius: var(--radius-lg); padding: 12px 14px; box-shadow: var(--shadow-1); transition: border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.cn-card:hover { border-color: var(--hull-accent-medium); transform: translateY(-1px); box-shadow: var(--shadow-2); }
 .cn-card-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .cn-card-head .name { font-weight: 600; font-size: var(--text-md); }
 .cn-card .plat { font-size: var(--text-xs); color: var(--hull-text-muted); }
@@ -66,5 +68,8 @@
 .cn-empty h2 { font-size: var(--text-xl); font-weight: 600; margin: 0 0 var(--space-2); color: var(--hull-text); }
 .cn-back { padding: 6px 12px; margin: 0 14px; border-radius: var(--radius-md); border: none; background: var(--hull-border); color: var(--hull-text-dim); cursor: pointer; font-size: var(--text-sm); align-self: flex-start; }
 .cn-back:hover { background: var(--hull-hover); }
+
+/* P0/P1-h：surface ladder hover 动效守卫 */
+@media (prefers-reduced-motion: reduce) { .cn-platform, .cn-card { transition: none; } .cn-platform:hover, .cn-card:hover { transform: none; } }
 
 /* 间距特例：2px×1、6px×4、10px×5、14px×5（待归并档位） */

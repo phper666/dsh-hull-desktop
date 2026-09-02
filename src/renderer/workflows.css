@@ -15,7 +15,8 @@
 .wf-btn { /* 继承壳级 .btn（padding 5px / hover 变色在 shell 基类差异）；primary/danger/disabled 在壳级修饰符列表 */ }
 
 .wf-list { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
-.wf-card { background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: var(--radius-lg); padding: 12px 14px; }
+.wf-card { background: var(--hull-card); border: 1px solid var(--hull-border); border-radius: var(--radius-lg); padding: 12px 14px; box-shadow: var(--shadow-1); transition: border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.wf-card:hover { border-color: var(--hull-accent-medium); transform: translateY(-1px); box-shadow: var(--shadow-2); }
 .wf-card-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .wf-card-head .name { font-weight: 600; font-size: var(--text-md); }
 .wf-card .meta { font-size: var(--text-xs); color: var(--hull-text-muted); margin-top: var(--space-1); }
@@ -35,7 +36,7 @@
 .wf-editor { padding: 14px 16px; display: flex; flex-direction: column; gap: var(--space-3); }
 .wf-editor .input { width: 100%; max-width: 420px; } /* 其余继承壳级 .input；字体由 .wf-f 12px 提供（原有效值） */
 .wf-steps { display: flex; flex-direction: column; gap: var(--space-2); }
-.wf-step { background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: var(--radius-lg); padding: 10px 12px; }
+.wf-step { background: var(--hull-card); border: 1px solid var(--hull-border); border-radius: var(--radius-lg); padding: 10px 12px; box-shadow: var(--shadow-1); }
 .wf-step-head { display: flex; align-items: center; gap: var(--space-2); }
 .wf-step-head .idx { font-size: var(--text-xs); color: var(--hull-text-sub); min-width: 18px; }
 .wf-step-head select { background: var(--hull-panel); border: 1px solid var(--hull-border); border-radius: var(--radius-sm); color: var(--hull-text); padding: var(--space-1) var(--space-2); font-size: var(--text-sm); }
@@ -52,10 +53,13 @@
 
 .wf-runs { padding: 0 var(--space-4) var(--space-4); }
 .wf-runs h3 { font-size: var(--text-xs); color: var(--hull-text-dim); text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 var(--space-2); }
-.wf-run { border: 1px solid var(--hull-border); border-radius: var(--radius-md); padding: 8px 10px; margin-bottom: 6px; font-size: var(--text-sm); }
+.wf-run { background: var(--hull-card); border: 1px solid var(--hull-border); border-radius: var(--radius-md); padding: 8px 10px; margin-bottom: 6px; font-size: var(--text-sm); box-shadow: var(--shadow-1); }
 .wf-run .head { display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-1); }
 .wf-run .time { color: var(--hull-text-sub); font-size: var(--text-xs); }
 .wf-run .stepline { font-size: var(--text-xs); color: var(--hull-text-dim); padding: 1px 0; font-family: var(--font-mono); word-break: break-all; }
 .wf-run .stepline.err { color: var(--hull-danger); }
+
+/* P1-h：surface ladder hover 动效守卫 */
+@media (prefers-reduced-motion: reduce) { .wf-card { transition: none; } .wf-card:hover { transform: none; } }
 
 /* 间距特例：1px×1、3px×1、6px×6、10px×5、14px×3（待归并档位） */

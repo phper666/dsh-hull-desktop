@@ -29,6 +29,9 @@
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const $ = (sel) => root.querySelector(sel);
+  /** P2-i 空态图标锚点（2×2 方块网格 = skills 库；结构与壳级 .empty-ico 配套） */
+  const EMPTY_ICO =
+    '<div class="empty-ico" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="16" height="16" rx="3"/><rect x="26" y="6" width="16" height="16" rx="3" opacity="0.5"/><rect x="6" y="26" width="16" height="16" rx="3" opacity="0.5"/><rect x="26" y="26" width="16" height="16" rx="3"/></svg></div>';
   const PLATFORMS = ['claude-code', 'opencode', 'codex', 'gemini-cli', 'cursor', 'windsurf', 'warp', 'trae', 'cline', 'roo', 'continue', 'devin', 'dsh', 'qoder', 'reasonix'];
   const upgNames = { latest: '最新', upgradable: '▲ 可升级', unknown: '无法检测版本' };
   /** 升级按钮 tooltip：区分升级通道（无 source → 走 npx 官方通道，不依赖来源链接；有 source → git 轨可兜底） */
@@ -332,19 +335,19 @@
   /** 空态文案：区分「平台无可读 skill」vs「筛选 / 搜索无匹配」，不白屏 */
   function emptyStateHtml() {
     if (platform === 'global') {
-      return '<div class="sk-empty"><h2>全局（共享）目录为空</h2><p>没有 skill 安装在 ~/.agents/skills 共享目录</p></div>';
+      return '<div class="sk-empty">' + EMPTY_ICO + '<h2>全局（共享）目录为空</h2><p>没有 skill 安装在 ~/.agents/skills 共享目录</p></div>';
     }
     // 平台筛选：该平台不在任何 entry 的 platforms（无专属目录 + 非共享读者）→ 无可读 skill
     if (platform !== 'all' && !snapshot.entries.some((e) => e.platforms.includes(platform))) {
-      return `<div class="sk-empty"><h2>「${esc(platform)}」无可读 skill</h2><p>本机无该平台专属目录，且该平台不读取共享（~/.agents/skills）目录（官方声明）</p></div>`;
+      return `<div class="sk-empty">${EMPTY_ICO}<h2>「${esc(platform)}」无可读 skill</h2><p>本机无该平台专属目录，且该平台不读取共享（~/.agents/skills）目录（官方声明）</p></div>`;
     }
     if (query) {
-      return `<div class="sk-empty"><h2>未找到匹配的 skill</h2><p>没有名称 / 描述 / 来源包含「${esc(query)}」的结果，试试其他关键词</p></div>`;
+      return `<div class="sk-empty">${EMPTY_ICO}<h2>未找到匹配的 skill</h2><p>没有名称 / 描述 / 来源包含「${esc(query)}」的结果，试试其他关键词</p></div>`;
     }
     const unfilter = [];
     if (onlyUpgradable) unfilter.push('「仅看可升级」');
     if (onlyDisabled) unfilter.push('「仅看已禁用」');
-    return `<div class="sk-empty"><h2>筛选无匹配</h2><p>${unfilter.length ? `取消${unfilter.join('、')}后重试，` : ''}或调整平台 / 搜索条件</p></div>`;
+    return `<div class="sk-empty">${EMPTY_ICO}<h2>筛选无匹配</h2><p>${unfilter.length ? `取消${unfilter.join('、')}后重试，` : ''}或调整平台 / 搜索条件</p></div>`;
   }
 
   function renderRemote() {
@@ -354,11 +357,11 @@
       return;
     }
     if (remoteError) {
-      list.innerHTML = `<div class="sk-empty"><h2>远程不可用</h2><p class="sk-error">${esc(remoteError)}</p><p>本地列表不受影响</p></div>`;
+      list.innerHTML = `<div class="sk-empty">${EMPTY_ICO}<h2>远程不可用</h2><p class="sk-error">${esc(remoteError)}</p><p>本地列表不受影响</p></div>`;
       return;
     }
     if (remoteEntries === null) {
-      list.innerHTML = '<div class="sk-empty"><h2>搜索 skills.sh 市场</h2><p>输入关键词后回车或点「搜索」；结果可安装</p></div>';
+      list.innerHTML = '<div class="sk-empty">' + EMPTY_ICO + '<h2>搜索 skills.sh 市场</h2><p>输入关键词后回车或点「搜索」；结果可安装</p></div>';
       return;
     }
     if (remoteEntries.length === 0) {
