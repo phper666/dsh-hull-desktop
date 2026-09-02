@@ -12,9 +12,9 @@
     return String(n);
   };
   const pct = (v, total) => (total > 0 ? Math.round((v / total) * 100) : 0);
-  const GRAN = [['hour', '1小时'], ['day', '1天'], ['month', '1月'], ['year', '1年']];
-  /* 日历对齐范围标签（hour=本小时整点起、day=今天 0 点、month=本月 1 号、year=今年 1/1） */
-  const RANGE_LABELS = { hour: '本小时', day: '今天', month: '本月', year: '今年' };
+  const GRAN = [['hour', '1小时'], ['day', '1天'], ['month', '1月'], ['year', '1年'], ['all', '全部']];
+  /* 日历对齐范围标签（hour=本小时整点起、day=今天 0 点、month=本月 1 号、year=今年 1/1、all=全部历史） */
+  const RANGE_LABELS = { hour: '本小时', day: '今天', month: '本月', year: '今年', all: '全部' };
   const granRange = (k) => RANGE_LABELS[k] || k;
   const PLATFORM_NAMES = {
     'claude-code': 'Claude Code', codex: 'Codex', dsh: 'dsh', opencode: 'OpenCode', cline: 'Cline', roo: 'Roo Code',

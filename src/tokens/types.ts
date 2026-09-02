@@ -22,16 +22,17 @@ export type TokenPlatform =
   | 'copilot'
   | 'kiro';
 
-/** 统计粒度 = 时间范围（hour=近1小时、day=近1天、month=近1月(30天)、year=近1年(365天)）；全视图（总计/序列/透视）按范围过滤；序列分桶粒度按范围推导（hour→10分钟、day→小时、month→天、year→月） */
-export type UsageGranularity = 'hour' | 'day' | 'month' | 'year';
+/** 统计粒度 = 日历对齐范围（hour=本小时整点起、day=今天 0 点、month=本月 1 号、year=今年 1/1、all=不过滤全部数据）；全视图（总计/序列/透视）按范围过滤；序列分桶粒度按范围推导（hour→10分钟、day→小时、month→天、year→月、all→月） */
+export type UsageGranularity = 'hour' | 'day' | 'month' | 'year' | 'all';
 
-export const USAGE_GRANULARITIES: UsageGranularity[] = ['hour', 'day', 'month', 'year'];
+export const USAGE_GRANULARITIES: UsageGranularity[] = ['hour', 'day', 'month', 'year', 'all'];
 
 export const GRANULARITY_NAMES: Record<UsageGranularity, string> = {
   hour: '1小时',
   day: '1天',
   month: '1月',
   year: '1年',
+  all: '全部',
 };
 
 /** 单条用量记录（一行会话事件的归一化） */
