@@ -58,6 +58,56 @@ src/workflows/
 | dsh 未就绪时派发失败 | executeTask 返回 ok:false → 步骤 fail-fast 记录 |
 | 运行日志膨胀 | ≤50 条环形裁剪 |
 
-## 六、v2 规划
+## 六、v2 规划（原始清单）
 
 定时触发（cron）、事件触发（dsh 生命周期事件）、步骤间变量模板（`{{steps.1.output}}`）、工作台连接联动步骤（发短信/邮件）、可视化画布。
+
+## 七、v2 设计（2026-09-02 定稿，判级：复杂 → 方案冻结）
+
+> 判级：复杂——①调度子系统（cron 解析 + 主进程定时编排：生命周期/漂移/错过策略）②凭据安全敏感面（平台能力调用，main 侧解密）③渲染层编辑器 UI 增量。
+> 范围（用户 2026-09-02 定）：定时触发（cron）+ connection-action 步骤（发短信/邮件）+ token-budget 步骤（Token 预算告警）。
+
+### 7.1 定时触发（cron）
+
+- 数据模型：`WorkflowDef` 增 `trigger?: { type: 'cron'; expr: string } | null`——字段级扩展，workflows.json version 不 bump（对齐 theme 字段扩展先例）；无 trigger = v1 手动语义，读侧容错。
+- cron 解析器（`src/workflows/cron.ts`，零新依赖，标准库优先）：5 字段（分 时 日 月 周，本地时区），支持 `* , - /`；星期 0/7=周日；`parseCron(expr)` 校验 + `cronNext(expr, from: Date)` 下次触发计算——纯函数、确定性可单测。DOW 与 DOM 同时受限时按 cron 标准语义为「或」（vixie cron 约定）。
+- 调度器（`src/workflows/WorkflowScheduler.ts`）：主进程单例；`reschedule(defs)` 全量重算（save/delete/启停/壳启动时调用）→ 每工作流一个 timer 指向下次触发点；触发前对齐校验（目标分钟已过才触发，否则重算——覆盖 setTimeout 漂移/休眠唤醒）；错过策略 = **不补跑**（skip missed，只跑未来）；触发 = `engine.run(id)`，已在运行则跳过本次（hull.log 留痕）；`dispose()` 清全部 timer（before-quit）。
+- 引擎互斥：WorkflowEngine 加 `running: Set<workflowId>`，run() 入口同工作流已在跑 → 抛错「上一次运行尚未结束」——手动/调度共用，防并发写同一 runs.json。
+- IPC：新增 `workflows:cronPreview { expr }` → `{ valid, next: ISO[3], error? }`（渲染层校验/预览共用 main 解析器，渲染层零复制）；`workflows:list` 响应由 IPC 层注入 `nextRunAt`（enabled + cron 项），列表 UI 零成本显示。
+
+### 7.2 connection-action 步骤（工作台连接联动）
+
+- 类型 `connection-action`，config = `{ connectionId, params }`（params 为 JSON 字符串，按平台 schema）；v2 各平台仅一种能力 `send`，action 不单设。
+- 能力层（`src/connections/Actions.ts`）：`invokeConnectionAction(platform, fields(解密后), params) → VerifyResult`：
+  - **smtp**：v1 握手状态机扩展为发信——EHLO → `MAIL FROM`（params.from 或 username）→ `RCPT TO`（params.to，逗号分隔逐个）→ `DATA`（From/To/Subject 头 + 空行 + body + `.`）→ 250 → QUIT。纯 node:net/tls，无 nodemailer。头注入防护：to/subject/from 含 CR/LF 即拒绝。
+  - **aliyun-sms**：`buildAliyunQueryString` 参数化（action + 业务参数注入，保留原签名向后兼容旧单测）→ `SendSms`（PhoneNumbers/TemplateCode/TemplateParam）→ `Code=OK` 成功。
+  - **tencent-sms**：`buildTc3Authorization` 已参数化直接复用 → `SendSms`（PhoneNumberSet/TemplateId/TemplateParamSet）。
+  - **salesforce**：v2 无能力调用（SOQL/记录操作语义未定）——步骤执行即报「该平台暂不支持动作」，留扩展点。
+- 安全（继承 connections 设计红线）：凭据解密只在 main（ConnectionsStore.getCredentials）；错误信息不含 secret；运行日志 message 对收件人掩码（手机号 `138****5678`、邮箱 `a***b@x.com`）；连接不存在/已删 → 步骤失败。
+- 引擎 DI：deps 增 `invokeAction?: (connectionId: string, params: Record<string, string>) => Promise<{ ok: boolean; message: string }>`（main 装配 ConnectionsStore+Actions；单测注入 fake）。
+
+### 7.3 token-budget 步骤（Token 预算告警）
+
+- 类型 `token-budget`，config = `{ period: 'day'|'month'|'all', thresholdTokens, notifyOnExceed? }`。
+- 执行：deps 增 `tokenUsage?: (period) => Promise<{ totalTokens: number }>`（main 装配 scanAllSources + summarize 包装；day/month 走 rangeCutoffMs 同款日历对齐语义）→ totalTokens ≥ threshold → 超限：notifyOnExceed='true' 时发系统通知 + **步骤 fail**（message 带用量/阈值）→ fail-fast 中止后续步骤、run=failed（运行记录可见告警）；未超限 → message「今日用量 X / 阈值 Y」。
+- 性能：全平台扫描秒级，cron 日级场景可接受；不额外缓存。
+
+### 7.4 UI（renderer/workflows.js）
+
+- 列表卡：有 cron 的显示「下次运行 <本地时间>」（list 注入 nextRunAt）。
+- 编辑器：名称下触发区（radio 手动/定时；定时 → cron 输入框 + 预览/错误提示，debounce 300ms 调 workflows:cronPreview）。
+- 步骤表单新增：connection-action（连接下拉 = window.connections.list() 过滤 smtp/aliyun-sms/tencent-sms，选中后按平台渲染 params 字段：smtp→to/subject/body/from(可选)；aliyun-sms→phoneNumbers/templateCode/templateParam；tencent-sms→phoneNumberSet/templateId/templateParamSet）；token-budget（period 下拉 + thresholdTokens 数字 + notifyOnExceed 开关）。
+
+### 7.5 非目标（v2 明确不做）
+
+事件触发（dsh 生命周期事件，需官方扩展点调研）· 步骤间变量模板 · 错过补跑（catch-up）· salesforce 能力调用 · 可视化画布。
+
+### 7.6 风险与回退
+
+| 风险 | 缓解 |
+|:-----|:-----|
+| setTimeout 漂移/休眠唤醒失准 | 触发时对齐校验（now ≥ 目标分钟才触发，否则重算）；分钟级粒度足够 |
+| cron 表达式写错 | save 时 parseCron 校验拒绝；UI debounce 预览所见即所得 |
+| 同工作流并发触发互踩 runs.json | 引擎 per-workflow 互斥锁（手动/调度共用） |
+| 定时自动触发无人工把关误发外部消息 | 用户显式配置即授权；运行日志留痕可查；外部通知类不涉 CON-R028（看板执行 Verify 把关不适用） |
+| SMTP 头注入 | to/subject/from 含 CR/LF 直接拒绝 |
