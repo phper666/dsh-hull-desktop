@@ -1,13 +1,16 @@
 import { test } from 'node:test';
 import { equal, deepEqual } from 'node:assert/strict';
 
-import { bucketKey, isoWeekKey, summarize } from './aggregator';
+import { bucketKey, isoWeekKey, rangeCutoffMs, summarize } from './aggregator';
 import type { ScanSourceInfo } from './aggregator';
 import type { UsageRecord } from './types';
 
 const rec = (ts: string, platform: UsageRecord['platform'], model: string, inputTokens: number, outputTokens: number, cacheReadTokens = 0, cacheWriteTokens = 0): UsageRecord => ({
   ts, platform, model, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, reasoningTokens: 0,
 });
+
+/** 本地时间构造（与日历对齐语义同时区，避免 UTC 边界坑） */
+const L = (y: number, mo: number, d: number, h = 0, mi = 0) => new Date(y, mo, d, h, mi).toISOString();
 
 test('桶键：min10/hour/day/month', () => {
   equal(bucketKey('2026-08-30T14:23:00+08:00', 'min10'), '2026-08-30 14:20');
@@ -25,29 +28,38 @@ test('桶键：ISO 周（周一起始，跨年归属）', () => {
   equal(bucketKey('2024-01-04T10:00:00+08:00', 'week'), '2024-W01');
 });
 
-test('汇总：总计/透视/序列与排序（day 范围 → hour 桶，24h 窗口）', () => {
+test('rangeCutoffMs：日历对齐边界（本地时区整点/0 点/1 号/1/1）', () => {
+  const now = new Date(2026, 8, 2, 12, 45); // 本地 2026-09-02 12:45
+  equal(rangeCutoffMs('hour', now), new Date(2026, 8, 2, 12, 0).getTime());
+  equal(rangeCutoffMs('day', now), new Date(2026, 8, 2).getTime());
+  equal(rangeCutoffMs('month', now), new Date(2026, 8, 1).getTime());
+  equal(rangeCutoffMs('year', now), new Date(2026, 0, 1).getTime());
+});
+
+test('汇总：总计/透视/序列与排序（day 范围 → 今天 hour 桶）', () => {
+  const now = new Date(2026, 8, 2, 18, 0); // 本地 2026-09-02 18:00
   const records = [
-    rec('2026-08-30T09:00:00+08:00', 'claude-code', 'claude-sonnet-4-5', 1000, 200, 300, 100),
-    rec('2026-08-30T10:00:00+08:00', 'claude-code', 'claude-sonnet-4-5', 500, 100),
-    rec('2026-08-30T09:30:00+08:00', 'codex', 'gpt-5.2', 2000, 400),
-    rec('2026-08-29T23:00:00+08:00', 'dsh', 'deepseek-v4', 100, 50), // 前一天深夜，仍在 24h 窗口内
+    rec(L(2026, 8, 2, 9, 0), 'claude-code', 'claude-sonnet-4-5', 1000, 200, 300, 100),
+    rec(L(2026, 8, 2, 10, 0), 'claude-code', 'claude-sonnet-4-5', 500, 100),
+    rec(L(2026, 8, 2, 9, 30), 'codex', 'gpt-5.2', 2000, 400),
+    rec(L(2026, 8, 2, 17, 30), 'dsh', 'deepseek-v4', 100, 50), // 今天下午，仍在 day 内
   ];
-  const s = summarize(records, 'day', [{ platform: 'claude-code', home: '/x', files: 2, records: 2 }], '2026-08-30T02:00:00Z');
-  // 总计（全部 4 条在 24h 窗口内）
+  const s = summarize(records, 'day', [{ platform: 'claude-code', home: '/x', files: 2, records: 2 }], now.toISOString());
+  // 总计（全部 4 条在「今天 0 点后」内）
   equal(s.totals.inputTokens, 3600);
   equal(s.totals.outputTokens, 750);
   equal(s.totals.cacheReadTokens, 300);
   equal(s.totals.cacheWriteTokens, 100);
   equal(s.totals.totalTokens, 4750);
-  // 序列（hour 桶，升序）：前夜 23:00 → 09:00（claude+codex 合并）→ 10:00
+  // 序列（hour 桶，升序）：09:00（claude+codex 合并）→ 10:00 → 17:30
   deepEqual(s.series.map((b) => b.bucket), [
-    bucketKey('2026-08-29T23:00:00+08:00', 'hour'),
-    bucketKey('2026-08-30T09:00:00+08:00', 'hour'),
-    bucketKey('2026-08-30T10:00:00+08:00', 'hour'),
+    bucketKey(L(2026, 8, 2, 9, 0), 'hour'),
+    bucketKey(L(2026, 8, 2, 10, 0), 'hour'),
+    bucketKey(L(2026, 8, 2, 17, 30), 'hour'),
   ]);
-  equal(s.series[0].totalTokens, 150);
-  equal(s.series[1].totalTokens, 4000);
-  equal(s.series[2].totalTokens, 600);
+  equal(s.series[0].totalTokens, 4000);
+  equal(s.series[1].totalTokens, 600);
+  equal(s.series[2].totalTokens, 150);
   // 平台透视按合计降序：codex 2400 > claude-code 2200 > dsh 150
   equal(s.byPlatform[0].platform, 'codex');
   equal(s.byPlatform[0].totalTokens, 2400);
@@ -65,67 +77,71 @@ test('空记录 → 零总计空序列', () => {
   deepEqual(s.byPlatform, []);
 });
 
-test('粒度=时间范围：hour/day/month/year 窗口过滤 + 桶推导', () => {
-  const G = '2026-09-02T12:00:00Z';
+test('粒度=日历范围：hour/day/month/year 边界过滤 + 桶推导', () => {
+  const now = new Date(2026, 8, 2, 12, 0); // 本地 2026-09-02 12:00
+  const G = now.toISOString();
   const records = [
-    rec('2026-09-02T11:00:00Z', 'claude-code', 'm1', 100, 10), // 近 1h
-    rec('2026-08-31T12:00:00Z', 'codex', 'm2', 200, 20), // 近 2 天
-    rec('2026-07-24T12:00:00Z', 'dsh', 'm3', 300, 30), // 40 天前（month=30d 外、year 内）
+    rec(L(2026, 8, 2, 12, 30), 'claude-code', 'm1', 100, 10), // 本小时（12 点整点后）
+    rec(L(2026, 8, 2, 9, 30), 'codex', 'm2', 200, 20), // 今天上午（hour 外、day 内）
+    rec(L(2026, 8, 1, 10, 0), 'gemini', 'm3', 300, 30), // 昨天（day 外、month 内）
+    rec(L(2026, 7, 2, 10, 0), 'dsh', 'm4', 400, 40), // 上月（month 外、year 内）
   ];
   const sources: ScanSourceInfo[] = [{ platform: 'claude-code', home: '/x', files: 1, records: 1 }];
 
   const sH = summarize(records, 'hour', sources, G);
-  equal(sH.totals.totalTokens, 110, 'hour 只含近 1h 1 条');
+  equal(sH.totals.totalTokens, 110, 'hour 只含本小时（12:30）');
   equal(sH.series.length, 1, 'hour 序列 min10 1 桶');
   equal(sH.byModel.length, 1, 'hour 透视只含 1 模型');
 
   const sD = summarize(records, 'day', sources, G);
-  equal(sD.totals.totalTokens, 110, 'day 只含近 24h 1 条');
-  equal(sD.series.length, 1, 'day 序列 hour 1 桶');
+  equal(sD.totals.totalTokens, 330, 'day 含今天全部 2 条（昨天被滤）');
+  equal(sD.series.length, 2, 'day 序列 hour 2 桶');
 
   const sM = summarize(records, 'month', sources, G);
-  equal(sM.totals.totalTokens, 330, 'month 含近 30d 2 条（40 天前被滤）');
-  equal(sM.series.length, 2, 'month 序列 day 2 桶');
-  equal(sM.byPlatform.length, 2);
+  equal(sM.totals.totalTokens, 660, 'month 含本月 3 条（上月被滤）');
+  equal(sM.series.length, 2, 'month 序列 day 2 桶（9/2 与 9/1）');
+  equal(sM.byPlatform.length, 3);
 
   const sY = summarize(records, 'year', sources, G);
-  equal(sY.totals.totalTokens, 660, 'year 含全部 3 条');
-  equal(sY.series.length, 3, 'year 序列 month 3 桶（9/8/7 月各 1 条）');
-  equal(sY.byPlatform.length, 3);
+  equal(sY.totals.totalTokens, 1100, 'year 含全部 4 条');
+  equal(sY.series.length, 2, 'year 序列 month 2 桶（9 月与 8 月）');
+  equal(sY.byPlatform.length, 4);
 });
 
-test('hour 范围：跨 40 分钟 → min10 多桶 + 只含近 1h', () => {
-  const G = '2026-09-02T12:00:00Z';
+test('hour 范围：本小时内跨 40 分钟 → min10 多桶 + 上小时记录被滤', () => {
+  const now = new Date(2026, 8, 2, 12, 0); // 本地 12:00，hour 边界 = 12:00:00
+  const G = now.toISOString();
   const records = [
-    rec('2026-09-02T11:55:00Z', 'claude-code', 'm1', 100, 10), // 5 分钟前
-    rec('2026-09-02T11:30:00Z', 'codex', 'm2', 200, 20), // 30 分钟前
-    rec('2026-09-02T10:00:00Z', 'dsh', 'm3', 400, 40), // 2 小时前 → 范围外
+    rec(L(2026, 8, 2, 12, 5), 'claude-code', 'm1', 100, 10), // 12:00 桶
+    rec(L(2026, 8, 2, 12, 30), 'codex', 'm2', 200, 20), // 12:30 桶
+    rec(L(2026, 8, 2, 11, 50), 'dsh', 'm3', 400, 40), // 上小时 → 本小时边界外
   ];
   const s = summarize(records, 'hour', [], G);
-  equal(s.totals.totalTokens, 330, 'hour 只含近 1h 2 条');
-  equal(s.series.length, 2, 'min10 桶 2 个（11:50 + 11:30）');
+  equal(s.totals.totalTokens, 330, 'hour 只含本小时 2 条');
+  equal(s.series.length, 2, 'min10 桶 2 个（12:00 + 12:30）');
   deepEqual(s.series.map((b) => b.bucket), [
-    bucketKey('2026-09-02T11:30:00Z', 'min10'),
-    bucketKey('2026-09-02T11:55:00Z', 'min10'),
+    bucketKey(L(2026, 8, 2, 12, 5), 'min10'),
+    bucketKey(L(2026, 8, 2, 12, 30), 'min10'),
   ]);
-  equal(s.series[0].totalTokens, 220);
-  equal(s.series[1].totalTokens, 110);
+  equal(s.series[0].totalTokens, 110);
+  equal(s.series[1].totalTokens, 220);
 });
 
-test('day 范围：hour 桶 + 只含近 24h', () => {
-  const G = '2026-09-02T12:00:00Z';
+test('day 范围：hour 桶 + 今天 0 点后（昨天记录被滤）', () => {
+  const now = new Date(2026, 8, 2, 12, 0); // 本地 2026-09-02 12:00
+  const G = now.toISOString();
   const records = [
-    rec('2026-09-02T11:00:00Z', 'claude-code', 'm1', 100, 10), // 1 小时前
-    rec('2026-09-01T13:00:00Z', 'codex', 'm2', 200, 20), // 23 小时前 → 24h 内
-    rec('2026-09-01T11:00:00Z', 'dsh', 'm3', 400, 40), // 25 小时前 → 范围外
+    rec(L(2026, 8, 2, 9, 0), 'claude-code', 'm1', 100, 10), // 今天上午 → 内
+    rec(L(2026, 8, 2, 11, 0), 'codex', 'm2', 200, 20), // 今天上午 → 内
+    rec(L(2026, 8, 1, 23, 0), 'dsh', 'm3', 400, 40), // 昨天 23:00 → 今天 0 点外
   ];
   const s = summarize(records, 'day', [], G);
-  equal(s.totals.totalTokens, 330, 'day 只含近 24h 2 条');
+  equal(s.totals.totalTokens, 330, 'day 只含今天 2 条');
   equal(s.series.length, 2, 'hour 桶 2 个');
   deepEqual(s.series.map((b) => b.bucket), [
-    bucketKey('2026-09-01T13:00:00Z', 'hour'),
-    bucketKey('2026-09-02T11:00:00Z', 'hour'),
+    bucketKey(L(2026, 8, 2, 9, 0), 'hour'),
+    bucketKey(L(2026, 8, 2, 11, 0), 'hour'),
   ]);
-  equal(s.series[0].totalTokens, 220);
-  equal(s.series[1].totalTokens, 110);
+  equal(s.series[0].totalTokens, 110);
+  equal(s.series[1].totalTokens, 220);
 });

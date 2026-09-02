@@ -1,21 +1,24 @@
 /**
  * 用量聚合器：UsageRecord[] → 桶序列 + 平台/模型透视。
  * 纯函数（无 IO），单测覆盖；桶键本地时区。
- * 粒度 = 时间范围（hour=近1h / day=近1天 / month=近1月30天 / year=近1年365天）：
- * summarize 聚合前先按 generatedAt 时间窗过滤 records，全视图（总计/序列/透视）只含范围内记录。
- * 序列分桶粒度按范围推导（RANGE_BUCKET）：1h 范围 → 10 分钟桶、1 天 → 小时桶、1 月 → 天桶、1 年 → 月桶。
+ * 粒度 = 日历对齐范围（本地时区）：hour=本小时整点起、day=今天 0 点、month=本月 1 号、year=今年 1/1：
+ * summarize 按 generatedAt 所在日历边界过滤 records，全视图（总计/序列/透视）只含边界后记录。
+ * 序列分桶粒度按范围推导（RANGE_BUCKET）：hour 范围 → 10 分钟桶、day → 小时桶、month → 天桶、year → 月桶。
  */
 import type { UsageBucket, UsageDimensionRow, UsageGranularity, UsageRecord, UsageSummary, UsageTotals } from './types';
 
 type MutableTotals = { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; reasoningTokens: number; totalTokens: number };
 
-/** 范围档 → 时间范围窗口（毫秒）：hour=近1h、day=近1天、month=近30天、year=近365天 */
-const GRAN_WINDOW_MS: Record<UsageGranularity, number> = {
-  hour: 3600_000,
-  day: 86_400_000,
-  month: 30 * 86_400_000,
-  year: 365 * 86_400_000,
-};
+/** 日历对齐边界（本地时区，Date 无参构造即本地）：hour=本小时整点、day=今天 0 点、month=本月 1 号、year=今年 1/1 */
+export function rangeCutoffMs(granularity: UsageGranularity, now: Date): number {
+  const y = now.getFullYear(), m = now.getMonth(), d = now.getDate();
+  switch (granularity) {
+    case 'hour':  return new Date(y, m, d, now.getHours()).getTime();
+    case 'day':   return new Date(y, m, d).getTime();
+    case 'month': return new Date(y, m, 1).getTime();
+    case 'year':  return new Date(y, 0, 1).getTime();
+  }
+}
 
 /** 序列分桶粒度（独立类型：'week' 保留兼容 bucketKey/isoWeekKey，范围推导不再产出） */
 export type BucketGran = 'min10' | 'hour' | 'day' | 'week' | 'month';
@@ -94,8 +97,8 @@ export function summarize(
   sources: ScanSourceInfo[],
   generatedAt = new Date().toISOString()
 ): UsageSummary {
-  // 粒度 = 时间范围：只聚合 generatedAt 往前 windowMs 内的记录
-  const cutoff = new Date(generatedAt).getTime() - GRAN_WINDOW_MS[granularity];
+  // 粒度 = 日历对齐范围：只聚合 generatedAt 所在日历边界之后的记录
+  const cutoff = rangeCutoffMs(granularity, new Date(generatedAt));
   const scoped = records.filter((r) => new Date(r.ts).getTime() >= cutoff);
   const grand = emptyTotals();
   const buckets = new Map<string, MutableTotals & { records: number }>();

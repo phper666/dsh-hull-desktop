@@ -13,7 +13,9 @@
   };
   const pct = (v, total) => (total > 0 ? Math.round((v / total) * 100) : 0);
   const GRAN = [['hour', '1小时'], ['day', '1天'], ['month', '1月'], ['year', '1年']];
-  const granRange = (k) => { const g = GRAN.find(([kk]) => kk === k); return g ? `近${g[1]}` : k; };
+  /* 日历对齐范围标签（hour=本小时整点起、day=今天 0 点、month=本月 1 号、year=今年 1/1） */
+  const RANGE_LABELS = { hour: '本小时', day: '今天', month: '本月', year: '今年' };
+  const granRange = (k) => RANGE_LABELS[k] || k;
   const PLATFORM_NAMES = {
     'claude-code': 'Claude Code', codex: 'Codex', dsh: 'dsh', opencode: 'OpenCode', cline: 'Cline', roo: 'Roo Code',
     gemini: 'Gemini CLI', kimi: 'Kimi Code', goose: 'Goose', continue: 'Continue', zed: 'Zed', warp: 'Warp',
@@ -105,7 +107,7 @@
             </svg>
           </div>
           <h2>暂无 Token 用量数据</h2>
-          <p>使用以下任一支持的 AI 编程工具产生会话后，这里会自动统计输入 / 输出 / 缓存 / 推理 token（${GRAN.map(([k, n]) => '近' + n).join(' / ')}）。扫描只读，不会修改各平台目录。</p>
+          <p>使用以下任一支持的 AI 编程工具产生会话后，这里会自动统计输入 / 输出 / 缓存 / 推理 token（${GRAN.map(([k]) => RANGE_LABELS[k]).join(' / ')}）。扫描只读，不会修改各平台目录。</p>
           <div class="tk-src-grid">${srcCards || '<div class="tk-muted">未配置任何扫描源</div>'}</div>
         </div>`;
       return;
