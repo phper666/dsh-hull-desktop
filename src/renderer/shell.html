@@ -209,7 +209,7 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   .bar { width: 280px; height: 8px; border-radius: var(--radius-xs); background: var(--hull-border); margin: 0 auto var(--space-2); overflow: hidden; }
   .bar-fill { height: 100%; width: 0; background: var(--hull-accent); border-radius: var(--radius-xs); transition: width var(--dur-med) ease-out; }
-  .muted { font-size: var(--text-sm); color: var(--hull-text-sub); margin-top: var(--space-4); }
+  p.muted { font-size: var(--text-sm); color: var(--hull-text-sub); margin-top: var(--space-4); }
 
   /* 设置 section：通用/dsh/Hull/诊断（dsh/Hull 升级反馈内联各自区块底部，settings.html 视觉 token 迁移） */
   #settings {
@@ -445,6 +445,18 @@
   }
   @keyframes ui-rise { from { opacity: 0; transform: translateY(4px); } }
   /* 间距特例：1px×2、2px×7、5px×3、6px×8、7px×2、9px×1、10px×14、14px×4、18px×1、22px×1（待归并档位） */
+
+  /* 全局 toast：反色 pill（bg=--hull-text → 深浅主题自动高对比），右下堆叠 */
+  #toast-root { position: fixed; right: 20px; bottom: 20px; z-index: 1000; display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); pointer-events: none; }
+  .toast { display: flex; align-items: center; gap: 8px; pointer-events: auto; max-width: 360px; padding: 8px 14px 8px 11px; border-radius: var(--radius-pill); background: var(--hull-text); color: var(--hull-bg); font-size: var(--text-md); line-height: 1.45; box-shadow: var(--shadow-2); }
+  .toast svg { flex-shrink: 0; width: 15px; height: 15px; }
+  .toast--ok svg { color: var(--hull-success); }
+  .toast--err svg { color: var(--hull-danger); }
+  .toast--out { opacity: 0; transform: translateY(6px); transition: opacity var(--dur-fast) ease-in, transform var(--dur-fast) ease-in; }
+  @media (prefers-reduced-motion: no-preference) {
+    .toast { animation: toast-in var(--dur-med) var(--ease-out); }
+  }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
 </style>
 </head>
 <body data-theme="dark">
@@ -849,16 +861,29 @@
       }
     }
   };
-  let toastTimer = null;
+  // 全局 toast：轻量反色 pill（弃用 wa-alert 大卡样式），右下堆叠 + 进出场
+  // ponytail: 错误判定靠关键词启发（签名 toast(msg) 固定，调用点不可改）；若将来加 toast(msg, type) 参数再收敛
+  const toastRoot = document.createElement('div');
+  toastRoot.id = 'toast-root';
+  toastRoot.setAttribute('aria-live', 'polite');
+  document.body.appendChild(toastRoot);
+  const TOAST_ICONS = {
+    ok: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3.2L13 5"/></svg>',
+    err: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="8" cy="8" r="6.3"/><path d="M8 4.8v3.8" stroke-linecap="round"/><path d="M8 11h.01" stroke-linecap="round" stroke-width="2.2"/></svg>',
+  };
   function toast(msg) {
-    // P1：迁移 wa-alert（Web Awesome）——手写 .toast div 移除；组件自带进出场与 aria-live
-    const t = document.createElement('wa-alert');
-    t.setAttribute('variant', 'brand');
-    t.setAttribute('closable', '');
-    t.style.cssText = 'position:fixed; right:16px; bottom:16px; z-index:100;';
-    t.textContent = msg;
-    document.body.appendChild(t);
-    setTimeout(() => t.remove(), 2100);
+    const isErr = /失败|错误|无法|请先/.test(msg);
+    const t = document.createElement('div');
+    t.className = 'toast ' + (isErr ? 'toast--err' : 'toast--ok');
+    t.setAttribute('role', isErr ? 'alert' : 'status');
+    t.innerHTML = TOAST_ICONS[isErr ? 'err' : 'ok'] + '<span></span>';
+    t.lastElementChild.textContent = msg;
+    toastRoot.appendChild(t);
+    setTimeout(() => {
+      t.classList.add('toast--out');
+      t.addEventListener('transitionend', () => t.remove(), { once: true });
+      setTimeout(() => t.remove(), 400); // reduced-motion 下无 transition，兜底移除
+    }, isErr ? 3000 : 2000);
   }
 
   const sett = {
@@ -1052,28 +1077,34 @@
     let statusHtml;
     let copyBtnVisible = false;
     if (phase === 'ready') {
-      statusHtml = badge('运行中', 'ok') + (runtime.url ? badge(runtime.url.replace(/^https?:\/\//, ''), 'muted') : '');
+      statusHtml = badge('运行中', 'ok') + (runtime.url ? badge(runtime.url.replace(/^https?:\/\//, ''), 'muted') + '<button id="dsh-copy-url" class="sbtn" style="display:none" title="复制 dsh web 地址">复制地址</button>' : '');
       copyBtnVisible = !!runtime.url;
     }
     else if (phase === 'starting') statusHtml = badge('启动中', 'warn');
     else if (phase === 'failed') statusHtml = badge('失败', 'err');
     else if (phase === 'idle') statusHtml = badge('已停止', 'muted');
     else statusHtml = badge(phase || '未知', 'muted');
-    sett.els.dshStatusWrap.innerHTML = statusHtml;
-    // 复制地址按钮：仅 ready 且有地址显示（renderDshUpgrade 每 tick 重建 innerHTML，此按钮在 statusWrap 内需先重建再取引用）
-    const copyBtn = document.getElementById('dsh-copy-url');
-    if (copyBtn) {
-      copyBtn.style.display = copyBtnVisible ? '' : 'none';
-      copyBtn.onclick = async () => {
-        const url = runtime.url;
-        if (!url) return;
-        try {
-          const r = await bridge.copyText(url);
-          toast(r?.ok === false ? (r.message || '复制失败') : '地址已复制，可在浏览器打开');
-        } catch { toast('复制失败'); }
-      };
+    // 内容比对守卫：DOM 未变化时不重写 innerHTML，避免 250ms 轮询销毁重建导致按钮 :hover 丢失闪烁
+    if (sett.els.dshStatusWrap.innerHTML !== statusHtml) {
+      sett.els.dshStatusWrap.innerHTML = statusHtml;
+      // 复制地址按钮：仅 ready 且有地址显示（DOM 未变时上次绑定的 onclick 仍在节点上，无需重绑）
+      const copyBtn = document.getElementById('dsh-copy-url');
+      if (copyBtn) {
+        copyBtn.style.display = copyBtnVisible ? '' : 'none';
+        copyBtn.onclick = async () => {
+          const url = runtime.url;
+          if (!url) return;
+          try {
+            const r = await bridge.copyText(url);
+            toast(r?.ok === false ? (r.message || '复制失败') : '地址已复制，可在浏览器打开');
+          } catch { toast('复制失败'); }
+        };
+      }
     }
-    sett.els.dshVersionWrap.innerHTML = ds.currentVersion ? badge('v' + ds.currentVersion, 'muted') : badge('—', 'muted');
+    const versionHtml = ds.currentVersion ? badge('v' + ds.currentVersion, 'muted') : badge('—', 'muted');
+    if (sett.els.dshVersionWrap.innerHTML !== versionHtml) {
+      sett.els.dshVersionWrap.innerHTML = versionHtml;
+    }
 
     // busy = 升级执行中（installing/swapping/verifying/rollback）；confirm/checking/idle 可点（confirm 幂等刷新确认卡）
     const busy = UPGRADE_EXECUTING.has(upgrade?.phase ?? 'idle') || (sett.state.hull && UPGRADE_EXECUTING.has(sett.state.hull.phase ?? 'idle'));
