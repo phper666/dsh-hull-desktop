@@ -125,12 +125,26 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   });
   // 工作流引擎（顺序步骤：dsh-card 联动看板+执行引擎；通知走系统 Notification）
   // v2：connection-action（凭据 main 侧解密 → Actions 能力层）+ token-budget（tokens 扫描聚合）+ cron 定时调度器
+  // §8.1：通知点击 → 聚焦主窗口并切工作流视图（winMgr 晚于引擎构造，晚绑定引用）
+  let winMgrRef: WindowManager | null = null;
   const workflowStore = new WorkflowStore(userDataPath);
   const workflowEngine = new WorkflowEngine({
     store: workflowStore,
     kanban: kanbanStore,
     exec: execEngine,
-    notify: (title, body) => { try { new Notification({ title, body }).show(); } catch { /* 通知失败不阻塞 */ } },
+    notify: (title, body) => {
+      try {
+        const n = new Notification({ title, body });
+        n.on('click', () => {
+          try {
+            winMgrRef?.show();
+            winMgrRef?.focus();
+            winMgrRef?.showWorkflows();
+          } catch { /* 窗口已销毁等，忽略 */ }
+        });
+        n.show();
+      } catch { /* 通知失败不阻塞 */ }
+    },
     invokeAction: async (connectionId, params) => {
       const conn = connectionsStore.getCredentials(connectionId);
       if (!conn) return { ok: false, message: '连接不存在或已被删除，请重新选择' };
@@ -321,6 +335,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     },
     logger,
   });
+  winMgrRef = winMgr; // §8.1：工作流通知点击跳转的晚绑定引用回填
   // S8' D5：托盘补充入口（聚焦主窗口 + 切视图；设置 → showSettings，检查 dsh → 聚焦主窗口 + 切 settings 视图渲染确认）
   const tray = new TrayController({
     runtime,

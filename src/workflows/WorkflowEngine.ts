@@ -58,12 +58,14 @@ export class WorkflowEngine {
       log: [],
     };
     this.deps.store.saveRun(run);
+    // §8.1：通知标题带工作流名（多工作流通知可区分来源）
+    const notifyTitle = `工作流 · ${def.name}`;
     for (const step of def.steps) {
       const t0 = this.deps.now?.() ?? Date.now();
       let ok = true;
       let message = '';
       try {
-        message = await this.runStep(step);
+        message = await this.runStep(step, notifyTitle);
       } catch (err) {
         ok = false;
         message = (err as Error).message;
@@ -75,6 +77,10 @@ export class WorkflowEngine {
         run.status = 'failed';
         run.finishedAt = new Date().toISOString();
         this.deps.store.saveRun(run);
+        // §8.1：失败自动通知（手动/定时统一）——首条失败 message 截断 120 字
+        try {
+          this.deps.notify(`${notifyTitle}【失败】`, message.length > 120 ? `${message.slice(0, 120)}…` : message);
+        } catch { /* 通知失败不影响运行记录 */ }
         return run;
       }
     }
@@ -84,7 +90,7 @@ export class WorkflowEngine {
     return run;
   }
 
-  private async runStep(step: WorkflowStep): Promise<string> {
+  private async runStep(step: WorkflowStep, notifyTitle: string): Promise<string> {
     switch (step.type) {
       case 'dsh-card': {
         const boardId = step.config.boardId;
@@ -145,15 +151,15 @@ export class WorkflowEngine {
         const { totalTokens } = await this.deps.tokenUsage(period);
         const label = period === 'day' ? '今日' : period === 'month' ? '本月' : '累计';
         if (totalTokens >= threshold) {
+          // §8.1：超限即步骤失败 → run 失败自动通知统一承载（notifyOnExceed 字段保留兼容、不再单独发）
           const msg = `Token 预算超限：${label}用量 ${totalTokens} ≥ 阈值 ${threshold}`;
-          if (step.config.notifyOnExceed === 'true') this.deps.notify('Hull 工作流', msg);
           throw new Error(msg);
         }
         return `Token 预算正常：${label}用量 ${totalTokens} / 阈值 ${threshold}`;
       }
       case 'notification': {
         const message = step.config.message || '工作流通知';
-        this.deps.notify('Hull 工作流', message);
+        this.deps.notify(notifyTitle, message);
         return `已发送通知: ${message}`;
       }
       case 'delay': {
