@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>看板并行依赖图可视化（U-003）— 一次性原型</title>
+<style>
+  /* ============ 令牌（复刻 shell.html --hull-* 设计语言） ============ */
+  :root, body[data-theme="dark"] {
+    --bg:#1e2430; --panel:#171c26; --border:#2a3342;
+    --text:#e8ecf3; --dim:#c3cddb; --muted:#93a0b4; --sub:#7c8aa3; --inverse:#fff;
+    --accent:#2e8bf5; --accent-hover:#3f97fb; --accent-soft:#2e8bf533; --accent-faint:#2e8bf522;
+    --hover:#33405a; --card:#232b3a;
+    --danger:#f85149; --danger-soft:#f8514944; --danger-hover:#f8514966; --danger-faint:#f8514922;
+    --success:#3fb950; --success-soft:#3fb95033; --success-light:#56d364; --success-dim:#3fb95066;
+    --warning:#d29922; --warning-light:#e3b341; --warning-faint:#d2992233;
+    --info:#58a6ff; --info-soft:#58a6ff33; --purple:#a371f7; --purple-soft:#a371f733;
+    --r-sm:6px; --r-md:8px; --r-lg:10px; --r-xl:12px; --r-pill:999px;
+    --sh1:0 1px 2px rgba(0,0,0,.3); --sh2:0 2px 8px rgba(0,0,0,.3);
+    --fast:120ms; --med:200ms; --ease:cubic-bezier(.25,.46,.45,.94);
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  body[data-theme="light"] {
+    --bg:#f5f7fa; --panel:#fff; --border:#d5dbe4;
+    --text:#1a2233; --dim:#4e5a6b; --muted:#6d7a8c; --sub:#8b97a9; --inverse:#fff;
+    --accent:#2e8bf5; --accent-hover:#1f6fd0; --accent-soft:#d3e8fc; --accent-faint:#eef4fd;
+    --hover:#e8edf2; --card:#fff;
+    --danger:#e03131; --danger-soft:#fdeaea; --danger-hover:#f1c0c0; --danger-faint:#fdeaea;
+    --success:#2f9e44; --success-soft:#e6f7ec; --success-light:#4cc26e; --success-dim:#2f9e4466;
+    --warning:#d29922; --warning-light:#f59f00; --warning-faint:#fff3e0;
+    --info:#1a7ae0; --info-soft:#e6f2ff; --purple:#7c3aed; --purple-soft:#ede9fe;
+    --sh1:0 1px 2px rgba(16,24,40,.08); --sh2:0 2px 8px rgba(16,24,40,.10);
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { background:var(--bg); color:var(--text); font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
+
+  /* ============ 页面框架 ============ */
+  .page-head { padding:16px 24px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .page-head h1 { font-size:16px; font-weight:700; letter-spacing:-.2px; }
+  .page-head .tag { font-size:10px; color:var(--info); background:var(--info-soft); padding:1px 8px; border-radius:var(--r-pill); }
+  .page-head .desc { font-size:12px; color:var(--muted); flex-basis:100%; }
+  .spacer { flex:1; }
+  .seg { display:inline-flex; border:1px solid var(--border); border-radius:var(--r-md); overflow:hidden; }
+  .seg button { padding:5px 14px; border:none; background:transparent; color:var(--muted); font-size:12px; cursor:pointer; }
+  .seg button[aria-pressed="true"] { background:var(--accent); color:var(--inverse); }
+  .seg button+button { border-left:1px solid var(--border); }
+
+  .ctrlbar { display:flex; align-items:center; gap:8px; padding:10px 24px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  .btn { padding:6px 14px; border:none; border-radius:var(--r-md); cursor:pointer; font-size:12px; background:var(--border); color:var(--dim); transition:background var(--fast) var(--ease); }
+  .btn:hover { background:var(--hover); }
+  .btn.primary { background:var(--accent); color:var(--inverse); }
+  .btn.primary:hover { background:var(--accent-hover); }
+  .btn[disabled] { opacity:.4; cursor:default; }
+  .tick { font-size:12px; color:var(--muted); font-family:var(--mono); }
+  .tick b { color:var(--text); }
+
+  .legend { display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:11px; color:var(--muted); }
+  .lg { display:inline-flex; align-items:center; gap:5px; padding:2px 8px; border-radius:var(--r-pill); background:var(--card); border:1px solid var(--border); }
+  .lg i { width:8px; height:8px; border-radius:50%; }
+  .lg .st-succeeded i{background:var(--success);} .lg .st-running i{background:var(--accent);animation:pulse 1.2s infinite;}
+  .lg .st-queued i{background:var(--info);opacity:.7;} .lg .st-blocked i{background:var(--sub);}
+  .lg .st-failed i{background:var(--danger);} .lg .st-aborted i{background:var(--danger);opacity:.5;}
+
+  /* ============ Demo 区块 ============ */
+  .demo { padding:20px 24px; border-bottom:1px solid var(--border); }
+  .demo-head { display:flex; align-items:baseline; gap:10px; margin-bottom:6px; flex-wrap:wrap; }
+  .demo-head h2 { font-size:14px; font-weight:700; }
+  .demo-head .rec { font-size:10px; color:var(--success); background:var(--success-soft); padding:1px 8px; border-radius:var(--r-pill); }
+  .demo-head .alt { font-size:10px; color:var(--muted); background:var(--border); padding:1px 8px; border-radius:var(--r-pill); }
+  .demo-head .why { font-size:11px; color:var(--sub); }
+  .demo-body { margin-top:8px; }
+
+  /* ============ 演示 1：执行面板内嵌 ============ */
+  .panel { border:1px solid var(--border); border-radius:var(--r-xl); background:var(--panel); overflow:hidden; box-shadow:var(--sh2); }
+  .panel-head { padding:10px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .panel-head .ph-title { font-size:13px; font-weight:600; }
+  .panel-head .ph-meta { font-size:11px; color:var(--muted); }
+  .pool { margin-left:auto; display:inline-flex; align-items:center; gap:4px; font-size:11px; color:var(--muted); font-family:var(--mono); }
+  .pool .slots { display:inline-flex; gap:3px; }
+  .pool .slot { width:9px; height:9px; border-radius:50%; background:var(--border); border:1px solid var(--sub); }
+  .pool .slot.on { background:var(--accent); border-color:var(--accent-hover); box-shadow:0 0 6px var(--accent-soft); }
+  .pool.full .slot.on { background:var(--warning); border-color:var(--warning-light); box-shadow:0 0 6px var(--warning-faint); }
+  .panel-body { display:flex; align-items:stretch; min-height:240px; }
+  .sub-list { width:250px; min-width:250px; border-right:1px solid var(--border); padding:10px; overflow-y:auto; }
+  .sub-list h4 { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin:0 0 8px; }
+  .sub-item { display:flex; align-items:center; gap:8px; padding:7px 9px; border-radius:var(--r-md); background:var(--card); border:1px solid var(--border); margin-bottom:6px; font-size:12px; transition:border-color var(--fast) var(--ease); }
+  .sub-item .si-id { color:var(--sub); font-family:var(--mono); font-size:10px; width:20px; }
+  .sub-item .si-title { flex:1; color:var(--dim); }
+  .sub-item .st-aborted .si-title { text-decoration:line-through; color:var(--sub); }
+  .st-badge { font-size:10px; border-radius:var(--r-sm); padding:1px 7px; white-space:nowrap; }
+  .st-succeeded .st-badge { background:var(--success-soft); color:var(--success-light); }
+  .st-running .st-badge { background:var(--accent-soft); color:var(--info); }
+  .st-queued .st-badge { background:var(--info-soft); color:var(--info); }
+  .st-blocked .st-badge { background:var(--border); color:var(--muted); }
+  .st-failed .st-badge { background:var(--danger-soft); color:var(--danger); }
+  .st-aborted .st-badge { background:var(--danger-faint); color:var(--danger); text-decoration:line-through; }
+
+  .dag-wrap { flex:1; overflow:auto; position:relative; padding:0; }
+  .dag { position:relative; margin:auto; }
+  .dag svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+  .edge { fill:none; stroke-width:2; stroke:var(--border); transition:stroke var(--fast) var(--ease), stroke-width var(--fast) var(--ease); }
+  .edge.st-success { stroke:var(--success-dim); }
+  .edge.st-active { stroke:var(--accent); stroke-width:2.5; }
+  .edge.st-failed { stroke:var(--danger); }
+  .edge.st-aborted { stroke:var(--danger); stroke-dasharray:5 4; opacity:.55; }
+  .edge.dim { opacity:.12; }
+  .edge.lit { stroke-width:3; opacity:1; }
+  .edge-head { transition:opacity var(--fast) var(--ease); }
+  .dag.dim-others .edge:not(.lit){ opacity:.08; }
+
+  /* ============ 节点卡 ============ */
+  .node { position:absolute; background:var(--card); border:1px solid var(--border); border-radius:var(--r-md); box-shadow:var(--sh1); cursor:default; transition:border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease); overflow:hidden; }
+  .node:hover { border-color:var(--accent); transform:translateY(-1px); box-shadow:var(--sh2); z-index:5; }
+  .node.big { display:flex; flex-direction:column; }
+  .n-top { display:flex; align-items:center; gap:6px; min-width:0; }
+  .n-id { font-family:var(--mono); font-size:10px; color:var(--sub); background:var(--panel); border:1px solid var(--border); border-radius:var(--r-sm); padding:0 5px; }
+  .n-title { flex:1; font-size:12px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .n-bar { position:absolute; left:0; bottom:0; height:2px; background:var(--accent); width:0; border-radius:0 2px 2px 0; transition:width var(--med) var(--ease); }
+  .n-bar.shimmer { background:linear-gradient(90deg, var(--accent) 40%, var(--info) 55%, var(--accent) 70%); background-size:200% 100%; animation:slide 1.4s linear infinite; }
+  @keyframes slide { 0%{background-position:200% 0;} 100%{background-position:-200% 0;} }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.35;} }
+
+  .node.st-running { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent), 0 0 14px var(--accent-soft); }
+  .node.st-succeeded { border-color:var(--success-dim); }
+  .node.st-succeeded .n-bar { background:var(--success); }
+  .node.st-failed { border-color:var(--danger); box-shadow:0 0 0 1px var(--danger), 0 0 14px var(--danger-soft); }
+  .node.st-failed .n-bar { background:var(--danger); }
+  .node.st-aborted { border-color:var(--danger-hover); border-style:dashed; opacity:.6; }
+  .node.st-aborted .n-title { text-decoration:line-through; }
+  .node.st-blocked { border-style:dashed; }
+  .node.st-queued { border-color:var(--info); opacity:.9; }
+
+  /* 紧凑节点（演示 1） */
+  .node.small { width:118px; height:46px; padding:7px 9px; }
+  .node.small .n-title { font-size:11px; }
+  .node.small .n-sub { font-size:10px; color:var(--sub); font-family:var(--mono); }
+
+  /* 大节点（演示 2） */
+  .node.big { width:178px; height:64px; padding:8px 11px; gap:5px; }
+  .node.big .n-title { font-size:12.5px; }
+  .n-meta { display:flex; align-items:center; justify-content:space-between; font-size:10px; color:var(--muted); font-family:var(--mono); }
+  .n-pct { color:var(--info); }
+
+  /* ============ 演示 3：详情入口 + 独立弹框 ============ */
+  /* 440px 详情复刻（.kb-modal-box：440px / 90vw / 82vh / pad 18px） */
+  .modal3-frame { max-height:82vh; overflow-y:auto; padding:2px; } /* 模拟弹窗外层滚动 */
+  .modal3 { width:440px; max-width:90vw; background:var(--panel); border:1px solid var(--border);
+    border-radius:var(--r-xl); padding:18px; box-shadow:var(--sh2); }
+  .m3-title { font-size:17px; font-weight:600; margin-bottom:10px; }
+  .m3-meta { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px; margin-bottom:12px; flex-wrap:wrap; padding-bottom:10px; border-bottom:1px solid var(--card); }
+  .m3-chip { font-size:10px; background:var(--border); color:var(--muted); border-radius:var(--r-sm); padding:1px 7px; white-space:nowrap; }
+  .m3-chip.accent { background:var(--accent-soft); color:var(--info); }
+  .m3-dates { display:flex; gap:14px; font-size:11px; color:var(--muted); margin-bottom:10px; font-family:var(--mono); }
+  .m3-desc { font-size:12px; color:var(--dim); line-height:1.5; padding:9px 12px; background:var(--card); border:1px solid var(--border); border-radius:var(--r-md); margin-bottom:12px; }
+  /* 入口摘要条（一行计数 + 查看按钮，整条可点） */
+  .m3-entry { display:flex; align-items:center; gap:10px; padding:8px 10px; background:var(--card);
+    border:1px solid var(--border); border-radius:var(--r-md); cursor:pointer;
+    transition:border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease); }
+  .m3-entry:hover { border-color:var(--accent); box-shadow:var(--sh1); }
+  .m3-entry .m3-et { font-size:12px; font-weight:600; white-space:nowrap; }
+  .m3-entry .m3-sum { flex:1; min-width:0; color:var(--muted); font-size:10.5px; font-family:var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .m3-sum b { color:var(--warning-light); font-weight:600; }
+  .m3-comment { margin-top:12px; border-top:1px solid var(--card); padding-top:10px; }
+  .m3-comment .m3-cbox { border:1px dashed var(--border); border-radius:var(--r-md); padding:8px 11px; font-size:11px; color:var(--sub); background:var(--card); margin-bottom:8px; }
+  /* 独立大弹框（复刻 .kb-modal 遮罩；框体 ~900px × ~70vh） */
+  .modal-overlay { position:fixed; inset:0; background:var(--hull-overlay, rgba(0,0,0,.55)); display:flex; align-items:center; justify-content:center; z-index:100; }
+  .modal-overlay.hidden { display:none; }
+  .modal3-box { width:900px; max-width:92vw; max-height:72vh; background:var(--panel); border:1px solid var(--border);
+    border-radius:var(--r-xl); box-shadow:var(--sh2); display:flex; flex-direction:column; overflow:hidden; }
+  .modal3-head { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--border); }
+  .modal3-head .mh-t { font-size:14px; font-weight:600; }
+  .modal3-head .pool { margin-left:auto; }
+  .m3-close { background:transparent; border:none; color:var(--muted); cursor:pointer; font-size:16px; padding:2px 6px; border-radius:var(--r-sm); line-height:1; }
+  .m3-close:hover { background:var(--hover); color:var(--text); }
+  .modal3-body { flex:1; min-height:0; }
+  .modal3-body .dag-wrap { height:100%; }
+  .modal3-body .dag-wrap .dag { margin:auto; } /* 居中铺开 */
+  .modal3-foot { padding:9px 16px; border-top:1px solid var(--border); display:flex; gap:6px; flex-wrap:wrap; align-items:center; font-size:11px; color:var(--muted); }
+
+  .floating { position:absolute; top:10px; right:10px; z-index:6; font-size:11px; color:var(--muted); background:var(--panel); border:1px solid var(--border); border-radius:var(--r-md); padding:4px 9px; font-family:var(--mono); }
+  .floating b { color:var(--warning-light); }
+
+  .note { font-size:11px; color:var(--sub); margin-top:8px; }
+  .note code { font-family:var(--mono); background:var(--card); padding:0 5px; border-radius:4px; border:1px solid var(--border); }
+</style>
+</head>
+<body data-theme="dark">
+
+<header class="page-head">
+  <h1>看板并行依赖图可视化 <span class="tag">U-003 · 一次性原型</span></h1>
+  <div class="spacer"></div>
+  <div class="seg" id="themeSeg">
+    <button data-theme="dark" aria-pressed="true">暗色</button>
+    <button data-theme="light" aria-pressed="false">亮色</button>
+  </div>
+  <div class="desc">演示看板并行执行的依赖关系 DAG 可视化。同一份执行状态，三种摆放方式：<b>演示 1</b> 内嵌执行面板（推荐）、<b>演示 2</b> 整版视图（备选）、<b>演示 3</b> 440px 真实尺寸弹窗模拟（尺寸验证）。拓扑分层布局手算（无外部库，兼容 CSP script-src 'self'）。</div>
+</header>
+
+<div class="ctrlbar">
+  <button class="btn primary" id="btnStep">▶ 单步推进</button>
+  <button class="btn" id="btnReset">↺ 重置</button>
+  <button class="btn" id="btnAuto">自动播放</button>
+  <span class="tick" id="tick">第 <b>0</b> 步</span>
+  <div class="spacer"></div>
+  <div class="legend">
+    <span class="lg st-succeeded"><i></i>成功</span>
+    <span class="lg st-running"><i></i>运行中</span>
+    <span class="lg st-queued"><i></i>就绪待跑</span>
+    <span class="lg st-blocked"><i></i>等前驱</span>
+    <span class="lg st-failed"><i></i>失败</span>
+    <span class="lg st-aborted"><i></i>已中止</span>
+  </div>
+</div>
+
+<main>
+
+  <!-- ============ 演示 1：执行面板内嵌（推荐） ============ -->
+  <section class="demo">
+    <div class="demo-head">
+      <h2>演示 1：执行面板内嵌依赖图</h2>
+      <span class="rec">推荐</span>
+      <span class="why">依赖图作为「执行详情面板」的右侧区块——任务列表（左）保持现状，图（右）随点选/展开出现，不占看板主视图空间。</span>
+    </div>
+    <div class="demo-body">
+      <div class="panel">
+        <div class="panel-head">
+          <span class="ph-title">执行详情 · 部署发布任务</span>
+          <span class="ph-meta">10 个子任务 · 并发上限 3</span>
+          <span class="pool" id="pool1"><span class="slots" id="slots1"></span>并行池 <b id="cnt1">0/3</b></span>
+        </div>
+        <div class="panel-body">
+          <div class="sub-list">
+            <h4>子任务列表</h4>
+            <div id="sublist"></div>
+          </div>
+          <div class="dag-wrap" id="wrap1">
+            <div class="floating" id="fl1"></div>
+            <div class="dag" id="dag1"></div>
+          </div>
+        </div>
+      </div>
+      <div class="note">内嵌小图：节点为紧凑芯片（118px），只画 <code>id + 标题 + 状态</code>，运行中带底部进度条。空间不足时横向滚动，鼠标悬停节点高亮其前后依赖边。</div>
+    </div>
+  </section>
+
+  <!-- ============ 演示 2：整版依赖图视图（备选） ============ -->
+  <section class="demo">
+    <div class="demo-head">
+      <h2>演示 2：整版依赖图视图</h2>
+      <span class="alt">备选</span>
+      <span class="why">看板主视图顶部加「依赖图」页签切换，全幅大卡展示依赖全貌 + 并行池水位。</span>
+    </div>
+    <div class="demo-body">
+      <div class="dag-wrap" id="wrap2" style="background:var(--panel); border:1px solid var(--border); border-radius:var(--r-xl); box-shadow:var(--sh2);">
+        <div class="floating" id="fl2"></div>
+        <div class="dag" id="dag2"></div>
+      </div>
+      <div class="note">整版大图：节点为大卡（178px），含 <code>id + 标题 + 状态徽标 + 耗时 + 进度百分比</code>，横向可滚动。右上角常驻并行池水位，池满时转琥珀色——「为什么这个还没跑」一目了然。</div>
+    </div>
+  </section>
+
+  <!-- ============ 演示 3（定稿方向）：详情入口 + 独立弹框 ============ -->
+  <section class="demo">
+    <div class="demo-head">
+      <h2>演示 3（定稿方向）：详情入口 + 独立弹框</h2>
+      <span class="rec">定稿</span>
+      <span class="why">详情弹窗 440px 太小看不全 → 改为「详情内一行摘要入口 + 点击开独立大弹框看全图」。摘要实时计数，弹框放大图（演示 2 形态）。</span>
+    </div>
+    <div class="demo-body">
+      <div class="modal3-frame">
+        <div class="modal3">
+          <div class="m3-title">部署发布任务</div>
+          <div class="m3-meta">
+            <span class="m3-chip accent">执行中</span><span class="m3-chip">发布 · 待审</span><span class="m3-chip">P1</span>
+          </div>
+          <div class="m3-dates"><span>开始 2026-09-02 20:00</span><span>截止 2026-09-02 23:00</span></div>
+          <div class="m3-desc">发布到内网验证环境。子任务并行执行（并发 ≤3），依赖前驱成功后才入池，任一失败即中止后继。</div>
+
+          <!-- 入口：一行摘要 + 查看按钮（整条可点） -->
+          <div class="m3-entry" id="entry3" role="button" tabindex="0" title="点开查看依赖图">
+            <span class="m3-et">依赖图</span>
+            <span class="m3-sum" id="m3sum"></span>
+            <button class="btn primary" id="btnOpen3">查看依赖图 ↗</button>
+          </div>
+
+          <div class="m3-comment">
+            <div class="m3-cbox">评论输入区（占位 · 位于摘要之后）</div>
+          </div>
+        </div>
+      </div>
+      <div class="note">摘要条一行计数实时刷新（依赖 · 池 x/3 · 运行/就绪/等前驱/失败/中止），点「查看依赖图」或整条 → 开独立大弹框。弹框内大图与演示 2 同形态、同一执行状态，单步推进/自动播放两侧同步。</div>
+    </div>
+  </section>
+
+  <!-- 独立依赖图弹框（复刻 .kb-modal 遮罩；~900px × ~72vh） -->
+  <div class="modal-overlay hidden" id="modal3">
+    <div class="modal3-box" role="dialog" aria-modal="true" aria-label="依赖关系图">
+      <div class="modal3-head">
+        <span class="mh-t">依赖关系图</span>
+        <span class="m3-chip">并发 ≤3</span>
+        <span class="pool" id="pool4"><span class="slots" id="slots4"></span>并行池 <b id="cnt4">0/3</b></span>
+        <button class="m3-close" id="btnClose3" aria-label="关闭">✕</button>
+      </div>
+      <div class="modal3-body">
+        <div class="dag-wrap" id="wrap4">
+          <div class="floating" id="fl4"></div>
+          <div class="dag" id="dag4"></div>
+        </div>
+      </div>
+      <div class="modal3-foot">
+        <span>绿成功 · 蓝运行 · 就绪 · 灰等前驱 · 红失败 · 虚线中止</span>
+        <span style="margin-left:auto">ESC 或点遮罩关闭</span>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+/* ================= 任务图定义 =================
+   结构覆盖四种形态：
+   - 并行簇：t1~t4 无依赖直接入池（并发 3，t4 首步就绪但池满 → 排队）
+   - 串联链：t2→t5→t6→t7→t8→t9（以及 t8→t10）
+   - 汇合点：t6 汇聚 t3/t4/t5 三个前驱
+   - 失败分支：t6「集成联调」完成即失败 → fail-fast 中止其后继 t7~t10 */
+const TASKS = [
+  { id:'t1',  title:'环境初始化',   dur:1, deps:[] },
+  { id:'t2',  title:'拉取依赖缓存', dur:1, deps:[] },
+  { id:'t3',  title:'编译核心模块', dur:2, deps:[] },
+  { id:'t4',  title:'生成静态资源', dur:3, deps:[] },
+  { id:'t5',  title:'类型检查',     dur:1, deps:['t2'] },
+  { id:'t6',  title:'集成联调',     dur:3, deps:['t3','t4','t5'], fail:true },
+  { id:'t7',  title:'构建产物',     dur:2, deps:['t6'] },
+  { id:'t8',  title:'打包发布',     dur:1, deps:['t7'] },
+  { id:'t9',  title:'冒烟验证',     dur:2, deps:['t8'] },
+  { id:'t10', title:'生成发布说明', dur:1, deps:['t8'] },
+];
+const CONCURRENCY = 3;
+const byId = Object.fromEntries(TASKS.map(t => [t.id, t]));
+
+const EDGES = [];
+for (const t of TASKS) for (const d of t.deps) EDGES.push({ from:d, to:t.id });
+
+/* 状态机：idle(未达) -> blocked(等前驱) -> queued(就绪) -> running -> succeeded / failed
+   failed 触发后继 aborted（fail-fast） */
+const stName = s => ({ idle:'未开始', blocked:'等前驱', queued:'就绪', running:'运行中', succeeded:'成功', failed:'失败', aborted:'已中止' }[s]);
+
+function freshState(){
+  const st = {};
+  for (const t of TASKS) st[t.id] = { status:'idle', remain:t.dur };
+  return st;
+}
+
+function successorsOf(id){
+  const seen = new Set();
+  const walk = i => { for (const e of EDGES) if (e.from === i && !seen.has(e.to)) { seen.add(e.to); walk(e.to); } };
+  walk(id);
+  return seen;
+}
+
+/* 推进一个调度步：1) running 计时递减 → 完成(成功/失败) 2) 失败 → fail-fast 中止后继
+   3) 前驱全成功 → queued；池有空位 → 入池 running */
+function step(st){
+  const finished = [];
+  for (const t of TASKS){
+    const s = st[t.id];
+    if (s.status === 'running'){
+      s.remain--;
+      if (s.remain <= 0) finished.push(t.id);
+    }
+  }
+  for (const id of finished){
+    const t = byId[id];
+    if (t.fail) { st[id].status = 'failed'; for (const d of successorsOf(id)) if (st[d].status !== 'succeeded') st[d].status = 'aborted'; }
+    else st[id].status = 'succeeded';
+  }
+  /* 收集 ready：前驱全成功（且未中止未失败） */
+  const ready = [];
+  for (const t of TASKS){
+    const s = st[t.id];
+    if (s.status !== 'idle' && s.status !== 'blocked' && s.status !== 'queued') continue;
+    if (s.status === 'aborted' || s.status === 'failed') continue;
+    const ok = t.deps.every(d => st[d].status === 'succeeded');
+    st[t.id].status = ok ? 'queued' : 'blocked';
+    if (ok) ready.push(t.id);
+  }
+  let running = TASKS.filter(t => st[t.id].status === 'running').length;
+  for (const id of ready){
+    if (running >= CONCURRENCY) break;
+    st[id].status = 'running'; running++;
+  }
+  return st;
+}
+
+function done(st){
+  return TASKS.every(t => ['succeeded','failed','aborted'].includes(st[t.id].status));
+}
+
+/* ================= 拓扑分层 + 重心排序（手算布局） ================= */
+function layout(spec){
+  /* 层 = 到任一源的最长路径 */
+  const depth = {};
+  const visit = id => {
+    if (depth[id] !== undefined) return depth[id];
+    const t = byId[id];
+    const d = t.deps.length ? Math.max(...t.deps.map(visit)) + 1 : 0;
+    depth[id] = d;
+    return d;
+  };
+  TASKS.forEach(t => visit(t.id));
+  const layers = [];
+  for (const t of TASKS){ (layers[depth[t.id]] = layers[depth[t.id]] || []).push(t.id); }
+  /* 重心排序：子层按前驱平均列号排序，两轮（源→汇） */
+  const idxIn = {};
+  const colOf = id => idxIn[id] ?? 0;
+  for (const L of layers){
+    L.sort((a,b) => {
+      const A = byId[a].deps.length ? byId[a].deps.reduce((s,d)=>s+colOf(d),0)/byId[a].deps.length : -1;
+      const B = byId[b].deps.length ? byId[b].deps.reduce((s,d)=>s+colOf(d),0)/byId[b].deps.length : -1;
+      return A - B;
+    });
+    L.forEach((id,i)=> idxIn[id]=i);
+  }
+  const { nw, nh, gx, gy, pad } = spec;
+  const pos = {};
+  for (let l=0; l<layers.length; l++){
+    const L = layers[l];
+    const x = pad + l * (nw + gx);
+    const totalH = L.length * nh + (L.length-1) * gy;
+    L.forEach((id,i)=>{
+      pos[id] = { x, y: pad + (totalH - nh)/2 + i*(nh+gy) };
+    });
+  }
+  return { layers, pos, W: pad*2 + layers.length*nw + (layers.length-1)*gx };
+}
+
+/* ================= 渲染 ================= */
+const SPEC = {
+  small: { nw:118, nh:46, gx:36, gy:16, pad:18 },
+  big:   { nw:178, nh:64, gx:64, gy:26, pad:28 },
+};
+
+function badge(s){
+  if (s.status==='succeeded') return '成功';
+  if (s.status==='running') return '运行中';
+  if (s.status==='queued') return '就绪';
+  if (s.status==='blocked') return '等前驱';
+  if (s.status==='failed') return '失败';
+  if (s.status==='aborted') return '已中止';
+  return '—';
+}
+function pct(s, t){ return Math.round((1 - s.remain / t.dur) * 100); }
+
+function render(dagEl, wrapEl, sublistEl, flEl, poolEl, slotsEl, cntEl, st, mode){
+  const spec = SPEC[mode];
+  const { layers, pos, W } = layout(spec);
+  const pad = spec.pad;
+  const nw = spec.nw, nh = spec.nh;
+
+  dagEl.innerHTML = '';
+  const maxNodes = Math.max(...layers.map(L => L.length));
+  const H = pad*2 + maxNodes*nh + (maxNodes-1)*spec.gy;
+  dagEl.style.width = W + 'px';
+  dagEl.style.height = H + 'px';
+
+  /* --- SVG 边 --- */
+  const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  const defs = document.createElementNS('http://www.w3.org/2000/svg','defs');
+  svg.appendChild(defs);
+  const edgeEls = [];
+  for (const e of EDGES){
+    const p = pos[e.from], q = pos[e.to];
+    const x1 = p.x + nw, y1 = p.y + nh/2, x2 = q.x, y2 = q.y + nh/2;
+    const mx = (x1 + x2)/2;
+    const d = `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d', d);
+    /* 状态取色 */
+    const cls = edgeClass(st, e);
+    path.setAttribute('class', 'edge ' + cls);
+    svg.appendChild(path);
+    /* 箭头（三角，随边色） */
+    const head = document.createElementNS('http://www.w3.org/2000/svg','polygon');
+    const color = edgeColor(cls);
+    head.setAttribute('points', `${x2},${y2-4} ${x2-8},${y2} ${x2},${y2+4}`);
+    head.setAttribute('fill', color);
+    head.setAttribute('class', 'edge-head');
+    svg.appendChild(head);
+    edgeEls.push({ e, path, head, cls });
+  }
+  dagEl.appendChild(svg);
+
+  /* --- 节点 --- */
+  const nodeEls = {};
+  for (const t of TASKS){
+    const s = st[t.id];
+    const p = pos[t.id];
+    const el = document.createElement('div');
+    el.className = 'node ' + mode + ' st-' + s.status;
+    el.style.left = p.x + 'px';
+    el.style.top = p.y + 'px';
+    el.dataset.id = t.id;
+
+    const running = s.status === 'running';
+    const bar = running || s.status === 'succeeded' || s.status === 'failed'
+      ? `<div class="n-bar${running ? ' shimmer' : ''}" style="width:${running ? pct(s, t) : 100}%"></div>` : '';
+
+    if (mode === 'small'){
+      el.innerHTML = `<div class="n-top"><span class="n-id">${t.id}</span><span class="n-title" title="${t.title}">${t.title}</span></div>
+                      <div class="n-sub">${badge(s)}${running ? ' · ' + pct(s, t) + '%' : ''}</div>${bar}`;
+    } else {
+      el.innerHTML = `<div class="n-top"><span class="n-id">${t.id}</span><span class="n-title" title="${t.title}">${t.title}</span><span class="st-badge">${badge(s)}</span></div>
+                      <div class="n-meta"><span>耗时 ${t.dur}s</span><span class="n-pct">${running ? pct(s, t)+'%' : ''}</span></div>${bar}`;
+    }
+    el.addEventListener('mouseenter', () => {
+      for (const e of edgeEls){
+        const lit = e.e.from === t.id || e.e.to === t.id;
+        e.path.classList.toggle('lit', lit);
+        e.path.classList.toggle('dim', !lit);
+        e.head.classList.toggle('dim', !lit);
+      }
+    });
+    el.addEventListener('mouseleave', () => {
+      for (const e of edgeEls){ e.path.classList.remove('lit','dim'); e.head.classList.remove('dim'); }
+    });
+    dagEl.appendChild(el);
+    nodeEls[t.id] = el;
+  }
+
+  /* --- 并行池水位（cntEl/poolEl/slotsEl 为 null 时跳过槽位渲染，如迷你模式） --- */
+  const running = TASKS.filter(t => st[t.id].status === 'running').length;
+  if (cntEl && poolEl && slotsEl){
+    cntEl.textContent = running + '/' + CONCURRENCY;
+    poolEl.classList.toggle('full', running >= CONCURRENCY);
+    slotsEl.innerHTML = '';
+    for (let i=0;i<CONCURRENCY;i++){
+      const s = document.createElement('span');
+      s.className = 'slot' + (i < running ? ' on' : '');
+      slotsEl.appendChild(s);
+    }
+  }
+  const blocked = TASKS.filter(t => st[t.id].status === 'blocked').length;
+  const queued  = TASKS.filter(t => st[t.id].status === 'queued').length;
+  flEl.innerHTML = running >= CONCURRENCY
+    ? `<b>池满 ${running}/${CONCURRENCY}</b>` + (queued > 0 ? ` · ${queued} 个就绪排队` : '')
+    : (running + '/' + CONCURRENCY + ' 运行 · ' + blocked + ' 等前驱 · ' + queued + ' 就绪');
+
+  /* --- 列表（仅演示 1） --- */
+  if (sublistEl){
+    sublistEl.innerHTML = TASKS.map(t => {
+      const s = st[t.id];
+      const wait = s.status === 'blocked'
+        ? ' 等 ' + t.deps.filter(d => st[d].status !== 'succeeded').map(d=>d).join(',') : '';
+      return `<div class="sub-item st-${s.status}"><span class="si-id">${t.id}</span><span class="si-title">${t.title}${wait}</span><span class="st-badge">${badge(s)}</span></div>`;
+    }).join('');
+  }
+}
+
+function edgeClass(st, e){
+  const a = st[e.from].status, b = st[e.to].status;
+  if (b === 'aborted') return 'st-aborted';
+  if (a === 'failed') return 'st-failed';
+  if (a === 'running' || b === 'running' || a === 'succeeded') return 'st-active';
+  return '';
+}
+function edgeColor(cls){
+  const c = { 'st-aborted':'#f85149', 'st-failed':'#f85149', 'st-active':'#2e8bf5' }[cls];
+  return c || getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#2a3342';
+}
+
+/* ================= 驱动 ================= */
+let state = freshState();
+let tick = 0;
+let autoTimer = null;
+
+function renderAll(){
+  render(document.getElementById('dag1'), null, document.getElementById('sublist'),
+    document.getElementById('fl1'), document.getElementById('pool1'),
+    document.getElementById('slots1'), document.getElementById('cnt1'), state, 'small');
+  render(document.getElementById('dag2'), null, null,
+    document.getElementById('fl2'), document.getElementById('pool2'),
+    document.getElementById('slots2'), document.getElementById('cnt2'), state, 'big');
+  render(document.getElementById('dag4'), null, null,
+    document.getElementById('fl4'), document.getElementById('pool4'),
+    document.getElementById('slots4'), document.getElementById('cnt4'), state, 'big');
+  /* 入口摘要条：依赖数 · 池水位 · 运行/就绪/等前驱/失败/中止（弹框大图同一数据源） */
+  const c = { running:0, queued:0, blocked:0, failed:0, aborted:0 };
+  for (const t of TASKS) c[state[t.id].status] = (c[state[t.id].status] || 0) + 1;
+  const run = c.running;
+  const poolTxt = run >= CONCURRENCY
+    ? `<b>池满 ${run}/${CONCURRENCY}</b>`
+    : `池 ${run}/${CONCURRENCY}`;
+  document.getElementById('m3sum').innerHTML =
+    `${EDGES.length} 依赖 · ${poolTxt} · 运行 ${c.running} · 就绪 ${c.queued} · 等前驱 ${c.blocked} · 失败 ${c.failed} · 中止 ${c.aborted}`;
+  document.getElementById('tick').innerHTML = `第 <b>${tick}</b> 步`;
+  const fin = done(state);
+  document.getElementById('btnStep').disabled = fin;
+  if (fin){ stopAuto(); document.getElementById('btnAuto').textContent = '自动播放'; }
+}
+
+function doStep(){
+  if (done(state)) return;
+  step(state); tick++;
+  renderAll();
+}
+
+function doReset(){
+  state = freshState(); tick = 0;
+  stopAuto(); document.getElementById('btnAuto').textContent = '自动播放';
+  renderAll();
+}
+
+function stopAuto(){ if (autoTimer){ clearInterval(autoTimer); autoTimer = null; } }
+
+document.getElementById('btnStep').addEventListener('click', doStep);
+document.getElementById('btnReset').addEventListener('click', doReset);
+document.getElementById('btnAuto').addEventListener('click', function(){
+  if (autoTimer){ stopAuto(); this.textContent = '自动播放'; }
+  else { autoTimer = setInterval(doStep, 700); this.textContent = '⏸ 暂停'; }
+});
+
+/* 演示 3：入口开弹框（按钮 / 整条摘要 / Enter） */
+const modal3El = document.getElementById('modal3');
+function openModal3(){ modal3El.classList.remove('hidden'); }
+function closeModal3(){ modal3El.classList.add('hidden'); }
+document.getElementById('btnOpen3').addEventListener('click', e => { e.stopPropagation(); openModal3(); });
+document.getElementById('entry3').addEventListener('click', openModal3);
+document.getElementById('entry3').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openModal3(); } });
+document.getElementById('btnClose3').addEventListener('click', closeModal3);
+modal3El.addEventListener('click', e => { if (e.target === modal3El) closeModal3(); }); /* 点遮罩 */
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !modal3El.classList.contains('hidden')) closeModal3(); });
+
+/* 主题切换 */
+document.getElementById('themeSeg').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-theme]');
+  if (!btn) return;
+  document.body.setAttribute('data-theme', btn.dataset.theme);
+  document.querySelectorAll('#themeSeg button').forEach(b => b.setAttribute('aria-pressed', b === btn));
+});
+
+renderAll();
+</script>
+</body>
+</html>
