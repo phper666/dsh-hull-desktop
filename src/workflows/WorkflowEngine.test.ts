@@ -100,7 +100,7 @@ async function runSuccessChain(engine: WorkflowEngine, store: WorkflowStore, dir
   const run = await engine.run(w.id);
   equal(run.status, 'success');
   equal(run.log.length, 3);
-  ok(calls.includes('notify:Hull 工作流:开始收尾'));
+  ok(calls.includes('notify:工作流 · 提醒链:开始收尾'));
   const runs = store.runs(w.id);
   equal(runs.length, 1);
   equal(runs[0].status, 'success');
@@ -215,12 +215,12 @@ test('token-budget：未超限通过 / 超限 fail+notify / 阈值非法报错 /
   equal(r2.status, 'failed');
   ok(r2.log[0].message.includes('900'));
   ok(r2.log[0].message.includes('500'));
-  ok(calls.some((c) => c.startsWith('notify:Hull 工作流:')), '超限时发系统通知');
+  // §8.1：超限 = 步骤失败 = run 失败 = 失败自动通知统一承载（notifyOnExceed 被取代，置不置都发）
+  ok(calls.some((c) => c.startsWith('notify:工作流 · 超限告警【失败】:')), '超限经失败自动通知，标题带工作流名+【失败】');
 
-  const w3 = store.save({ name: '超限不通知', steps: [{ id: 's1', type: 'token-budget', config: { period: 'day', thresholdTokens: '500' } }] });
-  const before = calls.filter((c) => c.startsWith('notify:')).length;
+  const w3 = store.save({ name: '超限告警B', steps: [{ id: 's1', type: 'token-budget', config: { period: 'day', thresholdTokens: '500' } }] });
   await engine.run(w3.id);
-  equal(calls.filter((c) => c.startsWith('notify:')).length, before, '未开 notifyOnExceed 不发通知');
+  ok(calls.some((c) => c.startsWith('notify:工作流 · 超限告警B【失败】:')), '未置 notifyOnExceed 也发（语义已被失败自动通知取代）');
 
   const w4 = store.save({ name: '阈值非法', steps: [{ id: 's1', type: 'token-budget', config: { period: 'day', thresholdTokens: 'abc' } }] });
   const r4 = await engine.run(w4.id);
@@ -232,4 +232,38 @@ test('token-budget：未超限通过 / 超限 fail+notify / 阈值非法报错 /
   const r5 = await bareEngine.run(w5.id);
   equal(r5.status, 'failed');
   ok(r5.log[0].message.includes('未装配'));
+});
+
+// ── §8.1：失败自动通知 ──
+
+test('失败自动通知：run 失败 → title 带工作流名【失败】+ 首条错误；成功 run 无【失败】通知', async () => {
+  const { engine, store, calls } = makeEnv();
+  const ok1 = store.save({ name: '全成功', steps: [{ id: 's1', type: 'notification', config: { message: '完成' } }] });
+  await engine.run(ok1.id);
+  equal(calls.filter((c) => c.includes('【失败】')).length, 0, '成功 run 不发失败通知');
+
+  const w1 = store.save({
+    name: '夜巡',
+    steps: [
+      { id: 's1', type: 'notification', config: { message: '开始' } },
+      { id: 's2', type: 'http', config: { url: 'ftp://bad' } },
+    ],
+  });
+  await engine.run(w1.id);
+  const failNotifies = calls.filter((c) => c.startsWith('notify:工作流 · 夜巡【失败】:'));
+  equal(failNotifies.length, 1, '失败发一次自动通知');
+  ok(failNotifies[0].includes('http'), 'body 含首条失败 message');
+  // 步骤通知仍带工作流名（§8.1 标注语义）
+  ok(calls.includes('notify:工作流 · 夜巡:开始'));
+});
+
+test('失败自动通知：长 message 截断 120 字', async () => {
+  const { engine: e2, store: s2, calls: calls2 } = makeEnv({
+    invokeAction: async () => ({ ok: false, message: 'x'.repeat(200) }),
+  });
+  const w2 = s2.save({ name: '长错误B', steps: [{ id: 's1', type: 'connection-action', config: { connectionId: 'c', params: '{}' } }] });
+  await e2.run(w2.id);
+  const n = calls2.filter((c) => c.startsWith('notify:工作流 · 长错误B【失败】:'))[0];
+  const body = n.split(':').slice(2).join(':');
+  ok(body.length <= 121, `body 截断至 ≤120 字，实际 ${body.length}`);
 });
