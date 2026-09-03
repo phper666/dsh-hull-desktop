@@ -3,6 +3,13 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-09-03 通知中心入口移入主导航组（视觉归位）
+
+- 类型：视觉/交互调整（判级简单，用户反馈悬空铃铛奇怪；无规则变化）
+- 内容：铃铛从 nav 状态区上方移入主导航组（工作流/设置之间），与 Skills/Token/连接/工作流同级；角标随项；cold-start navOrder 断言同步（7→8 项）
+- 核验：notifs + cold-start e2e 绿 + 实机截图比对
+- commits：随 main 直推
+
 ## 2026-09-03 工作流 token-budget 适配 Token 视图 v2 五档语义（PR #8 集成修复）
 
 - 类型：集成修复（并行需求 PR #8 重设计 UsageGranularity 'all'→'total'，工作流装配层旧枚举致 main typecheck 断；无共识规则变化）
