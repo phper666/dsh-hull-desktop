@@ -99,6 +99,7 @@
         await window.workflows.delete(b.dataset.del);
         await renderList();
       });
+    void window.__workflowsRefreshBadge?.();
   }
 
   function runHtml(r) {
@@ -286,7 +287,7 @@
           <option value="all" ${s.config.period === 'all' ? 'selected' : ''}>全部累计</option>
         </select></div>
         <div class="wf-f"><label>阈值 totalTokens *</label><input class="input" data-cfg="thresholdTokens" value="${v('thresholdTokens')}" placeholder="如 500000"></div>
-        <div class="wf-f"><label>超限时系统通知</label><button type="button" class="cn-switch" data-cfg="notifyOnExceed" role="switch" aria-checked="${s.config.notifyOnExceed === 'true'}"></button><div class="wf-hint">超限 = 本步骤失败并中止工作流（运行记录可见）</div></div>`;
+        <div class="wf-hint">超限 = 工作流失败并发送系统通知（自动，无需配置）</div>`;
     }
     if (s.type === 'notification') {
       return `<div class="wf-f"><label>通知内容 *</label><input class="input" data-cfg="message" value="${v('message')}" placeholder="工作流通知文案"></div>`;
@@ -297,7 +298,108 @@
     return '';
   }
 
+  /* ── §8.2 通知中心：角标（未读失败数）+ overlay 面板 ── */
+  const LS_NOTIF_TS = 'workflows:notifLastReadTs';
+  const bell = document.getElementById('wf-bell');
+  const badge = document.getElementById('wf-bell-badge');
+  let notifPanel = null;
+
+  const lastReadTs = () => Number(localStorage.getItem(LS_NOTIF_TS) || 0);
+  const fmtRel = (iso) => {
+    const t = new Date(iso).getTime();
+    const diff = Date.now() - t;
+    if (diff < 60_000) return '刚刚';
+    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+    return new Date(iso).toLocaleString('zh-CN', { hour12: false });
+  };
+
+  async function refreshNotifBadge() {
+    if (!badge) return;
+    try {
+      const rr = await window.workflows.runs();
+      if (!rr.ok) return;
+      const fails = (rr.data || []).filter((r) => r.status === 'failed' && new Date(r.startedAt).getTime() > lastReadTs()).length;
+      badge.hidden = fails === 0;
+      badge.textContent = fails > 99 ? '99+' : String(fails);
+    } catch { /* 桥未就绪等，忽略 */ }
+  }
+
+  function runRowHtml(r) {
+    const fail = r.status === 'failed';
+    const msg = fail ? (r.log.find((l) => !l.ok) || {}).message || '' : (r.log[r.log.length - 1] || {}).message || '';
+    const dot = r.status === 'success' ? 'ok' : r.status === 'failed' ? 'err' : 'run';
+    return `<div class="wf-notif-row" data-run="${esc(r.id)}" data-wf="${esc(r.workflowId)}">
+      <span class="dot ${dot}"></span>
+      <div class="body">
+        <div class="line1"><b>${esc(r.workflowName)}</b>${r.trigger === 'cron' ? '<span class="wf-badge cron">定时</span>' : ''}<span class="wf-badge ${r.status}">${r.status === 'success' ? '成功' : r.status === 'failed' ? '失败' : '运行中'}</span><span class="time">${esc(fmtRel(r.startedAt))}</span></div>
+        <div class="msg ${fail ? 'err' : ''}">${esc(msg.length > 90 ? `${msg.slice(0, 90)}…` : msg)}</div>
+      </div></div>`;
+  }
+
+  async function openNotifPanel() {
+    if (notifPanel) { closeNotifPanel(); return; }
+    notifPanel = document.createElement('div');
+    notifPanel.id = 'wf-notif-panel';
+    notifPanel.innerHTML = `<div class="wf-notif-head"><b>工作流通知</b>
+        <div class="chips"><button class="chip active" data-filter="all">全部</button><button class="chip" data-filter="failed">仅失败</button></div></div>
+      <div class="wf-notif-list"><div class="wf-hint" style="padding:12px">加载中…</div></div>`;
+    document.body.appendChild(notifPanel);
+    let filter = 'all';
+    const renderRows = async () => {
+      const rr = await window.workflows.runs();
+      const runs = rr.ok ? rr.data || [] : [];
+      const rows = runs.filter((r) => filter === 'all' || r.status === 'failed');
+      notifPanel.querySelector('.wf-notif-list').innerHTML = rows.length
+        ? rows.map(runRowHtml).join('')
+        : '<div class="wf-hint" style="padding:12px">暂无运行记录</div>';
+    };
+    notifPanel.querySelector('.wf-notif-list').addEventListener('click', (e) => {
+      const row = e.target.closest('.wf-notif-row');
+      if (!row) return;
+      closeNotifPanel();
+      if (window.hull) void window.hull.showWorkflows();
+      setActiveNavWorkflows();
+      void renderList();
+    });
+    notifPanel.querySelectorAll('.chip').forEach((c) =>
+      c.addEventListener('click', () => {
+        filter = c.dataset.filter;
+        notifPanel.querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === c));
+        void renderRows();
+      })
+    );
+    setTimeout(() => {
+      const onDocClick = (e) => {
+        if (notifPanel && !notifPanel.contains(e.target) && e.target !== bell && !bell.contains(e.target)) closeNotifPanel();
+      };
+      document.addEventListener('click', onDocClick);
+      notifPanel._onDocClick = onDocClick;
+    }, 0);
+    // 打开即清角标（未读语义 = 失败，且只清到当前时刻）
+    localStorage.setItem(LS_NOTIF_TS, String(Date.now()));
+    await refreshNotifBadge();
+    await renderRows();
+  }
+
+  function closeNotifPanel() {
+    if (!notifPanel) return;
+    if (notifPanel._onDocClick) document.removeEventListener('click', notifPanel._onDocClick);
+    notifPanel.remove();
+    notifPanel = null;
+  }
+
+  function setActiveNavWorkflows() {
+    document.querySelectorAll('#nav-items .nav-item.active').forEach((x) => x.classList.remove('active'));
+    document.getElementById('nav-workflows')?.classList.add('active');
+  }
+
+  if (bell) bell.addEventListener('click', () => void openNotifPanel());
+
   // 初始：编辑器/列表由外部触发（进入视图即刷新）
   renderList();
   window.__workflowsRefresh = renderList;
+  void refreshNotifBadge();
+  window.__workflowsRefreshBadge = refreshNotifBadge;
+  setInterval(() => void refreshNotifBadge(), 60_000); // §8.2：60s 轻轮询补漏（实时性由系统通知承担）
 })();
