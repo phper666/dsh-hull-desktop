@@ -209,7 +209,7 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   .bar { width: 280px; height: 8px; border-radius: var(--radius-xs); background: var(--hull-border); margin: 0 auto var(--space-2); overflow: hidden; }
   .bar-fill { height: 100%; width: 0; background: var(--hull-accent); border-radius: var(--radius-xs); transition: width var(--dur-med) ease-out; }
-  .muted { font-size: var(--text-sm); color: var(--hull-text-sub); margin-top: var(--space-4); }
+  p.muted { font-size: var(--text-sm); color: var(--hull-text-sub); margin-top: var(--space-4); }
 
   /* 设置 section：通用/dsh/Hull/诊断（dsh/Hull 升级反馈内联各自区块底部，settings.html 视觉 token 迁移） */
   #settings {
@@ -1052,28 +1052,34 @@
     let statusHtml;
     let copyBtnVisible = false;
     if (phase === 'ready') {
-      statusHtml = badge('运行中', 'ok') + (runtime.url ? badge(runtime.url.replace(/^https?:\/\//, ''), 'muted') : '');
+      statusHtml = badge('运行中', 'ok') + (runtime.url ? badge(runtime.url.replace(/^https?:\/\//, ''), 'muted') + '<button id="dsh-copy-url" class="sbtn" style="display:none" title="复制 dsh web 地址">复制地址</button>' : '');
       copyBtnVisible = !!runtime.url;
     }
     else if (phase === 'starting') statusHtml = badge('启动中', 'warn');
     else if (phase === 'failed') statusHtml = badge('失败', 'err');
     else if (phase === 'idle') statusHtml = badge('已停止', 'muted');
     else statusHtml = badge(phase || '未知', 'muted');
-    sett.els.dshStatusWrap.innerHTML = statusHtml;
-    // 复制地址按钮：仅 ready 且有地址显示（renderDshUpgrade 每 tick 重建 innerHTML，此按钮在 statusWrap 内需先重建再取引用）
-    const copyBtn = document.getElementById('dsh-copy-url');
-    if (copyBtn) {
-      copyBtn.style.display = copyBtnVisible ? '' : 'none';
-      copyBtn.onclick = async () => {
-        const url = runtime.url;
-        if (!url) return;
-        try {
-          const r = await bridge.copyText(url);
-          toast(r?.ok === false ? (r.message || '复制失败') : '地址已复制，可在浏览器打开');
-        } catch { toast('复制失败'); }
-      };
+    // 内容比对守卫：DOM 未变化时不重写 innerHTML，避免 250ms 轮询销毁重建导致按钮 :hover 丢失闪烁
+    if (sett.els.dshStatusWrap.innerHTML !== statusHtml) {
+      sett.els.dshStatusWrap.innerHTML = statusHtml;
+      // 复制地址按钮：仅 ready 且有地址显示（DOM 未变时上次绑定的 onclick 仍在节点上，无需重绑）
+      const copyBtn = document.getElementById('dsh-copy-url');
+      if (copyBtn) {
+        copyBtn.style.display = copyBtnVisible ? '' : 'none';
+        copyBtn.onclick = async () => {
+          const url = runtime.url;
+          if (!url) return;
+          try {
+            const r = await bridge.copyText(url);
+            toast(r?.ok === false ? (r.message || '复制失败') : '地址已复制，可在浏览器打开');
+          } catch { toast('复制失败'); }
+        };
+      }
     }
-    sett.els.dshVersionWrap.innerHTML = ds.currentVersion ? badge('v' + ds.currentVersion, 'muted') : badge('—', 'muted');
+    const versionHtml = ds.currentVersion ? badge('v' + ds.currentVersion, 'muted') : badge('—', 'muted');
+    if (sett.els.dshVersionWrap.innerHTML !== versionHtml) {
+      sett.els.dshVersionWrap.innerHTML = versionHtml;
+    }
 
     // busy = 升级执行中（installing/swapping/verifying/rollback）；confirm/checking/idle 可点（confirm 幂等刷新确认卡）
     const busy = UPGRADE_EXECUTING.has(upgrade?.phase ?? 'idle') || (sett.state.hull && UPGRADE_EXECUTING.has(sett.state.hull.phase ?? 'idle'));
