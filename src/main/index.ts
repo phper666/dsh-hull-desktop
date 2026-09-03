@@ -16,6 +16,7 @@ import { createPkgMgrRunner, toRunNpmInstall, type PkgMgrRunOptions, type PkgMgr
 import { Updater } from '../updater/Updater';
 import { registerTokenUsageIpc } from '../tokens/TokenUsageIpc';
 import { registerConnectionsIpc } from '../connections/ConnectionsIpc';
+import { shouldSystemPush } from '../notifications/prefs';
 import { registerNotifsIpc } from '../notifications/NotifsIpc';
 import { NotificationService } from '../notifications/NotificationService';
 import type { NotifRow } from '../notifications/types';
@@ -140,6 +141,8 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   notifService.migrateFromWorkflowRuns();
   const notifSystemChannel = (row: NotifRow): void => {
     try {
+      // V2b：按源开关 + 免打扰时段（每次推送动态读设置，改动即时生效）；不推不等于不入中心
+      if (!shouldSystemPush(row.source, settings.getSettings().notifPrefs)) return;
       const n = new Notification({ title: row.title, body: row.body });
       n.on('click', () => {
         try {

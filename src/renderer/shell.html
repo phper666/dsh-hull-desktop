@@ -231,6 +231,8 @@
   .srow .label { font-size: var(--text-md); font-weight: 500; color: var(--hull-text); }
   .srow .sub { font-size: var(--text-sm); color: var(--hull-text-dim); margin-top: 2px; }
   .srow .control { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); min-width: 180px; }
+  .dnd-times { display: flex; align-items: center; gap: 6px; }
+  .dnd-times input[type="time"] { border: 1px solid var(--hull-border); border-radius: var(--radius-sm); padding: 4px 6px; font-size: var(--text-sm); color: var(--hull-text); background: var(--hull-bg); }
   /* ── 壳级共享基类（P1-e：六页按钮/输入/徽标/switch/弹窗收敛于此，值取既有页面定义，零观感变化）──
      页面 css 删重复定义只留上下文覆盖；本块位于 <style> 后段，同特异性靠后覆盖页面旧值。
      修饰符组合（.cn-btn primary / .wf-btn primary / .sbtn primary 等）必须在修饰符列表显式列出，
@@ -595,6 +597,38 @@
           </div>
         </section>
 
+        <section class="scard" aria-labelledby="sec-notif">
+          <h2 id="sec-notif">通知</h2>
+          <div class="srow">
+            <div class="info">
+              <div class="label">工作流失败系统通知</div>
+              <div class="sub">关闭后失败仅进入通知中心，不弹系统通知</div>
+            </div>
+            <button id="notifPushWorkflow" class="switch" role="switch" aria-checked="true" aria-label="工作流失败系统通知"><span class="sr-only">工作流失败系统通知</span></button>
+          </div>
+          <div class="srow">
+            <div class="info">
+              <div class="label">看板执行失败系统通知</div>
+              <div class="sub">关闭后失败仅进入通知中心，不弹系统通知</div>
+            </div>
+            <button id="notifPushBoardExec" class="switch" role="switch" aria-checked="true" aria-label="看板执行失败系统通知"><span class="sr-only">看板执行失败系统通知</span></button>
+          </div>
+          <div class="srow">
+            <div class="info">
+              <div class="label">免打扰时段</div>
+              <div class="sub">时段内失败仅进入通知中心，不弹系统通知（支持跨零点）</div>
+            </div>
+            <div class="control">
+              <button id="notifDnd" class="switch" role="switch" aria-checked="false" aria-label="免打扰时段"><span class="sr-only">免打扰时段</span></button>
+              <div class="dnd-times" id="notifDndTimes">
+                <input id="notifDndFrom" type="time" value="22:00" aria-label="免打扰开始" />
+                <span>→</span>
+                <input id="notifDndTo" type="time" value="08:00" aria-label="免打扰结束" />
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section class="scard" aria-labelledby="sec-dsh">
           <h2 id="sec-dsh">dsh 运行时</h2>
           <div class="srow">
@@ -839,6 +873,8 @@
     versionList: 'version-list', channelError: 'channel-error', checkDsh: 'check-dsh', rollbackDsh: 'rollback-dsh',
     dshHint: 'dsh-hint', dshAlert: 'dsh-alert', hullVersionWrap: 'hull-version-wrap', checkHull: 'check-hull',
     autoCheckHull: 'autoCheckHull', hullAlert: 'hull-alert', openLogs: 'open-logs-dir', openDataDir: 'open-data-dir',
+    notifPushWorkflow: 'notifPushWorkflow', notifPushBoardExec: 'notifPushBoardExec',
+    notifDnd: 'notifDnd', notifDndFrom: 'notifDndFrom', notifDndTo: 'notifDndTo', notifDndTimes: 'notifDndTimes',
   };
   for (const k of Object.keys(SETT_IDS)) {
     sett.els[k] = document.getElementById(SETT_IDS[k]);
@@ -922,6 +958,38 @@
   bindSwitch(sett.els.autoCheckDsh, 'autoCheckDsh', null);
   bindSwitch(sett.els.autoCheckHull, 'autoCheckHull', null);
 
+  // ── V2b 通知偏好（notifPrefs 子字段 patch；每次以当前完整子对象提交） ──
+  function notifPatch(sub) {
+    const cur = (sett.state.settings && sett.state.settings.notifPrefs) || {};
+    return { notifPrefs: { ...cur, ...sub } };
+  }
+  function bindNotifSwitch(el, subkey) {
+    el.addEventListener('click', async () => {
+      const cur = (sett.state.settings && sett.state.settings.notifPrefs) || {};
+      const next = !(cur[subkey] !== false);
+      const ok = await setSetting(notifPatch({ [subkey]: next }), null);
+      if (ok) el.setAttribute('aria-checked', String(next));
+    });
+  }
+  bindNotifSwitch(sett.els.notifPushWorkflow, 'systemPushWorkflow');
+  bindNotifSwitch(sett.els.notifPushBoardExec, 'systemPushBoardExec');
+  bindNotifSwitch(sett.els.notifDnd, 'dndEnabled');
+  for (const [el, subkey] of [[sett.els.notifDndFrom, 'dndFrom'], [sett.els.notifDndTo, 'dndTo']]) {
+    el.addEventListener('change', async () => {
+      if (!el.value) return;
+      await setSetting(notifPatch({ [subkey]: el.value }), null);
+    });
+  }
+  function renderNotifPrefs(p) {
+    if (!p) return;
+    sett.els.notifPushWorkflow.setAttribute('aria-checked', String(p.systemPushWorkflow !== false));
+    sett.els.notifPushBoardExec.setAttribute('aria-checked', String(p.systemPushBoardExec !== false));
+    sett.els.notifDnd.setAttribute('aria-checked', String(p.dndEnabled === true));
+    if (sett.els.notifDndFrom.value !== p.dndFrom) sett.els.notifDndFrom.value = p.dndFrom;
+    if (sett.els.notifDndTo.value !== p.dndTo) sett.els.notifDndTo.value = p.dndTo;
+    sett.els.notifDndTimes.style.opacity = p.dndEnabled === true ? '1' : '0.45';
+  }
+
   sett.els.registry.addEventListener('focus', () => { sett.state.editing.registry = true; });
   sett.els.registry.addEventListener('blur', async () => {
     sett.state.editing.registry = false;
@@ -968,6 +1036,7 @@
     sett.els.autoCheckHull.setAttribute('aria-checked', String(s.autoCheckHull));
     setTheme(s.theme);
     renderPkgMgrButtons(s.packageManager);
+    renderNotifPrefs(s.notifPrefs);
     if (!sett.state.editing.pinned) {
       sett.els.channel.value = s.channel;
       sett.els.pinnedVersion.value = s.pinnedVersion || '';
