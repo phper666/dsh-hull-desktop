@@ -1,6 +1,7 @@
 # U3 依赖图可视化（kanban-depgraph）实现记录
 
 > ticket t100108 · 分支 feature/kanban-depgraph（worktree） · 设计 docs/design/U3-依赖图可视化-kanban-depgraph-design.md · 原型演示 3 定稿方向
+> **交付核验：✅ 通过（用户五轮迭代验收，2026-09-02）**——五轮反馈（视觉保真/高度/id 语义/子任务列表/画布利用率/亮色对比/交互缩放/全屏/自定义倍率）全部修复闭环，ticket 已 Done。
 
 ## 判级
 
