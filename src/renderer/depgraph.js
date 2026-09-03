@@ -20,8 +20,8 @@
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const statusName = (s) => STATUS_NAMES[s] || s;
 
-  // 布局参数（调用侧可调；core.layout 第三参 opts 覆盖默认 178×48 → 178×56，标题两行 + 徽标 + 元信息）
-  const LAYOUT = { layerGap: 220, nodeW: 178, nodeH: 56, nodeGapY: 30, pad: 28 };
+  // 布局参数（调用侧可调；core.layout 第三参 opts）：层距/同层间隙/画布 padding 加大防重叠与边缘裁剪
+  const LAYOUT = { layerGap: 260, nodeW: 190, nodeH: 60, nodeGapY: 44, pad: 40 };
 
   let state = null; // { task, subtasks } —— kanban 推入的最新数据
   let wrap = null;  // 弹框 DOM（isConnected 判断开/关）
@@ -127,10 +127,11 @@
 
     const canvas = wrap.querySelector('#dg-canvas');
     const scaleEl = wrap.querySelector('#dg-scale');
-    /* 等比缩放适配视口：层级少时一屏全收；图过大（s<0.5）不缩放保可读，交滚动 */
+    /* 等比缩放适配视口：允许放大撑满（上限 1.6 保可读）；图过大（s<0.5）不缩放交滚动 */
     const vp = wrap.querySelector('#dg-vp');
     const vpW = vp.clientWidth || 880, vpH = vp.clientHeight || 480;
-    let s = Math.min(1, vpW / res.W, vpH / res.H);
+    let s = Math.min(vpW / res.W, vpH / res.H);
+    if (s > 1.6) s = 1.6;
     if (s < 0.5) s = 1;
     canvas.style.width = (res.W * s) + 'px';
     canvas.style.height = (res.H * s) + 'px';

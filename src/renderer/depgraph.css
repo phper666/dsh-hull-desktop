@@ -28,8 +28,8 @@
   border: 1px solid var(--hull-border); border-radius: var(--radius-xl); box-shadow: var(--shadow-2);
   display: flex; flex-direction: column; overflow: hidden;
 }
-.dg-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--hull-border); }
-.dg-title { font-size: 14px; font-weight: 600; }
+.dg-head { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--hull-border); }
+.dg-title { font-size: 13px; font-weight: 600; }
 .dg-chip { font-size: 10px; background: var(--hull-border); color: var(--hull-text-muted); border-radius: var(--radius-sm); padding: 1px 7px; white-space: nowrap; }
 .dg-pool { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--hull-text-muted); font-family: var(--font-mono); }
 .dg-slots { display: inline-flex; gap: 3px; }
@@ -43,18 +43,18 @@
 
 /* ── 主体：左列子任务列表（可折叠）+ 右视口（等比缩放，横纵滚动） ── */
 .dg-body { flex: 1; min-height: 0; display: flex; overflow: hidden; }
-.dg-list { width: 200px; min-width: 200px; overflow-y: auto; border-right: 1px solid var(--hull-border); padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+.dg-list { width: 200px; min-width: 200px; overflow-y: auto; border-right: 1px solid var(--hull-border); padding: 6px; display: flex; flex-direction: column; gap: 2px; }
 .dg-box.dg-c .dg-list { display: none; } /* 折叠子任务列表 */
 .dg-li {
-  display: flex; align-items: center; gap: 6px; padding: 5px 7px; border-radius: var(--radius-sm);
-  font-size: 11.5px; color: var(--hull-text-dim); cursor: pointer; border: 1px solid transparent;
+  display: flex; align-items: center; gap: 5px; padding: 3px 6px; border-radius: var(--radius-sm);
+  font-size: 11px; color: var(--hull-text-dim); cursor: pointer; border: 1px solid transparent;
   transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
 .dg-li:hover { background: var(--hull-hover); }
 .dg-li.hl { background: var(--hull-accent-faint); border-color: var(--hull-accent); }
-.dg-li-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--hull-text-sub); flex-shrink: 0; }
+.dg-li-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--hull-text-sub); flex-shrink: 0; }
 .dg-li-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dg-li-badge { font-size: 10px; border-radius: var(--radius-xs); padding: 0 5px; white-space: nowrap; flex-shrink: 0; }
+.dg-li-badge { font-size: 9.5px; border-radius: var(--radius-xs); padding: 0 4px; white-space: nowrap; flex-shrink: 0; }
 .dg-li.st-succeeded .dg-li-dot { background: var(--hull-success); }
 .dg-li.st-succeeded .dg-li-badge { color: var(--hull-success-light); }
 .dg-li.st-running .dg-li-dot { background: var(--hull-accent); animation: dg-pulse 1.2s infinite; }
@@ -77,9 +77,9 @@
 .dg-canvas { position: relative; }          /* 布局盒 = 缩放后尺寸（不产生幻影滚动） */
 .dg-scale { position: relative; }           /* 未缩放内容层，transform: scale(s) */
 .dg-svg { position: absolute; inset: 0; overflow: visible; }
-.dg-foot { padding: 9px 16px; border-top: 1px solid var(--hull-border); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 11px; color: var(--hull-text-muted); }
-.dg-hint { margin-left: auto; color: var(--hull-text-sub); }
-.dg-cycle { color: var(--hull-danger); border: 1px dashed var(--hull-danger-hover); border-radius: var(--radius-sm); padding: 1px 7px; white-space: nowrap; }
+.dg-foot { padding: 5px 14px; border-top: 1px solid var(--hull-border); display: flex; gap: 6px; flex-wrap: nowrap; align-items: center; font-size: 10px; color: var(--hull-text-muted); }
+.dg-hint { margin-left: auto; color: var(--hull-text-sub); white-space: nowrap; }
+.dg-cycle { color: var(--hull-danger); border: 1px dashed var(--hull-danger-hover); border-radius: var(--radius-sm); padding: 0 6px; white-space: nowrap; }
 
 /* ── 边（<g class="dg-edge …">，path 描边 + polygon 箭头，CSS currentColor 取色） ── */
 .dg-edge { color: var(--hull-border); opacity: 0.6; }
@@ -94,14 +94,27 @@
 .dg-edge.lit { opacity: 1; }
 .dg-edge.dim { opacity: 0.08; }
 
-/* ── 节点（HTML div 绝对定位，178×56；标题为主 + 徽标 + 优先级色条 + 元信息） ── */
+/* ── 节点（HTML div 绝对定位，190×60；标题为主 + 徽标 + 优先级色条 + 元信息） ── */
 .dg-node {
-  position: absolute; width: 178px; height: 56px; background: var(--hull-card);
+  position: absolute; width: 190px; height: 60px; background: var(--hull-card);
   border: 1px solid var(--hull-border); border-left: 3px solid var(--hull-border);
   border-radius: var(--radius-md); box-shadow: var(--shadow-1); padding: 6px 10px 5px;
   display: flex; flex-direction: column; gap: 3px; overflow: hidden;
   transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
+
+/* 亮色主题对比度（壳主题跟随，不强制暗色）：边线加深 #a0a0a0 级、文字用实色
+   置于状态着色规则之前 → 各态边框/辉光色仍生效 */
+[data-theme="light"] .dg-edge { color: #a0a0a0; opacity: 0.85; }
+[data-theme="light"] .dg-node { border-color: #c2c7cf; border-left-color: #a0a0a0; }
+[data-theme="light"] .dg-node .dg-n-title { color: var(--hull-text); }
+[data-theme="light"] .dg-node .dg-n-meta,
+[data-theme="light"] .dg-node .dg-n-id,
+[data-theme="light"] .dg-node .dg-n-deps,
+[data-theme="light"] .dg-li-title { color: #5a6472; }
+[data-theme="light"] .dg-li { color: #4e5a6b; }
+[data-theme="light"] .dg-pri-P2 { background: #c2c7cf; }
+[data-theme="light"] .dg-hint { color: #7b8694; }
 .dg-node:hover { border-color: var(--hull-accent); box-shadow: var(--shadow-2); transform: translateY(-1px); z-index: 5; }
 .dg-node.hl { border-color: var(--hull-accent); box-shadow: 0 0 0 1px var(--hull-accent), 0 0 16px var(--hull-accent-soft); z-index: 6; }
 /* 优先级色条（顶部 2px 发丝线，P0/P1/P2/无） */
@@ -113,7 +126,7 @@
 /* 标题为主：两行截断 + 加粗，hover title 全文；id 缩为次要小字（meta 行） */
 .dg-n-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .dg-n-title {
-  flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; line-height: 1.35; color: var(--hull-text);
+  flex: 1; min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.3; color: var(--hull-text);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .dg-n-badge { border-radius: var(--radius-xs); padding: 0 6px; font-size: 10px; white-space: nowrap; flex-shrink: 0; line-height: 1.6; }
