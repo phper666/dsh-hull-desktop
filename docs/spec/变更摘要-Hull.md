@@ -3,6 +3,14 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-09-03 工作流通知优化（标注 + 失败自动通知 + 站内通知中心）
+
+- 类型：功能需求实现（判级常规偏复杂，设计 §8 方案冻结；无共识规则变化）
+- 内容：①通知标注——标题带工作流名 `工作流 · <名称>`（notification 步骤/失败通知统一）；②失败自动通知（新增行为）——run 失败即系统通知（title `…【失败】`，首条错误截断 120 字），notifyOnExceed 语义被取代（超限=失败=自动通知，UI 移除开关、字段兼容）；③通知点击跳转——聚焦主窗口切工作流视图（winMgr 晚绑定）；④壳内通知中心——侧边栏铃铛 + 未读失败角标（localStorage lastReadTs，60s 轻轮询）+ overlay 面板（全部/仅失败 chips，行点击跳工作流视图），复用 workflows:runs 零新增存储
+- 核验：单测 854 绿（引擎 +4 用例）+ e2e 31 绿；review 修 2 项（notifyTitle 实例字段并发互踩→参数传递；面板定位 token 不存在→212px 硬编码注记）；通知点击/面板交互待用户 dev 验证
+- 文档：设计 docs/design/工作流-workflows-design.md §8 · 记录 docs/records/工作流通知优化-workflow-notify-record.md
+- commits：4bf5a42 / ea8bef6 → merge b536878
+
 ## 2026-09-03 工作流 v2（cron 定时触发 + connection-action + token-budget）
 
 - 类型：功能需求实现（判级复杂，设计 §7 方案冻结；无共识规则变化）
