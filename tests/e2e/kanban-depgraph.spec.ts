@@ -52,20 +52,23 @@ test.describe('U3 依赖图可视化', () => {
     await shell.locator('#nav-board').click();
     await expect(shell.locator('#board-root .kb-card')).toHaveCount(6);
 
-    // ① 父卡详情 → 摘要入口条可见（依赖图文案 + 计数：两条依赖边）
+    // ① 父卡详情 → 详情内子任务列表仍在（4 行）+ 摘要入口条可见（依赖图文案 + 计数：两条依赖边）
     await shell.locator('.kb-card', { hasText: '父任务' }).click();
+    await expect(shell.locator('.kb-modal .kb-sub-item')).toHaveCount(4);
     const entry = shell.locator('.kb-modal .dg-entry');
     await expect(entry).toBeVisible();
     await expect(entry.locator('.dg-et')).toHaveText('依赖图');
     await expect(entry.locator('.dg-sum')).toContainText('2 依赖');
 
-    // ② 点「查看依赖图」→ 独立弹框 + 内联 SVG + 节点 ≥4 + ESC 可关闭
+    // ② 点「查看依赖图」→ 独立弹框 + 内联 SVG + 节点 ≥4 + 左栏子任务列表 4 行 + ESC 可关闭
     await entry.click();
     await expect(shell.locator('.dg-modal')).toBeVisible();
     await expect(shell.locator('.dg-modal svg.dg-svg')).toBeVisible();
     const nodes = shell.locator('.dg-modal .dg-node');
     expect(await nodes.count()).toBeGreaterThanOrEqual(4);
     await expect(shell.locator('.dg-modal .dg-edge')).not.toHaveCount(0);
+    await expect(shell.locator('.dg-modal .dg-li')).toHaveCount(4); // 左栏子任务列表
+    await expect(shell.locator('.dg-modal .dg-li', { hasText: '子任务一' })).toBeVisible();
     await shell.keyboard.press('Escape');
     await expect(shell.locator('.dg-modal')).toHaveCount(0);
 

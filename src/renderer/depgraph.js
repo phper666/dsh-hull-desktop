@@ -20,6 +20,9 @@
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const statusName = (s) => STATUS_NAMES[s] || s;
 
+  // 布局参数（调用侧可调；core.layout 第三参 opts 覆盖默认 178×48 → 178×56，标题两行 + 徽标 + 元信息）
+  const LAYOUT = { layerGap: 220, nodeW: 178, nodeH: 56, nodeGapY: 30, pad: 28 };
+
   let state = null; // { task, subtasks } —— kanban 推入的最新数据
   let wrap = null;  // 弹框 DOM（isConnected 判断开/关）
   let onCloseCb = null; // kanban 关闭回调（复位 openDepgraphTaskId）
@@ -50,9 +53,13 @@
           <span class="dg-title">依赖关系图</span>
           <span class="dg-chip" id="dg-maxp">并发 ≤3</span>
           <span class="dg-pool" id="dg-pool"><span class="dg-slots" id="dg-slots"></span><b id="dg-cnt">0/3</b></span>
+          <button class="dg-listtoggle" id="dg-listtoggle" title="折叠/展开子任务列表" aria-pressed="true">▤</button>
           <button class="dg-close" data-close aria-label="关闭">✕</button>
         </div>
-        <div class="dg-body"><div class="dg-canvas" id="dg-canvas"></div></div>
+        <div class="dg-body">
+          <aside class="dg-list" id="dg-list"></aside>
+          <div class="dg-vp" id="dg-vp"><div class="dg-canvas" id="dg-canvas"><div class="dg-scale" id="dg-scale"></div></div></div>
+        </div>
         <div class="dg-foot"><span class="dg-legend" id="dg-legend"></span><span class="dg-hint">ESC 或点遮罩关闭</span></div>
       </div>`;
     document.body.appendChild(wrap);
@@ -60,6 +67,13 @@
     document.addEventListener('keydown', onKey);
     wrap._onKey = onKey;
     wrap.addEventListener('click', (e) => { if (e.target === wrap || e.target.closest('[data-close]')) close(); });
+    // 子任务列表折叠/展开
+    const toggle = wrap.querySelector('#dg-listtoggle');
+    toggle.addEventListener('click', () => {
+      const collapsed = wrap.classList.toggle('dg-c');
+      toggle.setAttribute('aria-pressed', String(!collapsed));
+      render();
+    });
     const legend = wrap.querySelector('#dg-legend');
     legend.innerHTML = LEGEND.map(([cls, name]) => `<span class="dg-lg"><i class="${cls}"></i>${name}</span>`).join('');
   }
@@ -107,14 +121,24 @@
     for (const t of tasks) byId[t.id] = t;
     const depsById = {};
     for (const t of tasks) depsById[t.id] = (t.dependencies || []).filter((d) => byId[d]);
-    const res = core.layout(tasks, depsById);
+    const res = core.layout(tasks, depsById, LAYOUT);
     const halted = core.haltedSet(byId, Object.keys(byId).filter((id) => HALT_SOURCE.includes(byId[id].executionStatus)));
     const pos = Object.fromEntries(res.nodes.map((n) => [n.id, n]));
 
     const canvas = wrap.querySelector('#dg-canvas');
-    canvas.innerHTML = '';
-    canvas.style.width = res.W + 'px';
-    canvas.style.height = res.H + 'px';
+    const scaleEl = wrap.querySelector('#dg-scale');
+    /* 等比缩放适配视口：层级少时一屏全收；图过大（s<0.5）不缩放保可读，交滚动 */
+    const vp = wrap.querySelector('#dg-vp');
+    const vpW = vp.clientWidth || 880, vpH = vp.clientHeight || 480;
+    let s = Math.min(1, vpW / res.W, vpH / res.H);
+    if (s < 0.5) s = 1;
+    canvas.style.width = (res.W * s) + 'px';
+    canvas.style.height = (res.H * s) + 'px';
+    scaleEl.style.width = res.W + 'px';
+    scaleEl.style.height = res.H + 'px';
+    scaleEl.style.transform = s === 1 ? '' : `scale(${s})`;
+    scaleEl.style.transformOrigin = '0 0';
+    scaleEl.innerHTML = ''; // 只清空内容层（保留 #dg-scale 容器本体，勿清 canvas——否则容器被销毁）
 
     // SVG 边（<g class="dg-edge …">，path 描边 + polygon 箭头，CSS currentColor 取色）
     const svg = document.createElementNS(SVG_NS, 'svg');
@@ -130,16 +154,37 @@
       path.setAttribute('d', e.path);
       g.appendChild(path);
       const q = pos[e.to];
-      const x2 = q.x, y2 = q.y + 24; // nodeH 48 中心
+      const x2 = q.x, y2 = q.y + LAYOUT.nodeH / 2; // 箭头终点 = 目标左缘中点（nodeH 由 LAYOUT 定）
       const poly = document.createElementNS(SVG_NS, 'polygon');
       poly.setAttribute('points', `${x2},${y2 - 4} ${x2 - 8},${y2} ${x2},${y2 + 4}`);
       g.appendChild(poly);
       svg.appendChild(g);
       edgeEls.push({ e, g });
     }
-    canvas.appendChild(svg);
+    scaleEl.appendChild(svg);
 
-    // 节点（HTML div 绝对定位，复用 --hull-* 令牌）
+    // 子任务列表（标题 + 八态徽标；点行联动高亮节点）
+    const list = wrap.querySelector('#dg-list');
+    list.innerHTML = '';
+    const setActive = (id) => {
+      for (const n of res.nodes) nodeEls[n.id]?.classList.toggle('hl', n.id === id);
+      list.querySelectorAll('.dg-li').forEach((r) => r.classList.toggle('hl', r.dataset.id === id));
+      const tgt = nodeEls[id];
+      if (tgt) tgt.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    };
+    for (const t of tasks) {
+      const st = t.executionStatus || 'idle';
+      const isHalted = halted.has(t.id);
+      const row = document.createElement('div');
+      row.className = 'dg-li st-' + st + (isHalted ? ' st-halted' : '');
+      row.dataset.id = t.id;
+      row.innerHTML = `<i class="dg-li-dot"></i><span class="dg-li-title" title="${esc(t.title)}">${esc(t.title)}</span><span class="dg-li-badge">${esc(isHalted ? '已中止' : statusName(st))}</span>`;
+      row.addEventListener('click', () => setActive(t.id));
+      list.appendChild(row);
+    }
+
+    // 节点（HTML div 绝对定位，复用 --hull-* 令牌；标题为主，id 缩为次要小字）
+    const nodeEls = {};
     for (const n of res.nodes) {
       const t = byId[n.id];
       if (!t) continue;
@@ -151,19 +196,24 @@
       el.style.top = n.y + 'px';
       el.dataset.id = n.id;
       const badge = isHalted ? '已中止' : (st === 'succeeded' ? '✓ ' + statusName(st) : statusName(st));
-      el.innerHTML = `<div class="dg-n-top"><span class="dg-n-id">${esc(t.id)}</span><span class="dg-n-title" title="${esc(t.title)}">${esc(t.title)}</span></div>
-        <div class="dg-n-meta"><span class="dg-n-badge">${esc(badge)}</span></div>`;
+      const depsN = (t.dependencies || []).filter((d) => byId[d]).length;
+      el.innerHTML = `<span class="dg-pri ${esc('dg-pri-' + (t.priority || '无'))}"></span>
+        <div class="dg-n-top"><span class="dg-n-title" title="${esc(t.title)}">${esc(t.title)}</span><span class="dg-n-badge">${esc(badge)}</span></div>
+        <div class="dg-n-meta"><span class="dg-n-id" title="${esc(t.id)}">${esc(t.id)}</span><span class="dg-n-deps">依赖 ${depsN}</span></div>`;
       el.addEventListener('mouseenter', () => {
         for (const eg of edgeEls) {
           const lit = eg.e.from === n.id || eg.e.to === n.id;
           eg.g.classList.toggle('lit', lit);
           eg.g.classList.toggle('dim', !lit);
         }
+        list.querySelector('.dg-li[data-id="' + n.id + '"]')?.classList.add('hl');
       });
       el.addEventListener('mouseleave', () => {
         for (const eg of edgeEls) eg.g.classList.remove('lit', 'dim');
+        list.querySelector('.dg-li[data-id="' + n.id + '"]')?.classList.remove('hl');
       });
-      canvas.appendChild(el);
+      scaleEl.appendChild(el);
+      nodeEls[n.id] = el;
     }
 
     // 环警示徽标
