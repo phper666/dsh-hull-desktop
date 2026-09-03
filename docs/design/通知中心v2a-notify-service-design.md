@@ -71,3 +71,13 @@ src/notifications/
 ## 七、实现管道
 
 TDD：NotificationService（emit/保留/已读/迁移/onChanged）+ WorkflowEngine emitNotif 断言迁移 + ExecutionEngine settleTask/级联发射与去重。渲染层胶水 node --check + e2e（notifs.spec 改造：seed notifications.json 双源断言 + 迁移路径断言）。工程基线三问 ✓。
+
+## 八、V2b 通知偏好（2026-09-03 定稿，判级：常规 → 轻量实现）
+
+> 需求（用户 2026-09-03）：通知偏好/静音/免打扰。范围收敛：**按源系统通知开关 + 免打扰时段**；按工作流静音粒度细列候选不做。
+
+- **偏好存储**：settings.json 字段级扩展 `notifPrefs`（不 bump schemaVersion，theme 先例）：`{ systemPushWorkflow: true, systemPushBoardExec: true, dndEnabled: false, dndFrom: '22:00', dndTo: '08:00' }`；归一化：布尔/HH:mm 非法回退默认。
+- **推送策略（纯函数 src/notifications/prefs.ts）**：`shouldSystemPush(source, prefs, now)`——源开关关闭 → false；dndEnabled 且当前时刻 ∈ [from,to)（支持跨午夜，from>to 取反区间）→ false；其余 true。只约束**系统通知**，中心存储/未读语义不受影响（error 仍入中心未读）。
+- **接线**：notifSystemChannel 推送前动态读 settings（每次推送取最新，免打扰即时生效）。
+- **设置页 UI**：设置页新增「通知」卡——工作流系统通知开关 / 看板执行系统通知开关 / 免打扰开关 + 起止时间输入（time）。
+- **非目标**：按工作流静音 · per-item 已读 UI · 通知中心内偏好入口。

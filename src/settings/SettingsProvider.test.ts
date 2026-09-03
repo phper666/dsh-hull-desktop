@@ -371,3 +371,43 @@ test('P3-⑦ set 已合法 packageManager 后 schemaVersion 仍 3（字段级扩
   const parsed = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as { schemaVersion: number };
   equal(parsed.schemaVersion, 3);
 });
+
+// ── V2b：notifPrefs 归一化/迁移/写路径 ──
+
+const notifLogger = () => ({ info: () => {}, warn: () => {}, error: () => {}, dshLog: () => {} });
+
+test('notifPrefs：合法值读回透传 + 非法逐项回退默认', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-settings-notif-'));
+  writeFileSync(join(dir, 'settings.json'), JSON.stringify({
+    schemaVersion: 3,
+    notifPrefs: { systemPushWorkflow: false, systemPushBoardExec: true, dndEnabled: true, dndFrom: '23:30', dndTo: '07:15' },
+  }));
+  const p = new SettingsProvider({ userDataPath: dir, logger: notifLogger() }).getSettings().notifPrefs;
+  equal(p.systemPushWorkflow, false);
+  equal(p.dndEnabled, true);
+  equal(p.dndFrom, '23:30');
+
+  writeFileSync(join(dir, 'settings.json'), JSON.stringify({
+    schemaVersion: 3,
+    notifPrefs: { systemPushWorkflow: 'yes', dndFrom: '24:99', dndTo: '7:00' },
+  }));
+  const p2 = new SettingsProvider({ userDataPath: dir, logger: notifLogger() }).getSettings().notifPrefs;
+  equal(p2.systemPushWorkflow, true, '非法布尔回退默认');
+  equal(p2.dndFrom, '22:00', '非法时段回退默认');
+  equal(p2.dndTo, '08:00', '非 HH:mm 回退默认');
+});
+
+test('notifPrefs：旧文件无字段 → 默认；set 写路径归一化落盘', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-settings-notif2-'));
+  writeFileSync(join(dir, 'settings.json'), JSON.stringify({ schemaVersion: 3, closeToQuit: false }));
+  const provider = new SettingsProvider({ userDataPath: dir, logger: notifLogger() });
+  equal(JSON.stringify(provider.getSettings().notifPrefs), JSON.stringify({ systemPushWorkflow: true, systemPushBoardExec: true, dndEnabled: false, dndFrom: '22:00', dndTo: '08:00' }));
+  provider.set({ notifPrefs: { systemPushWorkflow: false, systemPushBoardExec: true, dndEnabled: true, dndFrom: '23:00', dndTo: '07:00' } });
+  const onDisk = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8'));
+  equal(onDisk.notifPrefs.systemPushWorkflow, false);
+  equal(onDisk.notifPrefs.dndEnabled, true);
+  // 写非法值 → 落盘前归一化回默认
+  // 恶意/脏输入经 IPC 到达 set()：类型断言模拟 unknown 载荷（运行时归一化兜底）
+  provider.set({ notifPrefs: { systemPushWorkflow: 'oops', systemPushBoardExec: true, dndEnabled: true, dndFrom: '23:00', dndTo: '07:00' } as unknown as import('../notifications/prefs').NotifPrefs });
+  equal(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).notifPrefs.systemPushWorkflow, true);
+});

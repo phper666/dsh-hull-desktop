@@ -2,6 +2,8 @@ import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { normalizeNotifPrefs, DEFAULT_NOTIF_PREFS, type NotifPrefs } from '../notifications/prefs';
+
 import { HullError } from '../shared/errors';
 import { NOOP_LOGGER, type RuntimeLogger } from '../shared/types';
 import { isValidVersion } from '../updater/semver';
@@ -39,6 +41,8 @@ export interface HullSettings {
   theme: ThemeName;
   /** 包管理器（P3：npm/pnpm，默认 pnpm；CON-R-pkgmgr-001/008；字段级扩展不 bump schemaVersion） */
   packageManager: PkgMgrName;
+  /** 通知偏好（V2b：按源系统通知开关 + 免打扰时段；字段级扩展不 bump schemaVersion） */
+  notifPrefs: NotifPrefs;
 }
 
 /** 当前 schema 版本（S4 bump 1→2，S5 两字段再 bump 2→3） */
@@ -54,6 +58,7 @@ const DEFAULT_SETTINGS: HullSettings = {
   registry: DEFAULT_REGISTRY,
   theme: 'system',  // CON-R-theme-004（v1.3）：默认跟随系统——仅对「从未设置过主题」的用户生效，已保存值不受影响
   packageManager: 'pnpm',
+  notifPrefs: DEFAULT_NOTIF_PREFS,
 };
 
 export interface SettingsProviderOptions {
@@ -146,7 +151,8 @@ export class SettingsProvider extends EventEmitter {
     ) {
       this.logger.warn('settings.json 字段类型不符（回退默认值，不覆盖原文件）');
     }
-    return { closeToQuit, schemaVersion, channel, pinnedVersion, autoCheckDsh, autoCheckHull, registry, theme, packageManager };
+    const notifPrefs = normalizeNotifPrefs(obj.notifPrefs);
+    return { closeToQuit, schemaVersion, channel, pinnedVersion, autoCheckDsh, autoCheckHull, registry, theme, packageManager, notifPrefs };
   }
 
   /**
@@ -162,6 +168,8 @@ export class SettingsProvider extends EventEmitter {
     if (next.theme !== 'dark' && next.theme !== 'light' && next.theme !== 'system') next.theme = DEFAULT_SETTINGS.theme; // 非法 → 回退默认（system）
     // P3：非法 packageManager → 回退 pnpm（与读路径归一对称，CON-R-pkgmgr-008）
     if (!isValidPkgMgr(next.packageManager)) next.packageManager = 'pnpm';
+    // V2b：notifPrefs 归一化（非法字段逐项回退默认，与读路径归一对称）
+    next.notifPrefs = normalizeNotifPrefs(next.notifPrefs);
     // 校验（SETTINGS_ERRORS）
     if (partial.registry !== undefined && !isValidRegistry(partial.registry)) {
       throw new HullError('registry-invalid', `非法 registry 地址: ${partial.registry}`);
@@ -225,6 +233,8 @@ export class SettingsProvider extends EventEmitter {
       theme: obj.theme === 'dark' || obj.theme === 'light' || obj.theme === 'system' ? obj.theme : DEFAULT_SETTINGS.theme,
       // P3：旧文件 packageManager 非法 → 默认 pnpm（与 set() 校验链对称）
       packageManager: isValidPkgMgr(obj.packageManager) ? obj.packageManager : DEFAULT_SETTINGS.packageManager,
+      // V2b：旧文件无 notifPrefs → 默认（迁移路径字段级补齐）
+      notifPrefs: normalizeNotifPrefs(obj.notifPrefs),
     };
     try {
       const tmp = `${this.filePath}.tmp`;
