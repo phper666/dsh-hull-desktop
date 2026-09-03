@@ -3,6 +3,14 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-09-03 通知中心 V1（独立通知页，工作流首源/source 维度预留）
+
+- 类型：功能需求实现（判级常规，设计 §9 方案冻结；4 方案原型对比后用户拍板 C；无共识规则变化）
+- 内容：视图链路 PlaceholderMode/PlaceholderView 增 'notifs' + showNotifs（WindowManager/IPC/preload）+ 铃铛改 nav-notifs 参与高亮；notifs.js 页面——搜索/状态/触发筛选 + 表格（未读失败红条、消息红显、相对/悬浮绝对时间）+ 进页面即已读 + 行点击跳工作流视图；toNotifRows 归一化预留 source:'workflow'——v2 接第二源（候选：看板执行通知/更新可用）时建 NotificationService 迁移页面零返工；§8.2 overlay 面板被本页取代（角标语义保留，60s 轮询迁 notifs.js）
+- 核验：单测 854 绿 + e2e 32 绿（含通知中心首例：seed runs → 角标/页面/未读/搜索/行跳转全链）；typecheck ✓；workflows.js 摘除零残留
+- 文档：设计 docs/design/工作流-workflows-design.md §9 · 记录 docs/records/通知中心V1-notify-center-record.md · 原型 docs/prototype/2026-09-03-workflow-notify-variants-prototype.html
+- commits：ebbcc7e / 82f5d53 → merge f876258
+
 ## 2026-09-03 工作流通知优化（标注 + 失败自动通知 + 站内通知中心）
 
 - 类型：功能需求实现（判级常规偏复杂，设计 §8 方案冻结；无共识规则变化）
