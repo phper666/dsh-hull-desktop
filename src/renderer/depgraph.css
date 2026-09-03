@@ -27,7 +27,9 @@
   width: min(96vw, 1400px); max-height: calc(100vh - 24px); background: var(--hull-panel);
   border: 1px solid var(--hull-border); border-radius: var(--radius-xl); box-shadow: var(--shadow-2);
   display: flex; flex-direction: column; overflow: hidden;
+  transition: width var(--dur-med) var(--ease-out), max-height var(--dur-med) var(--ease-out), border-radius var(--dur-med) var(--ease-out);
 }
+.dg-box.dg-fullscreen { width: 100vw; max-width: 100vw; max-height: 100vh; height: 100vh; border-radius: 0; border-color: transparent; } /* 零呼吸边全屏 */
 .dg-head { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--hull-border); }
 .dg-title { font-size: 13px; font-weight: 600; }
 .dg-chip { font-size: 10px; background: var(--hull-border); color: var(--hull-text-muted); border-radius: var(--radius-sm); padding: 1px 7px; white-space: nowrap; }
@@ -79,7 +81,7 @@
 .dg-scale { position: relative; }           /* 未缩放内容层，transform: translate+scale（交互缩放） */
 .dg-svg { position: absolute; inset: 0; overflow: visible; }
 
-/* ── 缩放工具条（头部右侧；复用 --hull-* 按钮风格） ── */
+/* ── 缩放工具条（头部右侧；复用 --hull-* 按钮风格；倍率可点击输入） ── */
 .dg-zoom { display: inline-flex; align-items: center; gap: 2px; }
 .dg-zoom button {
   background: transparent; border: 1px solid var(--hull-border); color: var(--hull-text-dim);
@@ -87,7 +89,16 @@
   transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 .dg-zoom button:hover { background: var(--hull-hover); color: var(--hull-text); }
-.dg-zoom .dg-zoom-pct { font-family: var(--font-mono); font-size: 10px; color: var(--hull-text-muted); min-width: 40px; text-align: center; white-space: nowrap; }
+.dg-zoom .dg-zoom-pct {
+  background: transparent; border-color: transparent; color: var(--hull-text-muted);
+  font-family: var(--font-mono); font-size: 10px; min-width: 46px; text-align: center; white-space: nowrap;
+}
+.dg-zoom .dg-zoom-pct:hover { border-color: var(--hull-border); color: var(--hull-text); }
+.dg-zoom .dg-zoom-input {
+  width: 52px; background: var(--hull-panel); border: 1px solid var(--hull-accent); color: var(--hull-text);
+  font-family: var(--font-mono); font-size: 10px; text-align: center; border-radius: var(--radius-sm);
+  padding: 2px 2px; outline: none;
+}
 .dg-foot { padding: 5px 14px; border-top: 1px solid var(--hull-border); display: flex; gap: 6px; flex-wrap: nowrap; align-items: center; font-size: 10px; color: var(--hull-text-muted); }
 .dg-hint { margin-left: auto; color: var(--hull-text-sub); white-space: nowrap; }
 .dg-cycle { color: var(--hull-danger); border: 1px dashed var(--hull-danger-hover); border-radius: var(--radius-sm); padding: 0 6px; white-space: nowrap; }

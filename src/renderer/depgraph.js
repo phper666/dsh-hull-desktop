@@ -61,9 +61,10 @@
           <span class="dg-pool" id="dg-pool"><span class="dg-slots" id="dg-slots"></span><b id="dg-cnt">0/3</b></span>
           <span class="dg-zoom">
             <button data-zoom-out title="缩小" aria-label="缩小">−</button>
-            <span class="dg-zoom-pct" id="dg-zoom-pct">100%</span>
+            <button class="dg-zoom-pct" id="dg-zoom-pct" title="点击输入缩放倍率（40%~300%）">100%</button>
             <button data-zoom-in title="放大" aria-label="放大">＋</button>
-            <button data-zoom-fit title="适配窗口">适配</button>
+            <button data-zoom-fit title="适配窗口（重置缩放）" aria-label="适配窗口">⛶</button>
+            <button data-fullscreen title="全屏" aria-label="全屏">⤢</button>
           </span>
           <button class="dg-listtoggle" id="dg-listtoggle" title="折叠/展开子任务列表" aria-pressed="true">▤</button>
           <button class="dg-close" data-close aria-label="关闭">✕</button>
@@ -75,10 +76,25 @@
         <div class="dg-foot"><span class="dg-legend" id="dg-legend"></span><span class="dg-hint">ESC 或点遮罩关闭</span></div>
       </div>`;
     document.body.appendChild(wrap);
-    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } }; // stopPropagation：双层弹框不一个 ESC 全关
+    // 全屏切换（ESC 优先级：先退全屏，再关弹框）
+    const fsBtn = wrap.querySelector('[data-fullscreen]');
+    const toggleFullscreen = () => {
+      const box = wrap.querySelector('.dg-box');
+      const on = box.classList.toggle('dg-fullscreen');
+      fsBtn.textContent = on ? '⤡' : '⤢';
+      fsBtn.title = on ? '退出全屏' : '全屏';
+      render(); // 视口尺寸变化 → 重算 fit 布局盒（用户缩放保留）
+    };
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation(); // 双层弹框不一个 ESC 全关
+      if (wrap.querySelector('.dg-box').classList.contains('dg-fullscreen')) { toggleFullscreen(); return; }
+      close();
+    };
     document.addEventListener('keydown', onKey);
     wrap._onKey = onKey;
     wrap.addEventListener('click', (e) => { if (e.target === wrap || e.target.closest('[data-close]')) close(); });
+    fsBtn.addEventListener('click', toggleFullscreen);
     // 子任务列表折叠/展开
     const toggle = wrap.querySelector('#dg-listtoggle');
     toggle.addEventListener('click', () => {
@@ -126,6 +142,37 @@
     wrap.querySelector('[data-zoom-in]').addEventListener('click', centerZoom(1.25));
     wrap.querySelector('[data-zoom-out]').addEventListener('click', centerZoom(1 / 1.25));
     wrap.querySelector('[data-zoom-fit]').addEventListener('click', () => { zoom = { k: fitK, tx: 0, ty: 0 }; applyZoom(); });
+    // 倍率显示 → 自定义缩放输入（回车/失焦应用，40%~300%，非法回退；输入内 ESC 只退出编辑不关弹框）
+    const pctBtn = wrap.querySelector('#dg-zoom-pct');
+    pctBtn.addEventListener('click', () => {
+      if (wrap.querySelector('.dg-zoom-input')) return;
+      const input = document.createElement('input');
+      input.className = 'dg-zoom-input';
+      input.type = 'text';
+      input.inputMode = 'decimal';
+      input.value = String(Math.round(zoom.k * 100));
+      input.setAttribute('aria-label', '缩放倍率');
+      pctBtn.style.display = 'none';
+      pctBtn.parentElement.insertBefore(input, pctBtn);
+      input.focus();
+      input.select();
+      let done = false;
+      const commit = (apply) => {
+        if (done) return;
+        done = true;
+        if (apply) {
+          const v = parseFloat(String(input.value).replace('%', '').trim());
+          if (!isNaN(v)) { const r = vpEl.getBoundingClientRect(); zoomTo(r.width / 2, r.height / 2, v / 100); }
+        }
+        input.remove();
+        pctBtn.style.display = '';
+      };
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.stopPropagation(); commit(true); }
+        else if (e.key === 'Escape') { e.stopPropagation(); commit(false); }
+      });
+      input.addEventListener('blur', () => commit(true));
+    });
     // 事件清理走既有弹框关闭路径（close() 调 _zoomCleanup）
     wrap._zoomCleanup = () => {
       vpEl.removeEventListener('wheel', onWheel);
@@ -144,15 +191,17 @@
     const pct = wrap?.querySelector('#dg-zoom-pct');
     if (pct) pct.textContent = Math.round(zoom.k * 100) + '%';
   }
-  // 以 (cx,cy) 为锚缩放（锚点屏幕位置不动）
-  function zoomAt(cx, cy, factor) {
-    const k2 = Math.min(3.0, Math.max(0.4, zoom.k * factor));
+  // 以 (cx,cy) 为锚缩放到目标倍率（锚点屏幕位置不动；40%~300% 钳制）
+  function zoomTo(cx, cy, k2) {
+    k2 = Math.min(3.0, Math.max(0.4, k2));
     const f = k2 / zoom.k;
     zoom.tx = cx - (cx - zoom.tx) * f;
     zoom.ty = cy - (cy - zoom.ty) * f;
     zoom.k = k2;
     applyZoom();
   }
+  // 以 (cx,cy) 为锚按系数缩放
+  function zoomAt(cx, cy, factor) { zoomTo(cx, cy, zoom.k * factor); }
 
   function close() {
     if (!wrap) return;
