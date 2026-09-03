@@ -7,7 +7,7 @@
 
 - [ ] agentSpec 任务级指定（provider/agent/model 选择 UI）——P1，触发：多 agent 平台接入
 - [ ] 多 agent 平台接入（provider 抽象落地）——P1，触发：接入第二个平台
-- [ ] 并行增强（依赖图可视化）——P2
+- [x] 并行增强（依赖图可视化）——P2（2026-09-02 承接完成，ticket t100108）
 
 ---
 
@@ -566,7 +566,7 @@ export function apply(ctx: Context) {
 |:---|:-------|:-----|:---------|
 | agentSpec 任务级指定（provider/agent/model 选择 UI） | P1 | 数据结构已入 schema 留位（O-10 定案），补 UI 与执行层透传 | 多 agent 平台接入 |
 | 多 agent 平台接入（provider 抽象落地） | P1 | ExecutionProvider 已抽象（§7.4），provider 字段预留 | 接入第二个平台 |
-| 并行增强（依赖图可视化） | P2 | 并行执行基础已定（O-9：显式声明无依赖 + maxParallelTasks=5） | 并行执行实际使用后 |
+| 并行增强（依赖图可视化） | P2 | 并行执行基础已定（O-9：显式声明无依赖 + maxParallelTasks=5） | ~~并行执行实际使用后~~ 已完成（2026-09-02 承接，t100108） |
 | 多设备同步 | P2 | 看板数据跨设备（O-4 定案） | P2 导出/导入（FR-16）为过渡方案 |
 | 数据加密 / SQLite 迁移 | P2 | 云协作或多用户场景（O-3 定案） | 出现同步/云协作需求时评估 SQLite + 加密 |
 | 插件独立发布 | P2 | 用户自装插件、脱离壳分发（O-5 定案） | ExecutionProvider 换进程内 ctx.agents 实现（§7.4 影响分析）；插件 API 稳定后提供独立安装包/发布渠道 |

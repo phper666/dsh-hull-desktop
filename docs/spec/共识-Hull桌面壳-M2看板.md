@@ -262,7 +262,7 @@ idle → queued → running → succeeded → Verify（人工把关）→ Done
 | Q-030 | 归档与删除规则（P1-E 复核决策） | PM | P1 | closed | Done 可归档（archivedAt + archivedFromColumnId）；归档区可恢复/彻底删除；删看板有 ticket→拒删、无→可删、最后一个→不可删（可改名）；删项目前置清空 ticket；"删除唯一看板→validation-error" 废弃 | §7.1/§8/§12/CON-R033 |
 | U-001 | agentSpec 任务级指定（provider/agent/model 选择 UI） | PM | P2 | open | 数据结构已入 schema 留位（O-10 定案），功能排后；触发：多 agent 平台接入 | PRD §12 |
 | U-002 | 多 agent 平台接入（provider 抽象落地） | PM | P2 | open | ExecutionProvider 已抽象（§7.4），provider 字段预留；触发：接入第二个平台 | PRD §12 |
-| U-003 | 并行增强（依赖图可视化） | PM | P2 | open | 并行执行已进 M2（O-9 变更，依赖声明+maxParallelTasks=3）；依赖图可视化仍 P2 排后 | PRD §12 |
+| U-003 | 并行增强（依赖图可视化） | PM | P2 | **closed**（2026-09-02 提升承接，ticket t100108 五轮验收通过合并） | 并行执行已进 M2（O-9 变更，依赖声明+maxParallelTasks=3）；依赖图已实现：详情摘要入口 + 独立弹框 DAG（八态/中止链/池水位/交互缩放/全屏）+ 编辑表单前置依赖多选（同父兄弟+反向边防环守卫）；记录 docs/records/U3-依赖图-kanban-depgraph-record.md | PRD §12 |
 
 ## 12. 页面交互规范
 
