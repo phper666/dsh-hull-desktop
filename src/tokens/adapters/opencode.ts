@@ -1,8 +1,11 @@
 /**
  * opencode 平台适配器（SQLite 主源 + token-history 降级）：
- * - 主源 opencode.db message 表（per-message 真实用量，无累计快照失真）：
- *   data JSON 的 role=assistant 行含 tokens{input,output,reasoning,cache{read,write}}，time_created（unix ms）=用量真实发生时间
- * - 降级 ~/.opencode/token-history/YYYY-MM.json（session 生命周期累计快照，timestamp=快照时刻——历史堆近期 + 时间分布失真，仅兜底）
+ * - 主源 opencode.db message 表：data JSON 的 role=assistant 行含 tokens{input,output,reasoning,cache{read,write}}，
+ *   time_created（unix ms）=用量发生时间。⚠️ tokens 是 **per-request 快照**（每行 total = 该行
+ *   input+output+reasoning+cache.read+cache.write，实测 36901 行 0 例外）——同 TokenTracker 口径
+ *   （其 normalizeOpencodeTokens 逐行计，messageKey 级 delta 仅用于同消息流式更新去重），逐行直接求和，
+ *   **不做 session 级差分**（total 单调递增只是 context 随对话增长的表象，非累计语义）
+ * - 降级 ~/.opencode/token-history/YYYY-MM.json（session 生命周期累计快照，timestamp=快照时刻——仅兜底）
  * - 降级链：db 存在且 message 表可用 → 只用 db（不叠加）；db 缺失/不可用 → token-history；都无 → 空态
  * - db 路径：macOS ~/Library/Application Support/opencode/opencode.db、Linux ~/.local/share/opencode/opencode.db
  * 参考：docs/research/2026-09-02-agent-token-format-research.md §3、docs/design/Token视图v2-成本换算与SQLite兜底-design.md §二/§五
@@ -18,7 +21,7 @@ import { hasTable, querySqlite } from './sqlite';
 /** readFile 标记前缀（SQLite 二进制不经 utf8 读取，路径透传——同 zed adapter） */
 const DB_MARKER = '\u0000sqlite:';
 
-/** 单条会话记录 → 按 byModel 键拆 0..N 条 UsageRecord（空/零值模型跳过） */
+/** 单条会话记录 → 按 byModel 键拆 0..N 条 UsageRecord（空/零值模型跳过）——token-history 降级源 */
 export function parseOpenCodeEntry(entry: unknown, fallbackTs: string): UsageRecord[] {
   if (!entry || typeof entry !== 'object') return [];
   const e = entry as Record<string, unknown>;
@@ -75,10 +78,9 @@ function rowMsTs(v: unknown): string | null {
 }
 
 /**
- * 主源：opencode.db message 表 → UsageRecord[]（per-message 粒度，真实发生时间）。
+ * 主源：opencode.db message 表 → UsageRecord[]（per-request 快照逐行直接计，对齐 TokenTracker）。
  * - 只 SELECT 所需列（id/session_id/time_created/data）；data JSON role=assistant 且 tokens 存在才计
- * - output 补入 reasoning（与 token-history byModel 语义一致）；全零 token 行跳过
- * - 防御式：表缺失/打开失败 → []；data 解析失败/无行级 ts → 跳过该行
+ * - 全零 token 行跳过；防御式：表缺失/打开失败 → []；data 解析失败/无行级 ts → 跳过该行
  */
 export function parseOpenCodeMessages(dbPath: string): UsageRecord[] {
   if (!hasTable(dbPath, 'message')) return [];
@@ -86,8 +88,8 @@ export function parseOpenCodeMessages(dbPath: string): UsageRecord[] {
   if (!rows) return [];
   const out: UsageRecord[] = [];
   for (const row of rows) {
-    const ts = rowMsTs(row.time_created);
-    if (!ts) continue; // 无行级真实时间戳 → 跳过（mtime 兜底会污染时间分布）
+    const timeCreated = typeof row.time_created === 'number' ? row.time_created : Number(row.time_created);
+    if (!Number.isFinite(timeCreated) || timeCreated <= 0) continue; // 无行级真实时间戳 → 跳过
     let d: unknown;
     try {
       d = JSON.parse(String(row.data));
@@ -101,23 +103,19 @@ export function parseOpenCodeMessages(dbPath: string): UsageRecord[] {
     if (!t || typeof t !== 'object') continue;
     const tokens = t as Record<string, unknown>;
     const cache = (tokens.cache ?? {}) as Record<string, unknown>;
+    // 对齐 anthropic 约定（与 claude/codex 一致）：opencode output 不含 reasoning，output 补入 reasoning 避免合计低估
     const reasoningTokens = num(tokens.reasoning);
     const rec: UsageRecord = {
-      ts,
+      ts: new Date(timeCreated).toISOString(),
       platform: 'opencode',
-      model:
-        (typeof e.modelID === 'string' && e.modelID) ||
-        (typeof e.model === 'string' && e.model) ||
-        findString(e, 'model', 3) ||
-        'unknown',
+      model: (typeof e.modelID === 'string' && e.modelID) || (typeof e.model === 'string' && e.model) || findString(e, 'model', 3) || 'unknown',
       inputTokens: num(tokens.input),
       outputTokens: num(tokens.output) + reasoningTokens,
       cacheReadTokens: num(cache.read),
       cacheWriteTokens: num(cache.write),
       reasoningTokens,
     };
-    if (rec.inputTokens === 0 && rec.outputTokens === 0 && rec.cacheReadTokens === 0 && rec.cacheWriteTokens === 0 && rec.reasoningTokens === 0) continue;
-    out.push(rec);
+    if (rec.inputTokens || rec.outputTokens || rec.cacheReadTokens || rec.cacheWriteTokens || rec.reasoningTokens) out.push(rec);
   }
   return out;
 }

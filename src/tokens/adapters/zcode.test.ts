@@ -1,11 +1,11 @@
 import { test } from 'node:test';
-import { equal } from 'node:assert/strict';
+import { equal, ok } from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createZcodeSource, parseZcodeSource } from './zcode';
+import { createZcodeSource, matchZaiModel, parseZcodeSource } from './zcode';
 
 /** 建真实 schema model_usage fixture → db 路径 */
 function makeModelUsageDb(dir: string, rows: Array<Record<string, unknown>>): string {
@@ -26,26 +26,61 @@ function makeModelUsageDb(dir: string, rows: Array<Record<string, unknown>>): st
   return dbPath;
 }
 
-test('zcode：model_usage 精确路径——真实 schema 映射（unix ms → ISO、status 有值即计）', () => {
+test('zcode：model_usage 精确路径——真实 schema 映射（unix ms → ISO、status 有值即计、GLM 过滤）', () => {
   const dir = mkdtempSync(join(tmpdir(), 'hull-zcode-mu-'));
   try {
     const dbPath = makeModelUsageDb(dir, [
-      { model_id: 'deepseek-v4', started_at: 1785000000000, status: 'completed', input_tokens: 700, output_tokens: 150, reasoning_tokens: 40, cache_creation_input_tokens: 30, cache_read_input_tokens: 200 },
-      { model_id: 'gpt-5.2', started_at: 1785003600000, status: 'error', input_tokens: 800, output_tokens: 60, reasoning_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 50 },
+      { model_id: 'GLM-5.3-Flash', started_at: 1785000000000, status: 'completed', input_tokens: 700, output_tokens: 150, reasoning_tokens: 40, cache_creation_input_tokens: 30, cache_read_input_tokens: 200 },
+      { model_id: 'claude-sonnet-4-5', started_at: 1785001800000, status: 'completed', input_tokens: 999, output_tokens: 99, reasoning_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }, // 捆绑子代理 → 排除
+      { model_id: 'glm-5.3', started_at: 1785003600000, status: 'error', input_tokens: 800, output_tokens: 60, reasoning_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 50 },
       { model_id: 'zero-m', started_at: 1785007200000, status: 'cancelled', input_tokens: 0, output_tokens: 0, reasoning_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
     ]);
     const recs = parseZcodeSource(dbPath);
-    equal(recs.length, 2, 'completed+error 计入（有值即计），全零 cancelled 跳过');
+    equal(recs.length, 2, 'GLM 两行计入（有值即计）；claude 子代理排除；全零 cancelled 跳过');
     equal(recs[0].platform, 'zcode');
-    equal(recs[0].model, 'deepseek-v4');
+    equal(recs[0].model, 'GLM-5.3-Flash');
     equal(recs[0].ts, new Date(1785000000000).toISOString(), 'started_at unix ms → ISO');
     equal(recs[0].inputTokens, 700);
     equal(recs[0].outputTokens, 150);
     equal(recs[0].reasoningTokens, 40);
     equal(recs[0].cacheWriteTokens, 30);
     equal(recs[0].cacheReadTokens, 200);
-    equal(recs[1].model, 'gpt-5.2');
+    equal(recs[1].model, 'glm-5.3');
     equal(recs[1].inputTokens, 800);
+    ok(!recs.some((r) => r.model === 'claude-sonnet-4-5'), '非 GLM 系不出现');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('zcode：matchZaiModel——GLM/Z.ai/BigModel 系大小写不敏感；非 GLM/缺失 → null', () => {
+  equal(matchZaiModel('GLM-5.3-Flash'), 'GLM-5.3-Flash');
+  equal(matchZaiModel('glm-5.3'), 'glm-5.3');
+  equal(matchZaiModel('ZAI-GLM-5'), 'ZAI-GLM-5');
+  equal(matchZaiModel('bigmodel-glm-5'), 'bigmodel-glm-5');
+  equal(matchZaiModel('claude-sonnet-4-5'), null, '捆绑 Claude 子代理排除');
+  equal(matchZaiModel('gpt-5.2'), null);
+  equal(matchZaiModel('codex-gpt'), null);
+  equal(matchZaiModel('gemini-3-pro'), null);
+  equal(matchZaiModel('kimi-k3'), null);
+  equal(matchZaiModel('deepseek-v4-pro'), null);
+  equal(matchZaiModel(''), null, '空串 → null');
+  equal(matchZaiModel(null), null, 'model_id 缺失 → null');
+  equal(matchZaiModel(undefined), null);
+  equal(matchZaiModel(123), null, '非字符串 → null');
+});
+
+test('zcode：model_usage model_id 缺失的行跳过（防御）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-zcode-nomodel-'));
+  try {
+    const dbPath = makeModelUsageDb(dir, [
+      { model_id: null, started_at: 1785000000000, status: 'completed', input_tokens: 500, output_tokens: 50, reasoning_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      { model_id: 'GLM-5.3-Flash', started_at: 1785003600000, status: 'completed', input_tokens: 100, output_tokens: 10, reasoning_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    ]);
+    const recs = parseZcodeSource(dbPath);
+    equal(recs.length, 1, 'model_id 缺失行跳过');
+    equal(recs[0].model, 'GLM-5.3-Flash');
+    equal(recs[0].inputTokens, 100);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -127,7 +162,7 @@ test('zcode：createZcodeSource → listFiles 存在性 + parseFile（model_usag
   try {
     const rel = join(dir, '.zcode', 'cli', 'db');
     mkdirSync(rel, { recursive: true });
-    makeModelUsageDb(rel, [{ model_id: 'o4-mini', started_at: 1785000000000, status: 'completed', input_tokens: 222, output_tokens: 33, reasoning_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }]);
+    makeModelUsageDb(rel, [{ model_id: 'GLM-5.3-Flash', started_at: 1785000000000, status: 'completed', input_tokens: 222, output_tokens: 33, reasoning_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }]);
     const src = createZcodeSource(dir);
     equal(src.listFiles().length, 1);
     const recs = src.parseFile?.('', 'ignored') ?? [];

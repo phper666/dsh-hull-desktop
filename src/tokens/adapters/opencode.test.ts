@@ -75,27 +75,32 @@ test('parseOpenCodeFile：整 JSON 数组 → 全部记录', () => {
   equal(parseOpenCodeFile('{"a":1}', 'x').length, 0);
 });
 
-test('parseOpenCodeMessages：assistant 行 → per-message 记录（modelID/ts unix ms/output 含 reasoning）', () => {
+test('parseOpenCodeMessages：assistant 行 → per-request 快照逐行计（modelID/ts unix ms/output 含 reasoning）', () => {
   const dir = mkdtempSync(join(tmpdir(), 'hull-oc-msg-'));
   try {
     const t1 = 1785000000000;
     const t2 = 1785003600000;
     const dbPath = makeMessageDb(dir, [
+      // per-request 快照：每行 tokens 即该请求用量（total 单调递增只是 context 增长表象，非累计）
       { id: 'm1', time_created: t1, data: msgData('assistant', { input: 700, output: 150, reasoning: 40, cache: { read: 200, write: 30 } }, 'deepseek-v4') },
-      { id: 'm2', time_created: t2, data: msgData('assistant', { input: 800, output: 60, reasoning: 0, cache: { read: 0, write: 0 } }, 'gpt-5.2') },
+      { id: 'm2', time_created: t2, data: msgData('assistant', { input: 900, output: 200, reasoning: 50, cache: { read: 300, write: 40 } }, 'gpt-5.2') },
     ]);
     const recs = parseOpenCodeMessages(dbPath);
     equal(recs.length, 2);
     equal(recs[0].platform, 'opencode');
     equal(recs[0].model, 'deepseek-v4', 'model 取 modelID');
     equal(recs[0].ts, new Date(t1).toISOString(), 'time_created unix ms → ISO');
-    equal(recs[0].inputTokens, 700);
+    equal(recs[0].inputTokens, 700, '逐行直接计（快照即用量）');
     equal(recs[0].outputTokens, 150 + 40, 'output 含 reasoning（对齐 opencode 语义）');
     equal(recs[0].reasoningTokens, 40);
     equal(recs[0].cacheReadTokens, 200);
     equal(recs[0].cacheWriteTokens, 30);
     equal(recs[1].model, 'gpt-5.2');
-    equal(recs[1].outputTokens, 60, 'reasoning=0 时 output 不变');
+    equal(recs[1].inputTokens, 900, '不做 session 级差分——每行独立计');
+    equal(recs[1].outputTokens, 200 + 50, 'output 含 reasoning');
+    equal(recs[1].reasoningTokens, 50);
+    equal(recs[1].cacheReadTokens, 300);
+    equal(recs[1].cacheWriteTokens, 40);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -215,6 +220,26 @@ test('opencodeDbPaths：macOS 与 Linux 候选路径，只返回存在的', () =
     const paths = opencodeDbPaths(dir);
     equal(paths.length, 1, 'Linux 候选存在');
     ok(paths[0].endsWith(join('.local', 'share', 'opencode', 'opencode.db')));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── per-request 快照语义边界（对齐 TokenTracker normalizeOpencodeTokens）──
+
+test('parseOpenCodeMessages：cache.read 回退行独立计（不差分钳制）；reasoning 折入 output', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-oc-snap-'));
+  try {
+    // 真实形态：context 缩小时 cache.read 回退（70528 < 71424），但每行仍是独立请求用量
+    const dbPath = makeMessageDb(dir, [
+      { id: 'm1', time_created: 1000, data: msgData('assistant', { input: 5868, output: 65, reasoning: 15, cache: { read: 71424, write: 0 } }, 'mimo-v2.5-pro') },
+      { id: 'm2', time_created: 2000, data: msgData('assistant', { input: 9356, output: 165, reasoning: 212, cache: { read: 70528, write: 0 } }, 'big-pickle') },
+    ]);
+    const recs = parseOpenCodeMessages(dbPath);
+    equal(recs.length, 2);
+    equal(recs[1].cacheReadTokens, 70528, 'cache.read 回退仍全量计（非 max(0) 钳制的 0）');
+    equal(recs[1].model, 'big-pickle', '各行模型独立归属');
+    equal(recs[1].outputTokens, 165 + 212);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

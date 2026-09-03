@@ -3,7 +3,8 @@
  * - db：~/.zcode/cli/db/db.sqlite
  * - 精确路径：model_usage 表（per-request per-model，正确数据源）——显式列 SELECT，
  *   model_id=模型、started_at（unix ms）=时间，input/output/reasoning/cache 各列直接映射；
- *   status 有值即计（error/cancelled 也消耗了 token，不参与过滤）
+ *   status 有值即计（error/cancelled 也消耗了 token，不参与过滤）；
+ *   只计 GLM/Z.ai/BigModel 系模型（matchZaiModel，TokenTracker 口径：捆绑子代理排除）
  * - 降级路径：model_usage 表不存在时，泛化遍历含 token 列的表（旧逻辑）——但行级真实 ts 提取不到 → 跳过该行
  *   （禁止 mtime 兜底：全表挤进单一 mtime 时刻会污染时间分布，宁缺勿错）
  * - 防御式：model_usage 缺关键列（schema 漂移）→ []；表/列缺失 → []；绝不写（querySqlite readonly）
@@ -71,6 +72,15 @@ const MODEL_USAGE_COLS = [
 /** 关键 token 列（缺任一 → 判 schema 漂移 → []，不降级误读） */
 const MODEL_USAGE_KEY = ['input_tokens', 'output_tokens'] as const;
 
+/** TokenTracker 口径（来源：TokenTracker plugin 注释）——只计 Z.ai/BigModel GLM 系 turns，捆绑的 Claude/Codex/Gemini 子代理排除 */
+const GLM_MODEL_RE = /glm|zai|bigmodel/i;
+
+/** GLM/Z.ai/BigModel 系模型匹配（大小写不敏感）；model_id 缺失/非 GLM 系 → null（调用方跳过该行） */
+export function matchZaiModel(modelId: unknown): string | null {
+  if (typeof modelId !== 'string' || !modelId) return null;
+  return GLM_MODEL_RE.test(modelId) ? modelId : null;
+}
+
 /** 精确路径：model_usage 表 → UsageRecord[]（前提：hasTable 已确认表存在）；缺关键列/查询失败 → null */
 function parseModelUsage(dbPath: string): UsageRecord[] | null {
   const cols = querySqlite(dbPath, 'PRAGMA table_info("model_usage")');
@@ -82,12 +92,14 @@ function parseModelUsage(dbPath: string): UsageRecord[] | null {
   if (!rows) return null;
   const out: UsageRecord[] = [];
   for (const row of rows) {
+    const model = matchZaiModel(row.model_id);
+    if (!model) continue; // model_id 缺失 / 非 GLM 系（捆绑子代理）→ 跳过
     const ts = rowTs(row.started_at);
     if (!ts) continue;
     const rec: UsageRecord = {
       ts,
       platform: 'zcode',
-      model: (typeof row.model_id === 'string' && row.model_id) || 'unknown',
+      model,
       inputTokens: num(row.input_tokens),
       outputTokens: num(row.output_tokens),
       cacheReadTokens: num(row.cache_read_input_tokens),
