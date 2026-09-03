@@ -35,6 +35,23 @@
 - 文档：设计 docs/design/工作流-workflows-design.md §7 · 记录 docs/records/工作流v2-workflows-v2-record.md
 - commits：39e6f4c（fix）/ ffba8d5（feat）/ 530db1e（test）/ 9e4e2c5（docs）→ merge 563ef72
 
+## 2026-09-03 Token 视图准确率根治——三平台修复 + TokenTracker 对账（t100110 追加）
+
+- 类型：数据准确性修复（无共识规则变化）
+- 内容：①zcode：model_usage 表精确查询（真实 schema）+ GLM/Z.ai/BigModel 过滤（对齐 TT 排除捆绑子代理 turn）；②opencode：opencode.db message 表 per-message 真实用量升主源（token-history 累计快照降兜底、Session 表弃用）；③dsh：多帧 zstd 容器逐帧解压（原单帧丢全部事件 → 0 记录）+ assistant/chunk camelCase usage + 同请求流式快照去重（0→238 条，与原始事件直加精确对账）
+- 对账结论（oracle 全景分析 TT 安装版源码 + queue.jsonl 去重正确处理）：**多数天 ≤±1%**（opencode 多天 0.0%、dsh 0.0%、zcode ≤0.7%）；「TT 准我们不准」为三层假象——queue 累积快照被全量和（对账基准错误 2-5×）+ UTC/本地日界（161× 完美风暴）+ TT 快照时点记账永不回缩（8/31-9/1 TT 侧虚高 ~100M，我们读 db 最终态更准）
+- 决策：8/31-9/1 残差为 TT 侧虚高口径差，接受不追平（追平唯一路径=请求时点实时捕获插件，成本高）
+- 文档：docs/research/2026-09-03-tokentracker对账分析.md
+- commits：7353ea3 / 6f244fb / 7627e3f / 2cddfa1
+
+## 2026-09-03 Token 视图 v2 全量——成本换算 + 五档对齐 TT + 小时桶缓存（ticket t100110，PR #8）
+
+- 类型：功能扩展（无共识规则变化）
+- 内容：①成本换算：内嵌 2026-09 价格 seed（45 模型，input/output/cache 分项 $/1M）+ matcher（去前缀/别名/包含）+ 诚实 null 语义（行内全定价才给数值否则「—」）+ 汇总成本卡 + 明细成本列；opencode SQLite 兜底（token-history 优先双源 fallback，两源永不叠加）；②五档范围对齐 TokenTracker：日/周/月/总计/自定义——{from,to} 双边界（to=今天封顶挡未来脏数据）、total=最近 24 个月有界、custom 原生日期区间、序列桶按范围自适应（hour/day/month）；③小时桶持久化缓存：usage-cache.ts（source+model+hour 预聚合 + 平台指纹 + CACHE_VERSION），指纹命中免全量扫描（683ms→57ms），扫描入口唯一化；④平台/模型明细表占比列（TT 同款）
+- 核验：121 测试绿 + tsc ✓ + fake-DOM 冒烟 4 页 + 用户逐轮实测验证通过（2026-09-03）
+- 文档：docs/design/Token视图v2-成本换算与SQLite兜底-design.md（v2+v2.1 冻结）
+- commits：ffbfb78 / 9ddb76f / b2bc61f
+
 ## 2026-09-02 UI 视觉优化 P1/P2 剩余项（ticket t100109，PR #7）
 
 - 类型：UI 体系重构（无共识规则变化）
