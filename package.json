@@ -16,7 +16,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "npm run test:unit && npm run test:integration",
-    "test:unit": "tsc && node --test \"dist/**/*.test.js\"",
+    "test:unit": "tsc && node --test \"dist/**/*.test.js\" \"src/renderer/*.test.js\"",
     "test:integration": "tsc -p tsconfig.tests.json && node --test \"dist-tests/tests/**/*.test.js\"",
     "test:e2e": "tsc && playwright test",
     "verify:acceptance": "node scripts/verify-acceptance.mjs",

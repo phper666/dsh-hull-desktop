@@ -27,6 +27,10 @@ src/**/*.js.map
 !src/renderer/tokens.js
 !src/renderer/connections.js
 !src/renderer/workflows.js
+# U3 依赖图手写源（同 kanban 先例；core=纯函数/渲染/单测，node:test 直跑不入 dist）
+!src/renderer/depgraph.js
+!src/renderer/depgraph-core.js
+!src/renderer/depgraph-core.test.js
 !src/tokens/
 !src/tokens/**/*.ts
 # 更新缓存对账 + 下载记录（防陈旧差分基假回退）
