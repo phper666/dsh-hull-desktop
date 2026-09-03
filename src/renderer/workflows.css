@@ -57,15 +57,15 @@
 .wf-empty { margin: auto; text-align: center; color: var(--hull-text-muted); }
 .wf-empty h2 { font-size: var(--text-xl); font-weight: 600; margin: 0 0 var(--space-2); color: var(--hull-text); }
 
-.wf-runs { padding: 0 var(--space-4) var(--space-4); }
-.wf-runs h3 { font-size: var(--text-xs); color: var(--hull-text-dim); text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 var(--space-2); }
-.wf-run { background: var(--hull-card); border: 1px solid var(--hull-border); border-radius: var(--radius-md); padding: 8px 10px; margin-bottom: 6px; font-size: var(--text-sm); box-shadow: var(--shadow-1); }
-.wf-run .head { display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-1); }
-.wf-run .time { color: var(--hull-text-sub); font-size: var(--text-xs); }
-.wf-run .stepline { font-size: var(--text-xs); color: var(--hull-text-dim); padding: 1px 0; font-family: var(--font-mono); word-break: break-all; }
-.wf-run .stepline.err { color: var(--hull-danger); }
 
 /* P1-h：surface ladder hover 动效守卫 */
 @media (prefers-reduced-motion: reduce) { .wf-card { transition: none; } .wf-card:hover { transform: none; } }
 
 /* 间距特例：1px×1、3px×1、6px×6、10px×5、14px×3（待归并档位） */
+
+/* §9.5：通知中心「查看工作流」跳转定位高亮 */
+.wf-card.flash { animation: wf-flash 1.6s var(--ease-out); }
+@keyframes wf-flash {
+  0%, 60% { outline: 2px solid var(--hull-accent); outline-offset: 2px; }
+  100% { outline: 2px solid transparent; outline-offset: 2px; }
+}

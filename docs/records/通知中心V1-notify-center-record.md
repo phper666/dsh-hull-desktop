@@ -52,3 +52,10 @@
 | 9.3 非目标 | 未做第二源/服务端已读/导出/规则配置 ✓ |
 
 **核验结论：通过**。风险项：表格 60s 不自动重绘（仅角标）为设计内取舍；真机视觉走查待用户 dev 验证。
+
+## §9.5 交互修订追加（2026-09-03 用户三项确认）
+
+1. 工作流页全局「最近运行」段移除（与中心同源冗余；卡片保留上次运行徽标）——workflows.js runHtml/wf-runs CSS 摘除。
+2. 通知中心行点击 = 原地手风琴详情（步骤日志 ✓/✗+类型+消息+耗时、触发/起止绝对时间、总耗时）——toNotifRows 增 log/finishedAt，nt-item 包裹结构。
+3. 跳转改显式「查看工作流」按钮：`__workflowsHighlightId` 消费 → renderList 后 scrollIntoView 居中 + 卡片 flash 描边 1.6s。
+- 验证：notifs e2e 断言重写（展开/收起/步骤文本/跳转 flash/wf-runs 移除）全绿；全量 e2e 31 绿 + 2 flake 重跑绿（E2E-03/06 与改动面无关）；node --check ✓；单测无涉（纯渲染层）。

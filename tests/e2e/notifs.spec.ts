@@ -98,11 +98,23 @@ test('E2E-08 通知中心 › 铃铛入口 → 页面/未读行/角标/标记已
     await shell.click('#nt-status button[data-f="failed"]');
     await expect(rows).toHaveCount(1);
 
-    // 行点击 → 跳工作流视图
+    // §9.5：行点击 = 原地展开详情（步骤日志/起止时间），再点收起
     await shell.click('#nt-status button[data-f="all"]');
     await rows.nth(1).click();
+    const detail = shell.locator('#nt-rows .nt-item').nth(1).locator('.nt-detail');
+    await expect(detail).toBeVisible();
+    await expect(detail.locator('.nt-step')).toContainText('巡检完成');
+    await expect(detail.locator('.nt-meta-line')).toContainText('定时（cron）');
+    await rows.nth(1).click();
+    await expect(detail).toBeHidden();
+
+    // §9.5：详情内「查看工作流」→ 跳工作流视图 + 卡片 flash 定位 + 全局最近运行段已移除
+    await rows.nth(1).click();
+    await detail.locator('.nt-goto').click();
     await expect(shell.locator('#workflows')).toBeVisible();
     await expect(shell.locator('#notifs')).toBeHidden();
+    await expect(shell.locator('.wf-runs')).toHaveCount(0);
+    await expect(shell.locator('#workflows .wf-card[data-id="wf-night"]')).toHaveClass(/flash/, { timeout: 1000 });
   } finally {
     if (app) await app.close().catch(() => {});
     tmp.cleanup();
