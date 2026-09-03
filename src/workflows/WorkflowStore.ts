@@ -1,12 +1,14 @@
 /**
  * 工作流存储：workflows.json（定义）+ runs.json（最近 50 次运行日志，环形裁剪）。
  * 落 <userData>/workflows/（不触 DSH_HOME，CON-R002）。
+ * v2：trigger 字段级扩展（cron 表达式 save 时校验，version 不 bump；无 trigger = 手动，读侧容错）。
  */
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { WorkflowDef, WorkflowRun } from './types';
+import type { WorkflowDef, WorkflowRun, WorkflowTriggerCron } from './types';
+import { parseCron } from './cron';
 
 const MAX_RUNS = 50;
 
@@ -48,8 +50,12 @@ export class WorkflowStore {
     return this.list().find((w) => w.id === id) ?? null;
   }
 
-  save(input: { id?: string; name: string; enabled?: boolean; steps: WorkflowDef['steps'] }): WorkflowDef {
+  save(input: { id?: string; name: string; enabled?: boolean; steps: WorkflowDef['steps']; trigger?: WorkflowTriggerCron | null }): WorkflowDef {
     if (!input.name.trim()) throw new Error('工作流名称不能为空');
+    if (input.trigger) {
+      if (input.trigger.type !== 'cron') throw new Error(`不支持的触发器类型: ${String((input.trigger as { type?: string }).type)}`);
+      parseCron(input.trigger.expr); // 非法表达式抛错（含字段名），拒绝保存
+    }
     const defs = this.loadDefs();
     const now = new Date().toISOString();
     if (input.id) {
@@ -58,6 +64,7 @@ export class WorkflowStore {
       w.name = input.name.trim();
       w.enabled = input.enabled ?? w.enabled;
       w.steps = input.steps;
+      w.trigger = input.trigger ?? null;
       w.updatedAt = now;
       this.persistDefs(defs);
       return this.get(w.id) as WorkflowDef;
@@ -67,6 +74,7 @@ export class WorkflowStore {
       name: input.name.trim(),
       enabled: input.enabled ?? true,
       steps: input.steps,
+      trigger: input.trigger ?? null,
       createdAt: now,
       updatedAt: now,
     };

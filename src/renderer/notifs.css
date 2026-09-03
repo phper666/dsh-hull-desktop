@@ -1,0 +1,53 @@
+/* §9 V1 通知中心页样式（--hull-* 令牌沿用 shell.html；铃铛角标样式从 workflows.css 迁入） */
+#notifs:not(.hidden) { position: absolute; inset: 0; z-index: 10; display: block; }
+#notifs-root {
+  width: 100%; height: 100%; display: flex; flex-direction: column;
+  overflow-y: auto; background: var(--hull-bg); color: var(--hull-text); font-size: 13px;
+}
+
+.nt-toolbar {
+  display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+  border-bottom: 1px solid var(--hull-border); background: var(--hull-panel); flex-wrap: wrap;
+  position: sticky; top: 0; z-index: 5;
+}
+.nt-search { width: 240px; border: 1px solid var(--hull-border); border-radius: var(--radius-md); padding: 6px 10px; font-size: 12px; color: var(--hull-text); background: var(--hull-bg); outline: none; }
+.nt-search:focus { border-color: var(--hull-accent); }
+.c-seg { display: flex; border: 1px solid var(--hull-border); border-radius: var(--radius-md); overflow: hidden; }
+.c-seg button { padding: 5px 12px; font-size: 11px; border: none; background: transparent; color: var(--hull-text-dim); cursor: pointer; }
+.c-seg button.active { background: var(--hull-accent); color: var(--hull-text-inverse); }
+.nt-trigger { border: 1px solid var(--hull-border); border-radius: var(--radius-sm); padding: 5px 8px; font-size: 12px; color: var(--hull-text); background: var(--hull-bg); outline: none; }
+.nt-source-chip { font-size: 11px; padding: 3px 10px; border-radius: var(--radius-pill); background: var(--hull-accent-soft); color: var(--hull-accent); }
+.nt-meta { margin-left: auto; font-size: 11px; color: var(--hull-text-sub); }
+
+.nt-table { flex: 1; }
+.nt-thead {
+  display: grid; grid-template-columns: 72px 1.2fr 64px 2.4fr 76px 110px; gap: 10px;
+  padding: 8px 18px; font-size: 10px; color: var(--hull-text-sub); text-transform: uppercase; letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--hull-border); position: sticky; top: 45px; background: var(--hull-bg); z-index: 4;
+}
+.nt-row {
+  display: grid; grid-template-columns: 72px 1.2fr 64px 2.4fr 76px 110px; gap: 10px;
+  padding: 9px 18px; font-size: 12px; border-bottom: 1px solid var(--hull-border);
+  cursor: pointer; align-items: center;
+}
+.nt-row:hover { background: var(--hull-hover); }
+.nt-row.unread { box-shadow: inset 3px 0 0 var(--hull-danger); background: var(--hull-accent-faint, transparent); }
+.nt-row .wf { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nt-row .msg { color: var(--hull-text-muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nt-row .msg.err { color: var(--hull-danger); }
+.nt-row .dur, .nt-row .tm { color: var(--hull-text-sub); font-size: 11px; font-family: var(--font-mono); }
+.nt-empty { padding: 40px 20px; text-align: center; color: var(--hull-text-muted); }
+
+.nt-foot { display: flex; align-items: center; gap: 12px; padding: 10px 18px; border-top: 1px solid var(--hull-border); background: var(--hull-panel); position: sticky; bottom: 0; }
+.nt-foot button { padding: 5px 14px; border-radius: var(--radius-md); border: 1px solid var(--hull-border); background: transparent; color: var(--hull-text-dim); font-size: 12px; cursor: pointer; }
+.nt-foot button:hover { border-color: var(--hull-accent); color: var(--hull-accent); }
+.nt-hint { font-size: 11px; color: var(--hull-text-sub); }
+
+/* 铃铛角标（§8.2 引入、§9.2 迁入本文件；进页面即清零） */
+.wf-bell { position: relative; margin-top: 2px; }
+.wf-badge-dot {
+  position: absolute; top: 4px; right: 8px; min-width: 16px; height: 16px;
+  padding: 0 4px; border-radius: var(--radius-pill);
+  background: var(--hull-danger); color: var(--hull-text-inverse);
+  font-size: 10px; font-weight: 700; line-height: 16px; text-align: center;
+}

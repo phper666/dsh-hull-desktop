@@ -10,14 +10,19 @@ import type { FieldSchema, PlatformAdapter, PlatformId, VerifyResult } from './t
 
 const VERIFY_TIMEOUT_MS = 10_000;
 
-async function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
+async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = VERIFY_TIMEOUT_MS): Promise<Response> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), VERIFY_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     return await fetch(url, { ...init, signal: ctrl.signal });
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** 动作调用共用 fetch（发短信等：30s 超时，与 10s 验证区分） */
+export function sendFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  return fetchWithTimeout(url, init, 30_000);
 }
 
 function networkError(err: unknown): VerifyResult {
@@ -68,19 +73,18 @@ export function percentEncode(str: string): string {
   return encodeURIComponent(str).replace(/\+/g, '%20').replace(/\*/g, '%2A').replace(/%7E/g, '~');
 }
 
-/** 构造签名后完整 query（确定性：nonce/timestamp 注入 → 可单测） */
-export function buildAliyunQueryString(fields: Record<string, string>, nonce: string, timestamp: string): string {
+/** 构造签名后完整 query（通用：action + 业务参数，供验证与 SendSms 等动作复用；确定性：nonce/timestamp 注入 → 可单测） */
+export function buildAliyunSignedQuery(fields: Record<string, string>, action: string, biz: Record<string, string>, nonce: string, timestamp: string): string {
   const params: Record<string, string> = {
     AccessKeyId: fields.accessKeyId || '',
-    Action: 'QuerySmsTemplateList',
+    Action: action,
     Format: 'JSON',
-    PageIndex: '1',
-    PageSize: '1',
     SignatureMethod: 'HMAC-SHA1',
     SignatureNonce: nonce,
     SignatureVersion: '1.0',
     Timestamp: timestamp,
     Version: '2017-05-25',
+    ...biz,
   };
   const canonical = Object.keys(params)
     .sort()
@@ -89,6 +93,11 @@ export function buildAliyunQueryString(fields: Record<string, string>, nonce: st
   const stringToSign = `GET&${percentEncode('/')}&${percentEncode(canonical)}`;
   const signature = crypto.createHmac('sha1', `${fields.accessKeySecret || ''}&`).update(stringToSign).digest('base64');
   return `${canonical}&Signature=${percentEncode(signature)}`;
+}
+
+/** v1 模板列表验证 query（兼容保留，委托通用构造） */
+export function buildAliyunQueryString(fields: Record<string, string>, nonce: string, timestamp: string): string {
+  return buildAliyunSignedQuery(fields, 'QuerySmsTemplateList', { PageIndex: '1', PageSize: '1' }, nonce, timestamp);
 }
 
 export async function verifyAliyunSms(fields: Record<string, string>): Promise<VerifyResult> {
@@ -197,8 +206,8 @@ export async function verifySmtp(fields: Record<string, string>): Promise<Verify
     };
     timer = setTimeout(() => finish({ ok: false, message: '连接超时（10s）' }), VERIFY_TIMEOUT_MS);
 
-    // 状态机：banner(220) → EHLO → [AUTH LOGIN 用户名/密码] → 235 → QUIT
-    let stage: 'banner' | 'ehlo' | 'auth-user' | 'auth-pass' = 'banner';
+    // 状态机：banner(220) → EHLO → [AUTH LOGIN 用户名挑战(334) → 密码挑战(334) → 235] → QUIT
+    let stage: 'banner' | 'ehlo' | 'auth-user' | 'auth-pass' | 'auth-accepted' = 'banner';
     let buf = '';
     const onData = (chunk: Buffer | string) => {
       if (settled) return;
@@ -223,7 +232,11 @@ export async function verifySmtp(fields: Record<string, string>): Promise<Verify
           stage = 'auth-pass';
           socket?.write(Buffer.from(fields.username, 'utf8').toString('base64') + '\r\n');
         } else if (stage === 'auth-pass') {
-          if (code !== 235) return finish({ ok: false, message: `认证失败（密码被拒）: ${line.slice(4) || line}` });
+          if (code !== 334) return finish({ ok: false, message: `认证失败（密码挑战缺失）: ${line.slice(4) || line}` });
+          stage = 'auth-accepted';
+          socket?.write(Buffer.from(fields.password, 'utf8').toString('base64') + '\r\n');
+        } else if (stage === 'auth-accepted') {
+          if (code !== 235) return finish({ ok: false, message: `认证失败（凭据被拒）: ${line.slice(4) || line}` });
           socket?.write('QUIT\r\n');
           return finish({ ok: true, message: 'SMTP 连接成功（认证通过）' });
         }

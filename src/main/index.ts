@@ -18,7 +18,11 @@ import { registerTokenUsageIpc } from '../tokens/TokenUsageIpc';
 import { registerConnectionsIpc } from '../connections/ConnectionsIpc';
 import { registerWorkflowIpc } from '../workflows/WorkflowIpc';
 import { WorkflowEngine } from '../workflows/WorkflowEngine';
+import { WorkflowScheduler } from '../workflows/WorkflowScheduler';
 import { WorkflowStore } from '../workflows/WorkflowStore';
+import { invokeConnectionAction } from '../connections/Actions';
+import { scanAllSources } from '../tokens/TokenUsageScanner';
+import { summarize } from '../tokens/aggregator';
 import { Notification } from 'electron';
 import { ConnectionsStore } from '../connections/ConnectionsStore';
 import { PLATFORM_ADAPTERS } from '../connections/PlatformRegistry';
@@ -120,14 +124,46 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     maxExecutionIdleMinutes: 30,
   });
   // 工作流引擎（顺序步骤：dsh-card 联动看板+执行引擎；通知走系统 Notification）
+  // v2：connection-action（凭据 main 侧解密 → Actions 能力层）+ token-budget（tokens 扫描聚合）+ cron 定时调度器
+  // §8.1：通知点击 → 聚焦主窗口并切工作流视图（winMgr 晚于引擎构造，晚绑定引用）
+  let winMgrRef: WindowManager | null = null;
   const workflowStore = new WorkflowStore(userDataPath);
   const workflowEngine = new WorkflowEngine({
     store: workflowStore,
     kanban: kanbanStore,
     exec: execEngine,
-    notify: (title, body) => { try { new Notification({ title, body }).show(); } catch { /* 通知失败不阻塞 */ } },
+    notify: (title, body) => {
+      try {
+        const n = new Notification({ title, body });
+        n.on('click', () => {
+          try {
+            winMgrRef?.show();
+            winMgrRef?.focus();
+            winMgrRef?.showWorkflows();
+          } catch { /* 窗口已销毁等，忽略 */ }
+        });
+        n.show();
+      } catch { /* 通知失败不阻塞 */ }
+    },
+    invokeAction: async (connectionId, params) => {
+      const conn = connectionsStore.getCredentials(connectionId);
+      if (!conn) return { ok: false, message: '连接不存在或已被删除，请重新选择' };
+      return invokeConnectionAction(conn.platform, conn.fields, params);
+    },
+    tokenUsage: async (period) => {
+      const { records } = scanAllSources();
+      const summary = summarize(records, period, []);
+      return { totalTokens: summary.totals.totalTokens };
+    },
   });
-  registerWorkflowIpc(workflowStore, workflowEngine);
+  // v2 定时调度器：save/delete/启停时由 IPC 全量重算；壳启动排期；退出清理
+  const workflowScheduler = new WorkflowScheduler({
+    engine: workflowEngine,
+    getDefs: () => workflowStore.list(),
+    log: (m) => logger.warn(m),
+  });
+  registerWorkflowIpc(workflowStore, workflowEngine, workflowScheduler);
+  workflowScheduler.reschedule();
   execEngine.start(); // 壳重启收敛（Q-017）：running/paused/interrupted → failed + queued 重排
   // B1 store 内部 system 事件写原语（B4 审批/AC 修订 timeline 写权，P1-1：B4 经 store 原语直调，不经 IPC）
   const appendSystem = (boardId: string, taskId: string, content: string): void => {
@@ -299,6 +335,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     },
     logger,
   });
+  winMgrRef = winMgr; // §8.1：工作流通知点击跳转的晚绑定引用回填
   // S8' D5：托盘补充入口（聚焦主窗口 + 切视图；设置 → showSettings，检查 dsh → 聚焦主窗口 + 切 settings 视图渲染确认）
   const tray = new TrayController({
     runtime,
@@ -367,6 +404,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     app.quit();
   };
   app.on('before-quit', (e) => {
+    workflowScheduler.dispose(); // v2：定时调度器 timer 清理（无未决任务，不阻塞退出编排）
     if (hullUpdater.isQuitAndInstallMode()) return; // S5：自更新退出放行（S1 双 flag 零改动，D5）
     if (quitProceeding) return; // 最终 quit 已发出 → 放行默认退出
     e.preventDefault(); // 编排进行中任何二次退出触发都拦截，防跳过 SIGKILL 升级与延时
@@ -690,6 +728,12 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   ipcMain.handle('hull:showWorkflows', async () => {
     if (quitting) return { ok: false, message: '正在退出' };
     winMgr.showWorkflows();
+    return { ok: true };
+  });
+  // 通知中心视图（§9 V1：铃铛入口，镜像 showWorkflows）
+  ipcMain.handle('hull:showNotifs', async () => {
+    if (quitting) return { ok: false, message: '正在退出' };
+    winMgr.showNotifs();
     return { ok: true };
   });
   // B2 补丁：壳导航 dsh web 入口 → 恢复官方 view（与 showBoard 对称；无新通道）

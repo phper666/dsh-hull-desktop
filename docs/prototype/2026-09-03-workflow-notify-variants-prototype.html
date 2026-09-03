@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>工作流通知优化方案对比（4 方案）— 一次性原型</title>
+<style>
+  /* ============ 令牌（复刻 shell.html 设计语言） ============ */
+  :root, body[data-theme="dark"] {
+    --bg:#1e2430; --panel:#171c26; --border:#2a3342;
+    --text:#e8ecf3; --dim:#c3cddb; --muted:#93a0b4; --sub:#7c8aa3; --inverse:#fff;
+    --accent:#2e8bf5; --accent-hover:#3f97fb; --accent-soft:#2e8bf533; --accent-faint:#2e8bf514;
+    --hover:#33405a; --card:#232b3a;
+    --danger:#f85149; --danger-soft:#f8514933; --danger-faint:#f8514914;
+    --success:#3fb950; --success-soft:#3fb95033;
+    --warning:#d29922; --info:#58a6ff; --info-soft:#58a6ff33; --purple:#a371f7; --purple-soft:#a371f733;
+    --r-sm:6px; --r-md:8px; --r-lg:10px; --r-xl:12px; --r-pill:999px;
+    --sh1:0 1px 2px rgba(0,0,0,.3); --sh2:0 4px 24px rgba(0,0,0,.45);
+    --fast:120ms; --med:200ms; --ease:cubic-bezier(.25,.46,.45,.94);
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  body[data-theme="light"] {
+    --bg:#f5f7fa; --panel:#fff; --border:#d5dbe4;
+    --text:#1a2233; --dim:#4e5a6b; --muted:#6d7a8c; --sub:#8b97a9; --inverse:#fff;
+    --accent:#2e8bf5; --accent-hover:#1f6fd0; --accent-soft:#d3e8fc; --accent-faint:#eef4fd;
+    --hover:#e8edf2; --card:#fff;
+    --danger:#e03131; --danger-soft:#fdeaea; --danger-faint:#fdeaea;
+    --success:#2f9e44; --success-soft:#e6f7ec;
+    --warning:#d29922; --info:#1a7ae0; --info-soft:#e6f2ff; --purple:#7c3aed; --purple-soft:#ede9fe;
+    --sh1:0 1px 2px rgba(16,24,40,.08); --sh2:0 8px 32px rgba(16,24,40,.16);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { background:var(--bg); color:var(--text); font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; font-size:13px; }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
+  button { font-family:inherit; cursor:pointer; }
+
+  /* ============ 顶部对比工具条 ============ */
+  .cmp-bar { position:sticky; top:0; z-index:200; display:flex; align-items:center; gap:10px; padding:10px 16px; background:var(--panel); border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  .cmp-bar h1 { font-size:14px; margin-right:6px; }
+  .cmp-tab { padding:5px 14px; border-radius:var(--r-pill); border:1px solid var(--border); background:transparent; color:var(--dim); font-size:12px; }
+  .cmp-tab.active { background:var(--accent); color:var(--inverse); border-color:transparent; }
+  .cmp-spacer { flex:1; }
+  .cmp-theme { padding:5px 12px; border-radius:var(--r-md); border:1px solid var(--border); background:transparent; color:var(--dim); font-size:12px; }
+  .cmp-note { padding:10px 16px; color:var(--muted); font-size:12px; line-height:1.7; border-bottom:1px solid var(--border); background:var(--bg); }
+  .cmp-note b { color:var(--text); }
+  .cmp-note .pro { color:var(--success); } .cmp-note .con { color:var(--danger); }
+
+  /* ============ 迷你壳框架（每个方案一个舞台） ============ */
+  .stage-wrap { padding:20px; display:flex; justify-content:center; }
+  .stage { display:none; width:1080px; max-width:100%; height:640px; background:var(--bg); border:1px solid var(--border); border-radius:var(--r-xl); overflow:hidden; box-shadow:var(--sh2); position:relative; }
+  .stage.active { display:flex; }
+  .mini-nav { width:172px; flex-shrink:0; background:var(--panel); border-right:1px solid var(--border); padding:12px 0; display:flex; flex-direction:column; }
+  .mini-nav .brand { padding:4px 14px 10px; font-size:12px; font-weight:700; color:var(--muted); }
+  .mini-nav .nitem { display:flex; align-items:center; gap:8px; margin:1px 8px; padding:7px 10px; border-radius:var(--r-md); color:var(--dim); font-size:12px; border:none; background:transparent; text-align:left; position:relative; }
+  .mini-nav .nitem.active { background:var(--accent-soft); color:var(--accent); }
+  .mini-nav .nitem:hover:not(.active) { background:var(--hover); }
+  .mini-nav .sep { height:1px; background:var(--border); margin:8px 14px; }
+  .mini-content { flex:1; position:relative; overflow:hidden; }
+  .mini-canvas { position:absolute; inset:0; padding:18px 22px; filter:none; }
+  .mini-canvas .fake-head { font-size:14px; font-weight:700; margin-bottom:12px; color:var(--dim); }
+  .fake-card { background:var(--card); border:1px solid var(--border); border-radius:var(--r-lg); padding:10px 14px; margin-bottom:8px; display:flex; align-items:center; gap:10px; opacity:.55; }
+  .fake-card .nm { font-weight:600; font-size:12px; }
+  .fake-card .ln { height:6px; border-radius:4px; background:var(--border); }
+  .badge { font-size:10px; padding:1px 7px; border-radius:var(--r-pill); }
+  .badge.success { background:var(--success-soft); color:var(--success); }
+  .badge.failed { background:var(--danger-soft); color:var(--danger); }
+  .badge.running { background:var(--info-soft); color:var(--info); }
+  .badge.cron { background:var(--accent-soft); color:var(--accent); }
+  .badge.muted { background:var(--border); color:var(--muted); }
+  .bell-btn { position:relative; }
+  .bell-dot { position:absolute; top:3px; right:6px; min-width:15px; height:15px; padding:0 4px; border-radius:var(--r-pill); background:var(--danger); color:var(--inverse); font-size:9px; font-weight:700; line-height:15px; text-align:center; }
+
+  .hint-toggle { position:absolute; right:16px; bottom:12px; font-size:11px; color:var(--sub); }
+  .va-tag { position:absolute; left:16px; bottom:12px; font-size:11px; color:var(--sub); }
+
+  /* ============ 方案 A：抽屉 Drawer ============ */
+  .a-mask { position:absolute; inset:0; background:rgba(0,0,0,.35); opacity:0; pointer-events:none; transition:opacity var(--med) var(--ease); z-index:20; }
+  .stage.a .mini-content.drawer-open .a-mask { opacity:1; pointer-events:auto; }
+  .a-drawer { position:absolute; top:0; left:0; bottom:0; width:352px; background:var(--panel); border-right:1px solid var(--border); box-shadow:var(--sh2); transform:translateX(-102%); transition:transform var(--med) var(--ease); z-index:21; display:flex; flex-direction:column; }
+  .stage.a .mini-content.drawer-open .a-drawer { transform:translateX(0); }
+  .a-head { padding:12px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; }
+  .a-head b { font-size:13px; }
+  .a-chips { margin-left:auto; display:flex; gap:6px; }
+  .chip { padding:3px 10px; font-size:11px; border-radius:var(--r-pill); border:1px solid var(--border); background:transparent; color:var(--dim); }
+  .chip.active { background:var(--accent-soft); color:var(--accent); border-color:transparent; }
+  .a-mark { font-size:11px; color:var(--accent); background:none; border:none; }
+  .a-day { padding:10px 14px 4px; font-size:11px; color:var(--sub); font-weight:600; }
+  .a-unread-sep { display:flex; align-items:center; gap:8px; padding:6px 14px; color:var(--danger); font-size:10px; font-weight:700; letter-spacing:.08em; }
+  .a-unread-sep::before, .a-unread-sep::after { content:""; flex:1; height:1px; background:var(--danger-soft); }
+  .a-list { flex:1; overflow-y:auto; padding-bottom:10px; }
+  .a-row { display:flex; gap:9px; padding:8px 14px; cursor:pointer; }
+  .a-row:hover { background:var(--hover); }
+  .a-row.unread { background:var(--accent-faint); box-shadow:inset 3px 0 0 var(--danger); }
+  .a-row .dot { width:8px; height:8px; border-radius:50%; margin-top:5px; flex-shrink:0; }
+  .a-row .dot.ok { background:var(--success); } .a-row .dot.err { background:var(--danger); } .a-row .dot.run { background:var(--info); }
+  .a-row .b { min-width:0; flex:1; }
+  .a-row .l1 { display:flex; align-items:center; gap:6px; font-size:12px; }
+  .a-row .l1 .t { margin-left:auto; color:var(--sub); font-size:11px; flex-shrink:0; }
+  .a-row .m { margin-top:2px; font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .a-row .m.err { color:var(--danger); }
+  .a-foot { padding:9px 14px; border-top:1px solid var(--border); }
+  .a-foot button { width:100%; padding:7px; border-radius:var(--r-md); border:1px solid var(--border); background:transparent; color:var(--dim); font-size:12px; }
+
+  /* ============ 方案 B：工作流分组折叠 ============ */
+  .b-panel { position:absolute; top:14px; right:14px; bottom:14px; width:430px; background:var(--panel); border:1px solid var(--border); border-radius:var(--r-xl); box-shadow:var(--sh2); display:flex; flex-direction:column; z-index:21; overflow:hidden; }
+  .b-head { padding:12px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; }
+  .b-head b { font-size:13px; }
+  .b-head .chips { margin-left:auto; display:flex; gap:6px; }
+  .b-list { flex:1; overflow-y:auto; padding:8px; }
+  .b-group { border:1px solid var(--border); border-radius:var(--r-lg); margin-bottom:8px; overflow:hidden; }
+  .b-group.alert { border-color:var(--danger-soft); }
+  .b-gh { display:flex; align-items:center; gap:9px; padding:9px 12px; cursor:pointer; user-select:none; }
+  .b-gh:hover { background:var(--hover); }
+  .b-ava { width:24px; height:24px; border-radius:var(--r-md); color:var(--inverse); font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .b-gh .nm { font-weight:600; font-size:12px; }
+  .b-gh .sum { font-size:11px; color:var(--muted); }
+  .b-gh .sum .f { color:var(--danger); font-weight:700; }
+  .b-gh .caret { margin-left:auto; color:var(--sub); font-size:10px; transition:transform var(--fast) var(--ease); }
+  .b-group.collapsed .caret { transform:rotate(-90deg); }
+  .b-group.collapsed .b-rows { display:none; }
+  .b-rows { border-top:1px solid var(--border); }
+  .b-row { display:flex; gap:8px; padding:7px 12px; font-size:11px; cursor:pointer; align-items:center; }
+  .b-row:hover { background:var(--hover); }
+  .b-row .dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+  .b-row .dot.ok { background:var(--success); } .b-row .dot.err { background:var(--danger); }
+  .b-row .m { color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; }
+  .b-row .m.err { color:var(--danger); }
+  .b-row .t { color:var(--sub); flex-shrink:0; }
+
+  /* ============ 方案 C：独立通知页 ============ */
+  .c-page { position:absolute; inset:0; background:var(--bg); z-index:21; display:flex; flex-direction:column; }
+  .c-toolbar { display:flex; align-items:center; gap:10px; padding:12px 18px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  .c-toolbar b { font-size:14px; margin-right:4px; }
+  .c-search { flex:1; min-width:180px; max-width:320px; padding:6px 10px; border-radius:var(--r-md); border:1px solid var(--border); background:var(--panel); color:var(--text); font-size:12px; outline:none; }
+  .c-search:focus { border-color:var(--accent); }
+  .c-seg { display:flex; border:1px solid var(--border); border-radius:var(--r-md); overflow:hidden; }
+  .c-seg button { padding:5px 12px; font-size:11px; border:none; background:transparent; color:var(--dim); }
+  .c-seg button.active { background:var(--accent); color:var(--inverse); }
+  .c-meta { margin-left:auto; font-size:11px; color:var(--sub); }
+  .c-table { flex:1; overflow-y:auto; }
+  .c-thead { display:grid; grid-template-columns:72px 1.2fr 64px 2.2fr 88px 96px; gap:10px; padding:8px 18px; font-size:10px; color:var(--sub); text-transform:uppercase; letter-spacing:.05em; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); }
+  .c-tr { display:grid; grid-template-columns:72px 1.2fr 64px 2.2fr 88px 96px; gap:10px; padding:9px 18px; font-size:12px; border-bottom:1px solid var(--border); cursor:pointer; align-items:center; }
+  .c-tr:hover { background:var(--hover); }
+  .c-tr.unread { box-shadow:inset 3px 0 0 var(--danger); background:var(--accent-faint); }
+  .c-tr .st { font-size:11px; }
+  .c-tr .wf { font-weight:600; }
+  .c-tr .msg { color:var(--muted); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .c-tr .msg.err { color:var(--danger); }
+  .c-tr .dur, .c-tr .tm { color:var(--sub); font-size:11px; font-family:var(--mono); }
+  .c-foot { padding:10px 18px; border-top:1px solid var(--border); display:flex; align-items:center; }
+  .c-foot button { padding:6px 16px; border-radius:var(--r-md); border:1px solid var(--border); background:transparent; color:var(--dim); font-size:12px; }
+
+  /* ============ 方案 D：站内 Toast + 铃铛收口 ============ */
+  .d-toasts { position:absolute; top:14px; right:14px; z-index:30; display:flex; flex-direction:column; gap:8px; width:330px; }
+  .d-toast { display:flex; gap:10px; padding:11px 13px; border-radius:var(--r-lg); background:var(--panel); border:1px solid var(--border); box-shadow:var(--sh2); animation:d-in var(--med) var(--ease); }
+  @keyframes d-in { from { transform:translateX(30px); opacity:0; } to { transform:none; opacity:1; } }
+  .d-toast.leaving { transition:opacity var(--med), transform var(--med); opacity:0; transform:translateX(30px); }
+  .d-toast .ico { width:22px; height:22px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:12px; color:var(--inverse); }
+  .d-toast.ok .ico { background:var(--success); }
+  .d-toast.err .ico { background:var(--danger); border:1px solid var(--danger); }
+  .d-toast.err { border-color:var(--danger); }
+  .d-toast .b { flex:1; min-width:0; }
+  .d-toast .t { font-size:12px; font-weight:700; }
+  .d-toast .m { font-size:11px; color:var(--muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .d-toast .ops { display:flex; gap:6px; margin-top:7px; }
+  .d-toast .ops button { padding:3px 10px; font-size:11px; border-radius:var(--r-sm); border:1px solid var(--border); background:transparent; color:var(--dim); }
+  .d-toast .ops button.pri { background:var(--accent); color:var(--inverse); border-color:transparent; }
+  .d-play { position:absolute; top:14px; left:18px; z-index:25; display:flex; gap:8px; }
+  .d-play button { padding:6px 14px; border-radius:var(--r-md); border:1px solid var(--border); background:var(--panel); color:var(--dim); font-size:12px; }
+  .d-play button:hover { border-color:var(--accent); color:var(--accent); }
+  .d-pop { position:absolute; top:56px; right:14px; width:330px; max-height:420px; background:var(--panel); border:1px solid var(--border); border-radius:var(--r-lg); box-shadow:var(--sh2); z-index:29; overflow-y:auto; display:none; padding:6px; }
+  .d-pop.open { display:block; }
+</style>
+</head>
+<body data-theme="dark">
+
+<div class="cmp-bar">
+  <h1>工作流通知 · 4 方案对比</h1>
+  <button class="cmp-tab active" data-v="a">A · 抽屉 Drawer</button>
+  <button class="cmp-tab" data-v="b">B · 按工作流分组</button>
+  <button class="cmp-tab" data-v="c">C · 独立通知页</button>
+  <button class="cmp-tab" data-v="d">D · 站内 Toast 实时</button>
+  <span class="cmp-spacer"></span>
+  <button class="cmp-theme" id="themeBtn">☾ / ☀ 主题</button>
+</div>
+<div class="cmp-note" id="cmpNote"></div>
+
+<!-- ============ 舞台 A：抽屉 ============ -->
+<div class="stage-wrap">
+<div class="stage a active" data-v="a">
+  <div class="mini-nav">
+    <div class="brand">dsh-hull-desktop</div>
+    <button class="nitem">dsh web</button>
+    <button class="nitem">任务看板</button>
+    <button class="nitem">Skills</button>
+    <button class="nitem">Token 消耗</button>
+    <button class="nitem">工作台连接</button>
+    <button class="nitem">工作流</button>
+    <div class="sep"></div>
+    <button class="nitem bell-btn active" id="aBell">🔔 通知<span class="bell-dot" id="aBadge">3</span></button>
+    <button class="nitem">设置</button>
+  </div>
+  <div class="mini-content" id="aContent">
+    <div class="a-mask" id="aMask"></div>
+    <div class="mini-canvas">
+      <div class="fake-head">工作流</div>
+      <div class="fake-card"><span class="nm">夜间巡检</span><span class="ln" style="flex:1"></span><span class="badge failed">上次失败</span></div>
+      <div class="fake-card"><span class="nm">Token 预算告警</span><span class="ln" style="flex:1"></span><span class="badge success">上次成功</span></div>
+      <div class="fake-card"><span class="nm">发布提醒</span><span class="ln" style="flex:1"></span><span class="badge muted">未运行过</span></div>
+    </div>
+    <div class="a-drawer">
+      <div class="a-head"><b>工作流通知</b>
+        <div class="a-chips"><button class="chip active" data-f="all">全部</button><button class="chip" data-f="failed">仅失败</button></div>
+        <button class="a-mark" id="aMark">全部已读</button>
+      </div>
+      <div class="a-list" id="aList"></div>
+      <div class="a-foot"><button>→ 查看全部运行记录</button></div>
+    </div>
+  </div>
+  <span class="va-tag">A · 抽屉：从侧边滑出，日期分组 + 未读分隔线</span>
+  <span class="hint-toggle">点侧边栏「🔔 通知」开合 · 点行无跳转（演示）</span>
+</div>
+</div>
+
+<!-- ============ 舞台 B：分组 ============ -->
+<div class="stage-wrap">
+<div class="stage b" data-v="b">
+  <div class="mini-nav">
+    <div class="brand">dsh-hull-desktop</div>
+    <button class="nitem">dsh web</button>
+    <button class="nitem">任务看板</button>
+    <button class="nitem">Skills</button>
+    <button class="nitem">Token 消耗</button>
+    <button class="nitem">工作台连接</button>
+    <button class="nitem">工作流</button>
+    <div class="sep"></div>
+    <button class="nitem bell-btn" id="bBell">🔔 通知<span class="bell-dot">3</span></button>
+    <button class="nitem">设置</button>
+  </div>
+  <div class="mini-content">
+    <div class="mini-canvas" style="opacity:.5">
+      <div class="fake-head">工作流</div>
+      <div class="fake-card"><span class="nm">夜间巡检</span><span class="ln" style="flex:1"></span></div>
+      <div class="fake-card"><span class="nm">Token 预算告警</span><span class="ln" style="flex:1"></span></div>
+    </div>
+    <div class="b-panel" id="bPanel">
+      <div class="b-head"><b>工作流通知</b>
+        <div class="chips"><button class="chip active">全部</button><button class="chip">仅失败</button></div>
+      </div>
+      <div class="b-list" id="bList"></div>
+    </div>
+  </div>
+  <span class="va-tag">B · 分组：按工作流归堆，失败组置顶自动展开，点组头折叠</span>
+  <span class="hint-toggle">点组头折叠/展开 · 归属感一眼可见</span>
+</div>
+</div>
+
+<!-- ============ 舞台 C：独立页 ============ -->
+<div class="stage-wrap">
+<div class="stage c" data-v="c">
+  <div class="mini-nav">
+    <div class="brand">dsh-hull-desktop</div>
+    <button class="nitem">dsh web</button>
+    <button class="nitem">任务看板</button>
+    <button class="nitem">Skills</button>
+    <button class="nitem">Token 消耗</button>
+    <button class="nitem">工作台连接</button>
+    <button class="nitem">工作流</button>
+    <div class="sep"></div>
+    <button class="nitem bell-btn active">🔔 通知中心<span class="bell-dot">3</span></button>
+    <button class="nitem">设置</button>
+  </div>
+  <div class="mini-content">
+    <div class="c-page">
+      <div class="c-toolbar">
+        <b>通知中心</b>
+        <input class="c-search" id="cSearch" placeholder="搜索工作流名 / 错误消息…">
+        <div class="c-seg" id="cSeg"><button class="active" data-f="all">全部</button><button data-f="failed">失败</button><button data-f="success">成功</button></div>
+        <span class="c-meta" id="cMeta"></span>
+      </div>
+      <div class="c-table">
+        <div class="c-thead"><span>状态</span><span>工作流</span><span>触发</span><span>消息</span><span>耗时</span><span>时间</span></div>
+        <div id="cRows"></div>
+      </div>
+      <div class="c-foot"><button id="cMore">加载更早（演示静态）</button></div>
+    </div>
+  </div>
+  <span class="va-tag">C · 独立页：搜索框可试——实时过滤；多维筛选 + 表格全量记录</span>
+  <span class="hint-toggle">搜索「超限」「失败」试试实时过滤</span>
+</div>
+</div>
+
+<!-- ============ 舞台 D：Toast ============ -->
+<div class="stage-wrap">
+<div class="stage d" data-v="d">
+  <div class="mini-nav">
+    <div class="brand">dsh-hull-desktop</div>
+    <button class="nitem">dsh web</button>
+    <button class="nitem">任务看板</button>
+    <button class="nitem">Skills</button>
+    <button class="nitem">Token 消耗</button>
+    <button class="nitem">工作台连接</button>
+    <button class="nitem">工作流</button>
+    <div class="sep"></div>
+    <button class="nitem bell-btn" id="dBell">🔔 通知<span class="bell-dot">1</span></button>
+    <button class="nitem">设置</button>
+  </div>
+  <div class="mini-content">
+    <div class="mini-canvas" style="opacity:.5">
+      <div class="fake-head">dsh web（你正在这里干活）</div>
+      <div class="fake-card"><span class="nm">不切页面也能看到工作流结果</span><span class="ln" style="flex:1"></span></div>
+      <div class="fake-card"><span class="nm">失败 toast 常驻直到处理</span><span class="ln" style="flex:1"></span></div>
+    </div>
+    <div class="d-play">
+      <button id="dOk">▶ 模拟：运行成功</button>
+      <button id="dErr">▶ 模拟：运行失败</button>
+    </div>
+    <div class="d-toasts" id="dToasts"></div>
+    <div class="d-pop" id="dPop"></div>
+  </div>
+  <span class="va-tag">D · Toast：站内右上角横幅实时播报（成功 4s 自动消失 / 失败常驻带操作），点铃铛看归档</span>
+  <span class="hint-toggle">点上面两个按钮看效果</span>
+</div>
+</div>
+
+<script>
+/* ============ 演示数据 ============ */
+const WFS = [
+  { id:'w1', name:'夜间巡检', color:'#2e8bf5', trigger:'cron' },
+  { id:'w2', name:'Token 预算告警', color:'#a371f7', trigger:'cron' },
+  { id:'w3', name:'发布提醒', color:'#d29922', trigger:'manual' },
+  { id:'w4', name:'数据备份', color:'#3fb950', trigger:'cron' },
+];
+const RUNS = [
+  { id:'r1', wf:'w1', status:'failed', msg:'HTTP 503：dsh 探活失败（第 2 步）', dur:'2.1s', t:'12 分钟前', day:'今天', unread:true },
+  { id:'r2', wf:'w2', status:'failed', msg:'Token 预算超限：今日用量 128 万 ≥ 阈值 100 万', dur:'0.8s', t:'1 小时前', day:'今天', unread:true },
+  { id:'r3', wf:'w4', status:'success', msg:'已创建卡片「数据备份」并派发执行', dur:'4.6s', t:'2 小时前', day:'今天', unread:false },
+  { id:'r4', wf:'w3', status:'failed', msg:'SMTP 发信失败（收件人被拒）: 550 5.1.1 user unknown', dur:'1.3s', t:'3 小时前', day:'今天', unread:true },
+  { id:'r5', wf:'w1', status:'success', msg:'巡检完成：4 步全部通过', dur:'6.2s', t:'昨天 23:00', day:'昨天', unread:false },
+  { id:'r6', wf:'w2', status:'success', msg:'Token 预算正常：今日用量 42 万 / 阈值 100 万', dur:'0.7s', t:'昨天 21:00', day:'昨天', unread:false },
+  { id:'r7', wf:'w4', status:'success', msg:'已创建卡片「数据备份」并派发执行', dur:'4.1s', t:'昨天 13:00', day:'昨天', unread:false },
+  { id:'r8', wf:'w1', status:'failed', msg:'HTTP 502：网关超时（第 2 步）', dur:'15.0s', t:'昨天 09:00', day:'昨天', unread:false },
+];
+const wfOf = (r) => WFS.find((w) => w.id === r.wf);
+const badgeHtml = (r) => r.status === 'success' ? '<span class="badge success">成功</span>' : r.status === 'failed' ? '<span class="badge failed">失败</span>' : '<span class="badge running">运行中</span>';
+const cronHtml = (r) => wfOf(r).trigger === 'cron' ? '<span class="badge cron">定时</span>' : '';
+
+/* ============ 主题 & 方案切换 ============ */
+document.getElementById('themeBtn').addEventListener('click', () => {
+  document.body.dataset.theme = document.body.dataset.theme === 'dark' ? 'light' : 'dark';
+});
+const NOTES = {
+  a: '<b>A · 抽屉 Drawer</b> —— 当前「铃铛+弹层」的精装修版：左侧滑出大抽屉，按「今天/昨天」时间分组，红色分隔线标出未读位置，行左缘红条=未读失败。<span class="pro">✓ 时间线直觉、轻量不打断</span> <span class="con">✗ 归属感仍靠逐行扫、50 条上限</span>',
+  b: '<b>B · 按工作流分组</b> —— 直接回答「哪个工作流在报警」：每个工作流一个折叠组（彩色徽标+失败/成功汇总），失败组自动置顶展开。<span class="pro">✓ 归属感最强、失败一眼锁定</span> <span class="con">✗ 全局时间线被打散、组多了要翻</span>',
+  c: '<b>C · 独立通知页</b> —— nav 新增「通知中心」整页：搜索 + 状态/触发多维筛选 + 表格全量记录（工作流/消息/耗时/时间），行点击跳工作流。<span class="pro">✓ 规模化检索最强、可查全量历史</span> <span class="con">✗ 最重：nav +1 项、查看要走页面</span>',
+  d: '<b>D · 站内 Toast 实时</b> —— 活着的结果流：运行结束右上角弹横幅（成功 4s 自动消失、失败常驻带「查看/知道了」），不出当前页面就能感知；铃铛收口作归档。<span class="pro">✓ 实时性最强、失败不溜走</span> <span class="con">✗ 不管历史（需配 A/B/C 之一）、成功频繁时轻微打扰</span>',
+};
+function showVariant(v) {
+  document.querySelectorAll('.cmp-tab').forEach((t) => t.classList.toggle('active', t.dataset.v === v));
+  document.querySelectorAll('.stage').forEach((s) => s.classList.toggle('active', s.dataset.v === v));
+  document.getElementById('cmpNote').innerHTML = NOTES[v];
+}
+document.querySelectorAll('.cmp-tab').forEach((t) => t.addEventListener('click', () => showVariant(t.dataset.v)));
+showVariant('a');
+
+/* ============ A：抽屉 ============ */
+function renderA(filter, unreadOnly) {
+  const list = document.getElementById('aList');
+  const rows = RUNS.filter((r) => filter === 'all' || r.status === 'failed');
+  const days = [...new Set(rows.map((r) => r.day))];
+  let html = '', sepDone = !unreadOnly;
+  for (const day of days) {
+    html += `<div class="a-day">${day}</div>`;
+    for (const r of rows.filter((x) => x.day === day)) {
+      if (!sepDone && r.unread) { html = html.replace('__SEP__', '<div class="a-unread-sep">未读</div>'); sepDone = true; }
+      html += `<div class="a-row ${r.unread ? 'unread' : ''}">
+        <span class="dot ${r.status === 'failed' ? 'err' : 'ok'}"></span>
+        <div class="b"><div class="l1"><b>${wfOf(r).name}</b>${cronHtml(r)}${badgeHtml(r)}<span class="t">${r.t}</span></div>
+        <div class="m ${r.status === 'failed' ? 'err' : ''}">${r.msg}</div></div></div>`;
+    }
+  }
+  html = html.replace('__SEP__', '');
+  list.innerHTML = html || '<div class="a-day">没有匹配的记录</div>';
+}
+let aFilter = 'all', aUnreadOnly = true;
+renderA(aFilter, aUnreadOnly);
+document.getElementById('aBell').addEventListener('click', () => document.getElementById('aContent').classList.toggle('drawer-open'));
+document.getElementById('aMask').addEventListener('click', () => document.getElementById('aContent').classList.remove('drawer-open'));
+document.querySelectorAll('.stage.a .chip').forEach((c) => c.addEventListener('click', () => {
+  document.querySelectorAll('.stage.a .chip').forEach((x) => x.classList.toggle('active', x === c));
+  aFilter = c.dataset.f;
+  aUnreadOnly = aFilter === 'all'; // 仅失败视图直接全显
+  renderA(aFilter, aUnreadOnly);
+}));
+document.getElementById('aMark').addEventListener('click', () => {
+  RUNS.forEach((r) => (r.unread = false));
+  document.getElementById('aBadge').style.display = 'none';
+  renderA(aFilter, false);
+});
+
+/* ============ B：分组 ============ */
+function renderB() {
+  const groups = WFS.map((w) => ({ w, runs: RUNS.filter((r) => r.wf === w.id) }))
+    .filter((g) => g.runs.length)
+    .sort((a, b) => {
+      const fa = a.runs.filter((r) => r.status === 'failed').length;
+      const fb = b.runs.filter((r) => r.status === 'failed').length;
+      return fb - fa; // 失败多的组置顶
+    });
+  document.getElementById('bList').innerHTML = groups.map(({ w, runs }) => {
+    const fails = runs.filter((r) => r.status === 'failed').length;
+    const alert = fails > 0;
+    return `<div class="b-group ${alert ? 'alert' : 'collapsed'}" data-g="${w.id}">
+      <div class="b-gh"><span class="b-ava" style="background:${w.color}">${w.name[0]}</span>
+        <div><div class="nm">${w.name}</div><div class="sum">${fails ? `<span class="f">${fails} 失败</span> · ` : ''}${runs.length - fails} 成功 · 最近 ${runs[0].t}</div></div>
+        <span class="caret">▼</span></div>
+      <div class="b-rows">${runs.map((r) => `<div class="b-row"><span class="dot ${r.status === 'failed' ? 'err' : 'ok'}"></span><span class="m ${r.status === 'failed' ? 'err' : ''}">${r.msg}</span><span class="t">${r.t}</span></div>`).join('')}</div>
+    </div>`;
+  }).join('');
+  document.querySelectorAll('#bList .b-gh').forEach((h) => h.addEventListener('click', () => h.closest('.b-group').classList.toggle('collapsed')));
+}
+renderB();
+
+/* ============ C：独立页 ============ */
+let cFilter = 'all';
+function renderC() {
+  const q = document.getElementById('cSearch').value.trim().toLowerCase();
+  const rows = RUNS.filter((r) => (cFilter === 'all' || r.status === cFilter))
+    .filter((r) => !q || wfOf(r).name.toLowerCase().includes(q) || r.msg.toLowerCase().includes(q));
+  document.getElementById('cRows').innerHTML = rows.map((r) => `<div class="c-tr ${r.unread ? 'unread' : ''}">
+    <span class="st">${badgeHtml(r)}</span><span class="wf">${wfOf(r).name}</span><span>${cronHtml(r) || '<span class="badge muted">手动</span>'}</span>
+    <span class="msg ${r.status === 'failed' ? 'err' : ''}">${r.msg}</span><span class="dur">${r.dur}</span><span class="tm">${r.t}</span></div>`).join('');
+  document.getElementById('cMeta').textContent = `${rows.length} 条 · 未读失败 ${RUNS.filter((r) => r.unread).length}`;
+}
+document.getElementById('cSearch').addEventListener('input', renderC);
+document.querySelectorAll('#cSeg button').forEach((b) => b.addEventListener('click', () => {
+  document.querySelectorAll('#cSeg button').forEach((x) => x.classList.toggle('active', x === b));
+  cFilter = b.dataset.f; renderC();
+}));
+renderC();
+
+/* ============ D：Toast ============ */
+const dToasts = document.getElementById('dToasts');
+function popToast(kind, wfName, msg) {
+  const el = document.createElement('div');
+  el.className = `d-toast ${kind}`;
+  el.innerHTML = `<span class="ico">${kind === 'ok' ? '✓' : '!'}</span>
+    <div class="b"><div class="t">工作流 · ${wfName}${kind === 'err' ? '【失败】' : ''}</div><div class="m">${msg}</div>
+    ${kind === 'err' ? '<div class="ops"><button class="pri">查看</button><button class="dismiss">知道了</button></div>' : ''}</div>`;
+  dToasts.prepend(el);
+  const remove = () => { el.classList.add('leaving'); setTimeout(() => el.remove(), 220); };
+  if (kind === 'ok') setTimeout(remove, 4000);
+  el.querySelectorAll('.ops button').forEach((b) => b.addEventListener('click', remove));
+  while (dToasts.children.length > 3) dToasts.lastChild.remove();
+}
+document.getElementById('dOk').addEventListener('click', () => popToast('ok', '数据备份', '已创建卡片「数据备份」并派发执行（4.6s）'));
+document.getElementById('dErr').addEventListener('click', () => popToast('err', '夜间巡检', 'HTTP 503：dsh 探活失败（第 2 步）'));
+document.getElementById('dBell').addEventListener('click', () => {
+  const pop = document.getElementById('dPop');
+  pop.classList.toggle('open');
+  if (pop.classList.contains('open') && !pop.dataset.done) {
+    pop.innerHTML = RUNS.slice(0, 5).map((r) => `<div class="a-row"><span class="dot ${r.status === 'failed' ? 'err' : 'ok'}"></span><div class="b"><div class="l1"><b>${wfOf(r).name}</b>${badgeHtml(r)}<span class="t">${r.t}</span></div><div class="m ${r.status === 'failed' ? 'err' : ''}">${r.msg}</div></div></div>`).join('');
+    pop.dataset.done = '1';
+  }
+});
+</script>
+</body>
+</html>

@@ -52,7 +52,8 @@ contextBridge.exposeInMainWorld('hull', {
   /** 工作台连接视图（设置之前） */
   showConnections: () => ipcRenderer.invoke('hull:showConnections'),
   /** 工作流视图（设置之前） */
-  showWorkflows: () => ipcRenderer.invoke('hull:showWorkflows'),
+  showWorkflows: () => invoke('hull:showWorkflows'),
+  showNotifs: () => invoke('hull:showNotifs'),
 
   // ─────────── S8' D2：设置页桥 15 方法并入（原 src/preload/settings.ts 删除） ───────────
   /** 读全量设置（settings.json 持久化，CON-R002 走主进程 SettingsProvider） */
@@ -137,6 +138,7 @@ contextBridge.exposeInMainWorld('workflows', {
   delete: (id: string) => invoke('workflows:delete', id),
   run: (id: string) => invoke('workflows:run', id),
   runs: (workflowId?: string) => invoke('workflows:runs', workflowId),
+  cronPreview: (expr: string) => invoke('workflows:cronPreview', { expr }),
 });
 
 contextBridge.exposeInMainWorld('connections', {
@@ -163,6 +165,8 @@ contextBridge.exposeInMainWorld('kanban', {
   deleteTask: (boardId: string, taskId: string) => invoke('kanban:deleteTask', boardId, taskId),
   addComment: (input: unknown) => invoke('kanban:addComment', input),
   deleteComment: (boardId: string, taskId: string, commentId: string) => invoke('kanban:deleteComment', boardId, taskId, commentId),
+  /** 新建自定义列（BUG-1 修复：此前 UI 误走 updateColumn(null) 必失败） */
+  createColumn: (boardId: string, name: string) => invoke('kanban:createColumn', boardId, name),
   updateColumn: (boardId: string, columnId: string, patch: unknown) => invoke('kanban:updateColumn', boardId, columnId, patch),
   deleteColumn: (boardId: string, columnId: string) => invoke('kanban:deleteColumn', boardId, columnId),
   archiveTask: (boardId: string, taskId: string) => invoke('kanban:archiveTask', boardId, taskId),

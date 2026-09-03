@@ -88,6 +88,7 @@
 | 14 | 已定义 | invoke | `kanban:archiveTask` | 归档 Done ticket（CON-R033） | 无 | 是 |
 | 15 | 已定义 | invoke | `kanban:restoreTask` | 恢复归档 ticket（回 Done 或原列） | 无 | 是 |
 | 16 | 已定义 | invoke | `kanban:purgeTask` | 彻底删除归档 ticket（级联清理） | 无 | 否（删除） |
+| 17 | 已定义 | invoke | `kanban:createColumn` | 新建自定义列（追加列尾；2026-09-03 增补，详见 §12a） | 无 | 否（创建） |
 
 ## Schema 与枚举
 
@@ -720,6 +721,43 @@
 
 - 幂等：是（同配置重复更新结果一致）
 
+### 12a. createColumn（2026-09-03 增量增补）
+
+`invoke kanban:createColumn { boardId, name }`
+
+> 增补缘由：B2 UI「新建列」此前误走 `updateColumn(boardId, null, {name})`（columnId=null 必报 store-not-found「列不存在」），store 侧无创建列原语——真实场景测试（BUG-1）暴露后补齐。附加性变更，不影响既有原语。
+
+#### 用途与依据
+
+- 使用场景：列管理弹窗「新建列」——创建自定义列（type=null，可编辑/可删除）
+- 共识：CON-R020（列自定义）
+- 验收：新建列即时出现于列尾并持久化；随后的改名/隐藏/删除（§12/§13）全生命周期可用
+
+#### 请求
+
+| 位置 | 字段 | 类型 | 必填 | 约束 | 说明 |
+|---|---|---|---|---|---|
+| body | boardId | string | 是 | `b_<uuid>` | 看板 id |
+| body | name | string | 是 | trim 非空，≤200 字符 | 新列名 |
+
+#### 成功响应
+
+- 响应 Schema：`Column`（新建：`id=c_<uuid>`、`type=null`、`order=现有最大+1`、`color='#8b949e'` 默认、`hidden=false`）
+
+#### 失败响应
+
+- 适用公共异常集：`KANBAN_STORE_ERROR`
+- 特有异常：
+
+| 语义错误码 | 触发条件 | 响应字段要求 | 客户端处理 | 可重试 |
+|---|---:|---:|---|---|:---:|
+| store-not-found | 看板 id 不存在 | code+msg | 提示"数据已删除，自动刷新" | 否 |
+| validation-error | 列名空/超长（≤200） | code+msg+field | 提示列名规则 | 否 |
+
+#### 幂等与并发
+
+- 幂等：否（重复调用重复建列）
+
 ### 13. deleteColumn
 
 `invoke kanban:deleteColumn { boardId, columnId }`
@@ -941,6 +979,7 @@
 | 2026-08-20 | 复核修复 | 修复 ora-1 复核退回问题：P0-1 补 store-not-found 闭环；P1-1 timeline system 写入权定稿；P1-2 补 addComment/deleteComment/updateColumn；P1-3 统一 not-found 错误码；P1-4 补失败用例 + 验收编号 K1~K20 + 原子写注入法 + Blocked/deleteBoard 用例；P2 错误码 kebab 化、subagentPolicy 默认、createTask dependencies/示例、Blocked 自动记/还原、最小 boards.json 示例 |
 | 2026-08-20 | 二轮复核修复 | P1-A updateTask 失败契约补全（not-found/同级校验/auto 缺 AC）；P1-B 补 store-task-executing 执行态守卫（deleteTask/deleteBoard）；P1-C 补 deleteColumn；P1-D/E deleteBoard 对齐 CON-R033（store-board-not-empty + 最后看板规则）；归档对齐 CON-R033（Task 增 archivedAt/archivedFromColumnId + archiveTask/restoreTask/purgeTask 原语）；测试 K18 对齐 + K21~K31 补归档/守卫用例 |
 | 2026-08-23 | T2 增量传播（Q-052） | 传播 feishu-t2-kanban-timeline-api-contract.md 增量入本契约：Task Schema 新增 startDate（string\|null，ISO date-only 与 dueDate 同型，默认 null，CON-R-timeline-003）；createTask/updateTask 请求增可选 startDate（向后兼容：缺省 null / 不传=不变、显式 null=清空）；KANBAN_SCHEMA_VERSION 1→2 + migrate() v1→v2（三层遍历补 startDate:null 幂等；失败 backupAndRebuild 静默兜底无错误码——对齐 T2 契约 HIGH 复核修正语义）；最小示例 version 升 2；preload/IPC 经核验零改动（桥透传 unknown + store 权威校验） |
+| 2026-09-03 | 缺陷修复增量增补（BUG-1） | 新增 `kanban:createColumn` 原语（接口清单 #17 + §12a）：UI 新建列此前误走 updateColumn(null) 必报 store-not-found，store 侧无创建列原语。附加性变更；附加同步 moveTask 进 Blocked 落列语义澄清（blocked 分支补 columnId=toColumnId，出 Blocked 回来源列 P2-4 不变，K16/K17 断言补强）；IPC 白名单计数 18→19（共面 44→45） |
 
 ## 自检记录
 

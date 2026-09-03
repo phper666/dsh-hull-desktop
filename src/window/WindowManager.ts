@@ -59,14 +59,16 @@ export type PlaceholderView =
   | 'placeholder:tokens'
   | 'placeholder:connections'
   | 'placeholder:workflows'
+  | 'placeholder:notifs'
   | 'placeholder:settings';
-export type PlaceholderMode = 'starting' | 'installing' | 'failed' | 'not-installed' | 'board' | 'skills' | 'tokens' | 'connections' | 'workflows' | 'settings';
+export type PlaceholderMode = 'starting' | 'installing' | 'failed' | 'not-installed' | 'board' | 'skills' | 'tokens' | 'connections' | 'workflows' | 'notifs' | 'settings';
 
 /**
  * 主窗口壳框架（S8 D1-D7 唯一实现依据）：
  * - 壳窗口：BrowserWindow 加载 shell.html（左侧 nav + 右侧内容区 + 占位四区块），
- *   webPreferences { contextIsolation, sandbox, nodeIntegration:false, partition:'shell'（非持久）, preload: 壳 preload }
- *   （D3：'shell' 与 'persist:shell' 是两个不同 session，勿混写；壳页无持久数据 → 退出即清零）
+ *   webPreferences { contextIsolation, sandbox, nodeIntegration:false, partition:'persist:shell', preload: 壳 preload }
+ *   （D3：'shell' 与 'persist:shell' 是两个不同 session，勿混写；Q-053 看板视图记忆（localStorage kanban:lastView）
+ *   需跨重启保持 → 壳页用持久分区，落盘 userData/Partitions/shell）
  * - 官方 UI：WebContentsView（默认 session + 无 preload——CON-R001 结构性零注入，
  *   registerPreloadScript 机制整体删除：PRELOAD_SCRIPT_ID/register/unregister/getPreloadScripts 全无）；
  *   官方 view 只 loadURL 官方地址，永不加载 file://（红线）
@@ -111,8 +113,8 @@ export class WindowManager {
         contextIsolation: true,
         sandbox: true,
         nodeIntegration: false,
-        // D3：壳页 partition 'shell'（非持久）+ 静态 preload（SettingsWindow 模式）
-        partition: 'shell',
+        // D3：壳页 partition 'persist:shell'（Q-053 视图记忆需 localStorage 跨重启落盘）+ 静态 preload（SettingsWindow 模式）
+        partition: 'persist:shell',
         preload: SHELL_PRELOAD,
       },
     });
@@ -245,6 +247,11 @@ export class WindowManager {
   /** 工作流视图（设置之前，镜像 showConnections） */
   showWorkflows(): void {
     this.showPlaceholder('workflows', '');
+  }
+
+  /** 通知中心视图（§9 V1：铃铛入口；工作流首源，source 维度预留） */
+  showNotifs(): void {
+    this.showPlaceholder('notifs', '');
   }
 
   /** 官方 view 边界同步（D2）：幂等；resize/maximize/unmaximize/全屏/display-metrics-changed 统一入口 */

@@ -102,7 +102,7 @@
   }
 
   function renderEmpty() {
-    boardRoot.innerHTML = `<div class="kb-empty"><h2>没有看板</h2><p>创建一个任务看板开始规划</p><button class="kb-btn kb-primary" id="kb-newboard-empty">新建看板</button></div>`;
+    boardRoot.innerHTML = `<div class="kb-empty"><div class="empty-ico" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="9" height="34" rx="2"/><rect x="19.5" y="7" width="9" height="34" rx="2" opacity="0.55"/><rect x="32" y="7" width="9" height="34" rx="2" opacity="0.55"/><path d="M11 20h3M23.5 20h3M36 20h3" opacity="0.6"/></svg></div><h2>没有看板</h2><p>创建一个任务看板开始规划</p><button class="kb-btn kb-primary" id="kb-newboard-empty">新建看板</button></div>`;
     $('#kb-newboard-empty')?.addEventListener('click', promptNewBoard);
   }
 
@@ -390,7 +390,7 @@
     document.querySelectorAll('[data-pause]').forEach((b) => b.addEventListener('click', async () => { const r = await exec.pauseExecution(currentBoard.id, b.dataset.pause); if (!r.ok) alert('暂停失败：' + (r.message || r.code)); }));
     document.querySelectorAll('[data-resume]').forEach((b) => b.addEventListener('click', async () => { const r = await exec.resumeExecution(currentBoard.id, b.dataset.resume); if (!r.ok) alert('恢复失败：' + (r.message || r.code)); }));
     document.querySelectorAll('[data-cancel]').forEach((b) => b.addEventListener('click', async () => { const r = await exec.cancelExecution(currentBoard.id, b.dataset.cancel); if (!r.ok) alert('取消失败：' + (r.message || r.code)); }));
-    document.querySelectorAll('[data-verify]').forEach((b) => b.addEventListener('click', async () => { const r = await exec.confirmVerify(currentBoard.id, b.dataset.verify); if (!r.ok) alert('确认失败：' + (r.message || r.code)); }));
+    document.querySelectorAll('[data-verify]').forEach((b) => b.addEventListener('click', async () => { const r = await exec.confirmVerify(currentBoard.id, b.dataset.verify); if (r.ok) await loadBoard(currentBoard.id); else alert('确认失败：' + (r.message || r.code)); }));
     document.querySelectorAll('[data-detail]').forEach((b) => b.addEventListener('click', () => openDetail(b.dataset.detail)));
     // 点击卡片主体 → 弹详情（操作按钮区 stopPropagation 已挡；拖拽不触发 click）
     document.querySelectorAll('.kb-card[data-id]').forEach((c) => c.addEventListener('click', (e) => {
@@ -606,7 +606,7 @@
       $('[data-ok]', w).addEventListener('click', async () => {
         const name = $('#kb-cname', w).value.trim();
         if (!name) return;
-        const r = await kanban.updateColumn(currentBoard.id, null, { name });
+        const r = await kanban.createColumn(currentBoard.id, name);
         if (r.ok) { close(); await loadBoard(currentBoard.id); } else alert('创建失败：' + (r.message || r.code));
       });
     });

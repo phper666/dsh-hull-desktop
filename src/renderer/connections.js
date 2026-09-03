@@ -29,6 +29,7 @@
         <div class="tk-toolbar"><span class="tk-title">工作台连接</span><span class="cn-spacer"></span>
           <button class="cn-btn primary" id="cn-add">＋ 连接平台</button></div>
         <div class="cn-empty">
+          <div class="empty-ico" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="24" cy="24" r="5"/><path d="M24 19v-6M24 29v6M19 24h-6M29 24h6" opacity="0.55"/><circle cx="8" cy="8" r="2.5" opacity="0.45"/><circle cx="40" cy="8" r="2.5" opacity="0.45"/><circle cx="8" cy="40" r="2.5" opacity="0.45"/><circle cx="40" cy="40" r="2.5" opacity="0.45"/><path d="M10.5 10.5l8.5 8.5M37.5 10.5 29 19M10.5 37.5 19 29M37.5 37.5 29 29" opacity="0.45"/></svg></div>
           <h2>连接你的第一个平台</h2>
           <p>连接 Salesforce、阿里云短信、腾讯云短信或 SMTP 邮件后，即可在工作台调用平台能力。<br>凭据经系统安全加密存储，界面不会回显完整密钥。</p>
           <button class="cn-btn primary" id="cn-add-empty">＋ 连接平台</button>

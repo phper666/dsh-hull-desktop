@@ -3,6 +3,38 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-09-03 通知中心 V1（独立通知页，工作流首源/source 维度预留）
+
+- 类型：功能需求实现（判级常规，设计 §9 方案冻结；4 方案原型对比后用户拍板 C；无共识规则变化）
+- 内容：视图链路 PlaceholderMode/PlaceholderView 增 'notifs' + showNotifs（WindowManager/IPC/preload）+ 铃铛改 nav-notifs 参与高亮；notifs.js 页面——搜索/状态/触发筛选 + 表格（未读失败红条、消息红显、相对/悬浮绝对时间）+ 进页面即已读 + 行点击跳工作流视图；toNotifRows 归一化预留 source:'workflow'——v2 接第二源（候选：看板执行通知/更新可用）时建 NotificationService 迁移页面零返工；§8.2 overlay 面板被本页取代（角标语义保留，60s 轮询迁 notifs.js）
+- 核验：单测 854 绿 + e2e 32 绿（含通知中心首例：seed runs → 角标/页面/未读/搜索/行跳转全链）；typecheck ✓；workflows.js 摘除零残留
+- 文档：设计 docs/design/工作流-workflows-design.md §9 · 记录 docs/records/通知中心V1-notify-center-record.md · 原型 docs/prototype/2026-09-03-workflow-notify-variants-prototype.html
+- commits：ebbcc7e / 82f5d53 → merge f876258
+
+## 2026-09-03 工作流通知优化（标注 + 失败自动通知 + 站内通知中心）
+
+- 类型：功能需求实现（判级常规偏复杂，设计 §8 方案冻结；无共识规则变化）
+- 内容：①通知标注——标题带工作流名 `工作流 · <名称>`（notification 步骤/失败通知统一）；②失败自动通知（新增行为）——run 失败即系统通知（title `…【失败】`，首条错误截断 120 字），notifyOnExceed 语义被取代（超限=失败=自动通知，UI 移除开关、字段兼容）；③通知点击跳转——聚焦主窗口切工作流视图（winMgr 晚绑定）；④壳内通知中心——侧边栏铃铛 + 未读失败角标（localStorage lastReadTs，60s 轻轮询）+ overlay 面板（全部/仅失败 chips，行点击跳工作流视图），复用 workflows:runs 零新增存储
+- 核验：单测 854 绿（引擎 +4 用例）+ e2e 31 绿；review 修 2 项（notifyTitle 实例字段并发互踩→参数传递；面板定位 token 不存在→212px 硬编码注记）；通知点击/面板交互待用户 dev 验证
+- 文档：设计 docs/design/工作流-workflows-design.md §8 · 记录 docs/records/工作流通知优化-workflow-notify-record.md
+- commits：4bf5a42 / ea8bef6 → merge b536878
+
+## 2026-09-03 工作流 v2（cron 定时触发 + connection-action + token-budget）
+
+- 类型：功能需求实现（判级复杂，设计 §7 方案冻结；无共识规则变化）
+- 内容：①定时触发——5 字段 cron 解析器（零依赖、本地时区、vixie DOM/DOW 或语义）+ WorkflowScheduler（超长 delay 按 2^31-1 分片、错过不补跑、与手动共用 per-workflow 互斥、before-quit 清理），workflows.json trigger 字段级扩展不 bump version；②connection-action 步骤——工作台连接联动：阿里云/腾讯云 SendSms（签名链复用参数化）+ SMTP 发信（点填充/RFC2047/CRLF 头注入防护），凭据仅 main 侧解密、运行日志收件人掩码，salesforce 明确不支持动作；③token-budget 步骤——今天/本月/全部（与 tokens 视图同日历对齐）阈值检查，超限系统通知+步骤失败中止；④IPC workflows:cronPreview + list 注入 nextRunAt；⑤编辑器触发区+两新步骤表单+列表下次运行/定时徽标；运行记录标触发来源（manual/cron）
+- 顺带闭环：v1 verifySmtp 漏第二次 334 密码挑战（AUTH LOGIN 双挑战，认证路径从未真实验证）；E2E-01 navOrder 存量漂移（nav 4→7 项）；E2E-07 主题测试显式 seed（CON-R-theme-004 默认改 system 后）
+- 核验：单测 851 绿（新增 35：cron 11/Actions 8/引擎 5/调度器 8/store 3）+ 集成 8 + e2e 27 全绿；Semgrep 2 条 rejectUnauthorized 为存量已接受风险（记录登记）；SMTP 状态机经本地假服务器真实 socket 集成测
+- 文档：设计 docs/design/工作流-workflows-design.md §7 · 记录 docs/records/工作流v2-workflows-v2-record.md
+- commits：39e6f4c（fix）/ ffba8d5（feat）/ 530db1e（test）/ 9e4e2c5（docs）→ merge 563ef72
+
+## 2026-09-02 UI 视觉优化 P1/P2 剩余项（ticket t100109，PR #7）
+
+- 类型：UI 体系重构（无共识规则变化）
+- 内容：3 批——①壳级组件基类（.btn/.input/.badge/.switch/.modal）+ 6 渲染文件别名收敛（按钮 6 套/输入 5 套/徽标 5 套/switch 3 套/弹窗 2 套→1）+ switch rgba 主题化 + nav-title logo；②--text-* 字阶 token + 166 处 font-size/spacing 等值迁移；③nav 7 inline SVG 图标 + connections/workflows/shell 设置页 surface ladder + 4 页空态 SVG 锚点 + 亮色 shadow 分层；含 workflows.js 存量死引用修复（`void loadList` 中断初始化致视图空白）
+- 核验：CSS 级联审计（修掉 2 个特异性回归）+ fake-DOM 冒烟 4 页 + 用户亮/暗两主题走查通过（2026-09-02）
+- 文档：docs/design/UI-P1P2-视觉剩余项-design.md（3 批实施，先结构后视觉）
+
 ## 2026-09-02 Token 视图筛选语义修订（t100104 追加，验证反馈闭环）
 
 - 类型：功能语义修订（用户 dev 验证反馈两轮 + 长期数据诉求）
