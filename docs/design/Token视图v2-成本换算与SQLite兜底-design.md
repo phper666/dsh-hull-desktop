@@ -49,3 +49,33 @@
 | 价格 seed 漂移（模型调价） | seed 带快照日期注释；匹配不到 → null「—」诚实展示 |
 | opencode.db schema 漂移 | 防御式查询 + fallback 链（token-history → db → 空态） |
 | 成本被误读为精确账单 | UI「—」语义 + 设计文档声明估算口径（本地价格表 × token 用量） |
+
+## 五、v2.1 增量：对齐 TokenTracker 范围逻辑 + 小时桶持久化管道（2026-09-03 追加）
+
+> 来源：用户走查反馈「范围数字不准/跨档不变」+ TokenTracker 截图对照（日/周/月/总计/自定义五档，准确率高）。差距分析：①我们只有起点 cutoff 无 to 边界（未来时间戳脏数据污染全档位）②TokenTracker total=最近24个月有界+custom 自定义区间，我们无③准确率根源=TokenTracker 写入时预聚合小时桶（queue.jsonl），我们每次实时全量解析（adapter bug 直接变数字 bug）。
+
+### A. 范围窗口对齐（{from,to} 封顶 + 五档）
+- 五档改：**日 / 周 / 月 / 总计 / 自定义**（TokenTracker 同构；替换 本小时/今天/本月/今年/全部）
+  - day=今天、week=本周（周一起）、month=本月、total=最近 24 个月（有界）、custom=用户选日期区间
+- **{from,to} 双边界**：to = 今天 23:59:59.999（本地时区）封顶——未来时间戳脏数据被右边界挡住
+- 序列桶推导：day→hour 桶、week/month→day 桶、total→month 桶、custom→按跨度自适应（≤3天 hour、≤90天 day、否则 month）
+- types.ts：UsageGranularity → 'day'|'week'|'month'|'total'|'custom'；UsageSummary 加 range{from,to}
+- TokenUsageIpc：getUsage(period, customFrom?, customTo?)
+- tokens.js：五档 segmented + custom 档两个日期 input（原生 `<input type="date">`，默认本月）
+
+### B. 小时桶持久化管道（准确率/性能根治）
+- 新模块 `src/tokens/usage-cache.ts`：
+  - 桶结构：`{ version, generatedAt, buckets: {"platform::model::hourKey": {input,output,cacheRead,cacheWrite,reasoning}}, fingerprints: {platform: 组合指纹} }`（hourKey=YYYY-MM-DD HH:00）
+  - 平台指纹：per-file fileFingerprint（已有，path:size:mtime sha1）排序后 sha256——源文件任何变化（增/删/改）→ 指纹变
+  - CACHE_VERSION 常量：聚合逻辑改版时 bump → 缓存自动失效重扫
+  - API：`loadOrScan(cachePath, sources) → {records, fromCache}`——指纹命中直接读桶（快），未命中 scanAllSources → 重建桶 → 落盘
+- 聚合：`summarizeFromBuckets(buckets, range)`——桶 → series/byPlatform/byModel/totals（成本 matchPrice 同语义作用于桶透视）；写时算对的桶，查询层只做窗口内求和
+- 存储：userData 目录（Electron app.getPath('userData')/token-buckets.json），TokenUsageIpc 注入路径；纯函数核心可测
+- 集成：TokenUsageIpc.handle = loadOrScan → 桶在窗口内求和 → UsageSummary；指纹未命中才全量扫描（性能：平时读桶毫秒级）
+
+### Lane 划分
+| Lane | 文件 | 依赖 |
+|:-----|:-----|:-----|
+| A 范围窗口+UI | types.ts / aggregator.ts(+test) / TokenUsageIpc.ts / tokens.js | 独立（先直连 scanAllSources） |
+| B 桶缓存模块 | usage-cache.ts(+test) | 独立纯模块 |
+| 集成 | TokenUsageIpc 接 loadOrScan + summarizeFromBuckets | A+B 完成 |
