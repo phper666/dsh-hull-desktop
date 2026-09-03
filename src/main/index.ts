@@ -152,7 +152,8 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     },
     tokenUsage: async (period) => {
       const { records } = scanAllSources();
-      const summary = summarize(records, period, []);
+      // PR #8（Token 视图 v2）五档语义：步骤 period 'all'（全部累计）映射到 'total'（最近 24 个月有界）
+      const summary = summarize(records, period === 'all' ? 'total' : period, []);
       return { totalTokens: summary.totals.totalTokens };
     },
   });

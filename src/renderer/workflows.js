@@ -285,7 +285,7 @@
       return `<div class="wf-f"><label>统计周期</label><select data-cfg="period">
           <option value="day" ${(s.config.period || 'day') === 'day' ? 'selected' : ''}>今天（0 点对齐）</option>
           <option value="month" ${s.config.period === 'month' ? 'selected' : ''}>本月（1 号对齐）</option>
-          <option value="all" ${s.config.period === 'all' ? 'selected' : ''}>全部累计</option>
+          <option value="all" ${s.config.period === 'all' ? 'selected' : ''}>全部累计（近 24 个月）</option>
         </select></div>
         <div class="wf-f"><label>阈值 totalTokens *</label><input class="input" data-cfg="thresholdTokens" value="${v('thresholdTokens')}" placeholder="如 500000"></div>
         <div class="wf-hint">超限 = 工作流失败并发送系统通知（自动，无需配置）</div>`;
