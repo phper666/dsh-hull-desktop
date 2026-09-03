@@ -21,10 +21,10 @@
 .kb-dep:hover { color: var(--hull-text); }
 .kb-dep input { accent-color: var(--hull-accent); cursor: pointer; }
 
-/* ── 独立弹框（复刻 .kb-modal 遮罩；900px × 78vh，body 级 fixed） ── */
+/* ── 独立弹框（复刻 .kb-modal 遮罩；近全屏 min(96vw,1400px) × calc(100vh-24px)，body 级 fixed） ── */
 .dg-modal { position: fixed; inset: 0; background: var(--hull-overlay); display: flex; align-items: center; justify-content: center; z-index: 200; }
 .dg-box {
-  width: 900px; max-width: 92vw; max-height: min(88vh, calc(100vh - 64px)); background: var(--hull-panel);
+  width: min(96vw, 1400px); max-height: calc(100vh - 24px); background: var(--hull-panel);
   border: 1px solid var(--hull-border); border-radius: var(--radius-xl); box-shadow: var(--shadow-2);
   display: flex; flex-direction: column; overflow: hidden;
 }
@@ -46,7 +46,7 @@
 .dg-list { width: 200px; min-width: 200px; overflow-y: auto; border-right: 1px solid var(--hull-border); padding: 6px; display: flex; flex-direction: column; gap: 2px; }
 .dg-box.dg-c .dg-list { display: none; } /* 折叠子任务列表 */
 .dg-li {
-  display: flex; align-items: center; gap: 5px; padding: 3px 6px; border-radius: var(--radius-sm);
+  display: flex; align-items: center; gap: 5px; padding: 4px 7px; border-radius: var(--radius-sm);
   font-size: 11px; color: var(--hull-text-dim); cursor: pointer; border: 1px solid transparent;
   transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
@@ -73,7 +73,7 @@
 .dg-li.st-halted .dg-li-dot { background: var(--hull-danger); opacity: 0.5; }
 .dg-li.st-halted .dg-li-badge { color: var(--hull-danger); }
 
-.dg-vp { flex: 1; min-width: 0; overflow: auto; display: flex; cursor: grab; }
+.dg-vp { flex: 1; min-width: 0; overflow: auto; display: flex; cursor: grab; background: var(--hull-bg); } /* 图区底色与左栏 panel 形成分隔 */
 .dg-vp.dg-dragging { cursor: grabbing; }
 .dg-canvas { position: relative; margin: auto; }  /* margin:auto：fit 时居中，超视口可滚动到全图 */
 .dg-scale { position: relative; }           /* 未缩放内容层，transform: translate+scale（交互缩放） */
@@ -92,31 +92,33 @@
 .dg-hint { margin-left: auto; color: var(--hull-text-sub); white-space: nowrap; }
 .dg-cycle { color: var(--hull-danger); border: 1px dashed var(--hull-danger-hover); border-radius: var(--radius-sm); padding: 0 6px; white-space: nowrap; }
 
-/* ── 边（<g class="dg-edge …">，path 描边 + polygon 箭头，CSS currentColor 取色） ── */
-.dg-edge { color: var(--hull-border); opacity: 0.6; }
+/* ── 边（<g class="dg-edge …">，path 描边 + polygon 箭头，CSS currentColor 取色）
+   分寸：默认统一灰蓝弱化，语义态（进行/失败/中止）全强度着色 ── */
+.dg-edge { color: var(--hull-text-sub); opacity: 0.45; }
+[data-theme="light"] .dg-edge { color: #a0a0a0; opacity: 0.85; } /* 亮色默认边加深；置于状态规则前，语义态色不受影响 */
 .dg-edge path { stroke: currentColor; stroke-width: 2; fill: none; }
 .dg-edge polygon { fill: currentColor; }
-.dg-edge.st-active { color: var(--hull-accent); }
+.dg-edge.st-active { color: var(--hull-accent); opacity: 1; }
 .dg-edge.st-active path { stroke-width: 2.5; }
-.dg-edge.st-failed { color: var(--hull-danger); }
+.dg-edge.st-failed { color: var(--hull-danger); opacity: 1; }
 .dg-edge.st-aborted { color: var(--hull-danger); opacity: 0.45; }
 .dg-edge.st-aborted path { stroke-dasharray: 5 4; }
 .dg-edge.lit path { stroke-width: 3; }
 .dg-edge.lit { opacity: 1; }
-.dg-edge.dim { opacity: 0.08; }
+.dg-edge.dim { opacity: 0.06; }
 
-/* ── 节点（HTML div 绝对定位，190×60；标题为主 + 徽标 + 优先级色条 + 元信息） ── */
+/* ── 节点（HTML div 绝对定位，190×60；标题为主 + 徽标 + 优先级色条 + 元信息）
+   暗色阶梯：bg 区(--hull-bg) < 面板(--hull-panel) < 卡片(--hull-card)，边框用 --hull-hover 提一档可辨 ── */
 .dg-node {
   position: absolute; width: 190px; height: 60px; background: var(--hull-card);
-  border: 1px solid var(--hull-border); border-left: 3px solid var(--hull-border);
+  border: 1px solid var(--hull-hover); border-left: 3px solid var(--hull-hover);
   border-radius: var(--radius-md); box-shadow: var(--shadow-1); padding: 6px 10px 5px;
   display: flex; flex-direction: column; gap: 3px; overflow: hidden;
   transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 
 /* 亮色主题对比度（壳主题跟随，不强制暗色）：边线加深 #a0a0a0 级、文字用实色
-   置于状态着色规则之前 → 各态边框/辉光色仍生效 */
-[data-theme="light"] .dg-edge { color: #a0a0a0; opacity: 0.85; }
+   置于状态着色规则之前 → 各态边框/辉光色仍生效（edge 覆盖已前移至 .dg-edge 基规则处） */
 [data-theme="light"] .dg-node { border-color: #c2c7cf; border-left-color: #a0a0a0; }
 [data-theme="light"] .dg-node .dg-n-title { color: var(--hull-text); }
 [data-theme="light"] .dg-node .dg-n-meta,
@@ -126,8 +128,8 @@
 [data-theme="light"] .dg-li { color: #4e5a6b; }
 [data-theme="light"] .dg-pri-P2 { background: #c2c7cf; }
 [data-theme="light"] .dg-hint { color: #7b8694; }
-.dg-node:hover { border-color: var(--hull-accent); box-shadow: var(--shadow-2); transform: translateY(-1px); z-index: 5; }
-.dg-node.hl { border-color: var(--hull-accent); box-shadow: 0 0 0 1px var(--hull-accent), 0 0 16px var(--hull-accent-soft); z-index: 6; }
+.dg-node:hover { border-color: var(--hull-accent); box-shadow: 0 0 0 1px var(--hull-accent-soft), var(--shadow-2); transform: translateY(-1px); z-index: 5; }
+.dg-node.hl { border-color: var(--hull-accent); box-shadow: 0 0 0 2px var(--hull-accent), 0 0 18px var(--hull-accent-soft); z-index: 6; }
 /* 优先级色条（顶部 2px 发丝线，P0/P1/P2/无） */
 .dg-pri { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: transparent; }
 .dg-pri-P0 { background: var(--hull-danger); }
@@ -148,7 +150,7 @@
 /* 八态左条 + 徽标（方案 §五；对齐原型：状态影响整框边框色 + 左条 + 辉光 + 徽标软底胶囊） */
 .dg-node.st-succeeded { border-color: var(--hull-success-dim); }
 .dg-node.st-succeeded .dg-n-badge { background: var(--hull-success-soft); color: var(--hull-success-light); }
-.dg-node.st-running { border-color: var(--hull-accent); box-shadow: 0 0 0 1px var(--hull-accent), 0 0 14px var(--hull-accent-soft); }
+.dg-node.st-running { border-color: var(--hull-accent); box-shadow: 0 0 0 1px var(--hull-accent), 0 0 10px var(--hull-accent-soft); }
 .dg-node.st-running .dg-n-badge { background: var(--hull-accent-soft); color: var(--hull-info); animation: dg-pulse 1.2s infinite; }
 .dg-node.st-queued { border-color: var(--hull-warning); }
 .dg-node.st-queued .dg-n-badge { background: var(--hull-warning-faint); color: var(--hull-warning-light); }
@@ -156,7 +158,7 @@
 .dg-node.st-paused .dg-n-badge { background: var(--hull-warning-faint); color: var(--hull-warning); }
 .dg-node.st-interrupted, .dg-node.st-cancelled { border-color: var(--hull-warning-alt); }
 .dg-node.st-interrupted .dg-n-badge, .dg-node.st-cancelled .dg-n-badge { background: var(--hull-warning-faint); color: var(--hull-warning-alt); }
-.dg-node.st-failed { border-color: var(--hull-danger); box-shadow: 0 0 0 1px var(--hull-danger), 0 0 14px var(--hull-danger-soft); }
+.dg-node.st-failed { border-color: var(--hull-danger); box-shadow: 0 0 0 1px var(--hull-danger), 0 0 10px var(--hull-danger-soft); }
 .dg-node.st-failed .dg-n-badge { background: var(--hull-danger-soft); color: var(--hull-danger); }
 .dg-node.st-idle .dg-n-badge { background: var(--hull-border); color: var(--hull-text-muted); }
 
@@ -175,10 +177,10 @@
 .dg-node.st-halted .dg-n-title { text-decoration: line-through; color: var(--hull-text-sub); }
 .dg-node.st-halted .dg-n-badge { color: var(--hull-danger); background: var(--hull-danger-faint); }
 
-/* ── 八态图例（弹框脚） ── */
-.dg-legend { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.dg-lg { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-.dg-lg i { width: 8px; height: 8px; border-radius: 50%; }
+/* ── 八态图例（弹框脚；胶囊 chips 与节点色语义严格一致） ── */
+.dg-legend { display: flex; align-items: center; gap: 5px; flex-wrap: nowrap; }
+.dg-lg { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; background: var(--hull-card); border: 1px solid var(--hull-border); border-radius: var(--radius-pill); padding: 1px 8px; }
+.dg-lg i { width: 7px; height: 7px; border-radius: 50%; }
 .dg-lg .st-succeeded { background: var(--hull-success); }
 .dg-lg .st-running { background: var(--hull-accent); animation: dg-pulse 1.2s infinite; }
 .dg-lg .st-queued { background: var(--hull-warning); }

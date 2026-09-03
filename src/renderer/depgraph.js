@@ -237,7 +237,7 @@
       const q = pos[e.to];
       const x2 = q.x, y2 = q.y + LAYOUT.nodeH / 2; // 箭头终点 = 目标左缘中点（nodeH 由 LAYOUT 定）
       const poly = document.createElementNS(SVG_NS, 'polygon');
-      poly.setAttribute('points', `${x2},${y2 - 4} ${x2 - 8},${y2} ${x2},${y2 + 4}`);
+      poly.setAttribute('points', `${x2},${y2 - 5} ${x2 - 9},${y2} ${x2},${y2 + 5}`);
       g.appendChild(poly);
       svg.appendChild(g);
       edgeEls.push({ e, g });
