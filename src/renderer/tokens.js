@@ -12,6 +12,8 @@
     return String(n);
   };
   const pct = (v, total) => (total > 0 ? Math.round((v / total) * 100) : 0);
+  /* 明细表占比（TokenTracker 同款，1-2 位小数）：零总量/除零 → '—' */
+  const pctS = (v, total) => (total > 0 ? ((v / total) * 100).toFixed(1).replace(/\.0$/, '') + '%' : '—');
   /* 成本格式（估算，非官方账单）：≥$1K 用 K、≥$1 两位小数、更小四位小数；null（含未定价模型）→ '—' */
   const fmtUsd = (n) => {
     if (n === null || n === undefined) return '—';
@@ -241,14 +243,15 @@
             <td class="${mode === 'platform' ? 'tk-sub' : ''}">${model}</td>
             ${num(r.inputTokens)}${num(r.outputTokens)}${num(r.reasoningTokens)}${num((r.cacheReadTokens || 0) + (r.cacheWriteTokens || 0))}
             <td class="num tk-total">${fmt(r.totalTokens)}</td>
+            <td class="num tk-pct" title="占${esc(granRange(s.granularity))}总量的百分比">${pctS(r.totalTokens, t.totalTokens)}</td>
             <td class="num" title="本地价格表估算，非官方账单">${fmtUsd(r.costUsd)}</td>
           </tr>`;
         })
         .join('');
       return `<div class="tk-tbl-wrap"><table class="tk-table">
-        <thead><tr><th>平台</th><th>模型</th><th class="num">输入</th><th class="num">输出</th><th class="num">推理</th><th class="num">缓存</th><th class="num">合计</th><th class="num">成本</th></tr></thead>
+        <thead><tr><th>平台</th><th>模型</th><th class="num">输入</th><th class="num">输出</th><th class="num">推理</th><th class="num">缓存</th><th class="num">合计</th><th class="num">占比</th><th class="num">成本</th></tr></thead>
         <tbody>${rowsHtml}</tbody>
-        <tfoot><tr><td colspan="2">小计</td><td class="num">${fmt(sums.in)}</td><td class="num">${fmt(sums.out)}</td><td class="num">${fmt(sums.rea)}</td><td class="num">${fmt(sums.c)}</td><td class="num tk-total">${fmt(sums.tot)}</td><td class="num">${fmtUsd(sums.cost)}</td></tr></tfoot>
+        <tfoot><tr><td colspan="2">小计</td><td class="num">${fmt(sums.in)}</td><td class="num">${fmt(sums.out)}</td><td class="num">${fmt(sums.rea)}</td><td class="num">${fmt(sums.c)}</td><td class="num tk-total">${fmt(sums.tot)}</td><td class="num"></td><td class="num">${fmtUsd(sums.cost)}</td></tr></tfoot>
       </table></div>`;
     };
 
