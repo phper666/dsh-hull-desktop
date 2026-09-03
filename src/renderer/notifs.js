@@ -77,14 +77,14 @@
   }
 
   function rowHtml(n) {
-    const statusBadge = n.status === 'success' ? '<span class="badge success">成功</span>'
-      : n.status === 'failed' ? '<span class="badge failed">失败</span>' : '<span class="badge running">运行中</span>';
-    const triggerBadge = n.trigger === 'cron' ? '<span class="badge cron">定时</span>' : '<span class="badge muted">手动</span>';
+    // §9.5 视觉修订：状态/触发用「色点+文本」替代 pill——文字起点与表头严格对齐（pill 内边距是列错位根因）
+    const statusCell = `<span class="dot ${n.status === 'success' ? 'ok' : n.status === 'failed' ? 'err' : 'run'}"></span><span class="st-t ${n.status === 'success' ? 'ok' : n.status === 'failed' ? 'err' : 'run'}">${n.status === 'success' ? '成功' : n.status === 'failed' ? '失败' : '运行中'}</span>`;
+    const triggerCell = `<span class="tg ${n.trigger === 'cron' ? 'tg-cron' : ''}">${n.trigger === 'cron' ? '定时' : '手动'}</span>`;
     return `<div class="nt-item" data-id="${esc(n.id)}">
       <div class="nt-row ${n.unread ? 'unread' : ''}" data-toggle-detail>
-        <span class="st">${statusBadge}</span>
+        <span class="st">${statusCell}</span>
         <span class="wf" title="${esc(n.title)}">${esc(n.title)}</span>
-        <span>${triggerBadge}</span>
+        <span>${triggerCell}</span>
         <span class="msg ${n.status === 'failed' ? 'err' : ''}" title="${esc(n.message)}">${esc(n.message)}</span>
         <span class="dur">${fmtDur(n.durationMs)}</span>
         <span class="tm" title="${esc(fmtAbs(n.startedAt))}">${esc(fmtRel(n.startedAt))}</span>

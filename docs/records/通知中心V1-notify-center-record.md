@@ -59,3 +59,9 @@
 2. 通知中心行点击 = 原地手风琴详情（步骤日志 ✓/✗+类型+消息+耗时、触发/起止绝对时间、总耗时）——toNotifRows 增 log/finishedAt，nt-item 包裹结构。
 3. 跳转改显式「查看工作流」按钮：`__workflowsHighlightId` 消费 → renderList 后 scrollIntoView 居中 + 卡片 flash 描边 1.6s。
 - 验证：notifs e2e 断言重写（展开/收起/步骤文本/跳转 flash/wf-runs 移除）全绿；全量 e2e 31 绿 + 2 flake 重跑绿（E2E-03/06 与改动面无关）；node --check ✓；单测无涉（纯渲染层）。
+
+### §9.5 视觉修订追加（2026-09-03 用户反馈列不对齐）
+
+- 根因：表头纯文本 vs 行内 pill 徽标（7px 内边距）→ 状态/触发列文字起点错位；行 9px/表头 8px padding 再加 1px 垂直偏差。
+- 修复：状态列改「色点+彩色文本」、触发列改纯文本（定时=accent/手动=muted），行/表头 padding 统一 8px；详情缩进 100px 对齐「工作流」列 + `:has()` 隐藏展开行的分隔线。
+- 验证：Playwright 实截屏幕比对（修复前后）+ notifs e2e 绿（选择器同步 .st-t）。

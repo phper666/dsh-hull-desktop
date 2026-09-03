@@ -83,7 +83,7 @@ test('E2E-08 通知中心 › 铃铛入口 → 页面/未读行/角标/标记已
     // 失败行未读态（红条 + 消息红显）排最前（runs 倒序）
     await expect(rows.nth(0)).toHaveClass(/unread/);
     await expect(rows.nth(0).locator('.msg')).toHaveText('HTTP 503：dsh 探活失败');
-    await expect(rows.nth(0).locator('.badge.failed')).toHaveText('失败');
+    await expect(rows.nth(0).locator('.st-t')).toHaveText('失败');
 
     // 进页面即已读：角标清零
     await expect(bell.locator('#notifs-badge')).toBeHidden();
