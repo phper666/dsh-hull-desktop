@@ -22,18 +22,24 @@ export type TokenPlatform =
   | 'copilot'
   | 'kiro';
 
-/** 统计粒度 = 日历对齐范围（hour=本小时整点起、day=今天 0 点、month=本月 1 号、year=今年 1/1、all=不过滤全部数据）；全视图（总计/序列/透视）按范围过滤；序列分桶粒度按范围推导（hour→10分钟、day→小时、month→天、year→月、all→月） */
-export type UsageGranularity = 'hour' | 'day' | 'month' | 'year' | 'all';
+/** 统计粒度 = 日历对齐范围（TokenTracker 同构五档）：day=今天、week=本周（周一起）、month=本月、total=最近 24 个月（有界）、custom=用户自定义区间；全视图（总计/序列/透视）按 {from,to} 双边界过滤；序列分桶粒度按范围推导（day→hour、week/month→day、total→month、custom→跨度自适应） */
+export type UsageGranularity = 'day' | 'week' | 'month' | 'total' | 'custom';
 
-export const USAGE_GRANULARITIES: UsageGranularity[] = ['hour', 'day', 'month', 'year', 'all'];
+export const USAGE_GRANULARITIES: UsageGranularity[] = ['day', 'week', 'month', 'total', 'custom'];
 
 export const GRANULARITY_NAMES: Record<UsageGranularity, string> = {
-  hour: '1小时',
-  day: '1天',
-  month: '1月',
-  year: '1年',
-  all: '全部',
+  day: '日',
+  week: '周',
+  month: '月',
+  total: '总计',
+  custom: '自定义',
 };
+
+/** 自定义窗口（YYYY-MM-DD，本地时区） */
+export interface CustomRange {
+  from: string;
+  to: string;
+}
 
 /** 单条用量记录（一行会话事件的归一化） */
 export interface UsageRecord {
@@ -58,6 +64,8 @@ export interface UsageTotals {
   cacheWriteTokens: number;
   reasoningTokens: number;
   totalTokens: number;
+  /** 估算成本 USD（本地价格表 × token 用量，非官方账单）；行内含未定价模型 → null（诚实不估算） */
+  costUsd: number | null;
 }
 
 /** 时间桶（粒度聚合序列的一格） */
@@ -66,7 +74,6 @@ export interface UsageBucket extends UsageTotals {
   bucket: string;
   records: number;
 }
-
 /** 平台/模型透视行 */
 export interface UsageDimensionRow extends UsageTotals {
   platform: TokenPlatform;
@@ -76,6 +83,8 @@ export interface UsageDimensionRow extends UsageTotals {
 export interface UsageSummary {
   granularity: UsageGranularity;
   generatedAt: string;
+  /** 实际生效窗口（ISO，本地时区日历边界；custom=用户区间） */
+  range: { from: string; to: string };
   /** 全局总计 */
   totals: UsageTotals;
   /** 时间序列（升序） */

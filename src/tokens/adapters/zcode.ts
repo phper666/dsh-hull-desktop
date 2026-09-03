@@ -1,16 +1,21 @@
 /**
  * ZCode（OpenCode-fork CLI）SQLite 适配器（T2）：
- * - db：~/.zcode/cli/db/db.sqlite（sessions/messages 表，token 列）
- * - 防御式：遍历表找含 token 列的表，逐行归一化（snake/camel 双命名）
- * - 无 token 行 → 跳过；表/列缺失 → []；ts 缺省用文件 mtime（fallbackTs）
+ * - db：~/.zcode/cli/db/db.sqlite
+ * - 精确路径：model_usage 表（per-request per-model，正确数据源）——显式列 SELECT，
+ *   model_id=模型、started_at（unix ms）=时间，input/output/reasoning/cache 各列直接映射；
+ *   status 有值即计（error/cancelled 也消耗了 token，不参与过滤）；
+ *   只计 GLM/Z.ai/BigModel 系模型（matchZaiModel，TokenTracker 口径：捆绑子代理排除）
+ * - 降级路径：model_usage 表不存在时，泛化遍历含 token 列的表（旧逻辑）——但行级真实 ts 提取不到 → 跳过该行
+ *   （禁止 mtime 兜底：全表挤进单一 mtime 时刻会污染时间分布，宁缺勿错）
+ * - 防御式：model_usage 缺关键列（schema 漂移）→ []；表/列缺失 → []；绝不写（querySqlite readonly）
  */
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import type { PlatformSource, UsageRecord } from '../types';
-import { toRecord } from './shared';
-import { querySqlite } from './sqlite';
+import { num, toRecord } from './shared';
+import { hasTable, querySqlite } from './sqlite';
 
 export function zcodeDbPath(home: string): string {
   return join(home, '.zcode', 'cli', 'db', 'db.sqlite');
@@ -34,19 +39,23 @@ function pickTokens(obj: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
-function rowTs(v: unknown, fallbackTs: string): string {
-  if (v == null) return fallbackTs;
+/** 行时间戳：ISO 字符串 / unix ms 数字 → ISO；缺省/非法 → null（调用方跳过该行，禁止 mtime 兜底） */
+function rowTs(v: unknown): string | null {
+  if (v == null) return null;
   const d = new Date(typeof v === 'number' ? v : String(v));
-  return Number.isNaN(d.getTime()) ? fallbackTs : d.toISOString();
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-function zcodeRowToRecord(row: Record<string, unknown>, fallbackTs: string): UsageRecord | null {
+/** 降级泛化路径行映射：行级真实 ts 提取不到 → 跳过（宁缺勿错） */
+function zcodeRowToRecord(row: Record<string, unknown>): UsageRecord | null {
   const usage = pickTokens(row);
+  if (Object.keys(usage).length === 0) return null;
+  const ts = rowTs(row.created_at ?? row.timestamp ?? row.createdAt ?? row.time_created ?? row.started_at ?? row.startedAt);
+  if (!ts) return null; // 无行级真实时间戳 → 跳过（mtime 兜底会污染时间分布）
   const model =
     (typeof row.model === 'string' && row.model) ||
     (typeof row.model_id === 'string' && row.model_id) ||
     (typeof row.modelID === 'string' ? row.modelID : 'unknown');
-  const ts = rowTs(row.created_at ?? row.timestamp ?? row.createdAt, fallbackTs);
   return toRecord({ ts, platform: 'zcode', model }, usage);
 }
 
@@ -54,15 +63,64 @@ function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-/** 所需列白名单：token 归一化键 + model/ts 键（不拉内容列/正文） */
+/** model_usage 表显式列（本机 PRAGMA 实测：per-request per-model；status 保留供未来过滤，当前有值即计） */
+const MODEL_USAGE_COLS = [
+  'model_id', 'started_at',
+  'input_tokens', 'output_tokens', 'reasoning_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens',
+  'status',
+] as const;
+/** 关键 token 列（缺任一 → 判 schema 漂移 → []，不降级误读） */
+const MODEL_USAGE_KEY = ['input_tokens', 'output_tokens'] as const;
+
+/** TokenTracker 口径（来源：TokenTracker plugin 注释）——只计 Z.ai/BigModel GLM 系 turns，捆绑的 Claude/Codex/Gemini 子代理排除 */
+const GLM_MODEL_RE = /glm|zai|bigmodel/i;
+
+/** GLM/Z.ai/BigModel 系模型匹配（大小写不敏感）；model_id 缺失/非 GLM 系 → null（调用方跳过该行） */
+export function matchZaiModel(modelId: unknown): string | null {
+  if (typeof modelId !== 'string' || !modelId) return null;
+  return GLM_MODEL_RE.test(modelId) ? modelId : null;
+}
+
+/** 精确路径：model_usage 表 → UsageRecord[]（前提：hasTable 已确认表存在）；缺关键列/查询失败 → null */
+function parseModelUsage(dbPath: string): UsageRecord[] | null {
+  const cols = querySqlite(dbPath, 'PRAGMA table_info("model_usage")');
+  if (!cols) return null;
+  const colNames = new Set(cols.map((c) => String(c.name ?? '')));
+  if (!MODEL_USAGE_KEY.every((c) => colNames.has(c))) return null; // 关键 token 列缺失 → 判漂移
+  const selCols = MODEL_USAGE_COLS.filter((c) => colNames.has(c));
+  const rows = querySqlite(dbPath, `SELECT ${selCols.map(quoteIdent).join(', ')} FROM "model_usage"`);
+  if (!rows) return null;
+  const out: UsageRecord[] = [];
+  for (const row of rows) {
+    const model = matchZaiModel(row.model_id);
+    if (!model) continue; // model_id 缺失 / 非 GLM 系（捆绑子代理）→ 跳过
+    const ts = rowTs(row.started_at);
+    if (!ts) continue;
+    const rec: UsageRecord = {
+      ts,
+      platform: 'zcode',
+      model,
+      inputTokens: num(row.input_tokens),
+      outputTokens: num(row.output_tokens),
+      cacheReadTokens: num(row.cache_read_input_tokens),
+      cacheWriteTokens: num(row.cache_creation_input_tokens),
+      reasoningTokens: num(row.reasoning_tokens),
+    };
+    if (rec.inputTokens === 0 && rec.outputTokens === 0 && rec.cacheReadTokens === 0 && rec.cacheWriteTokens === 0 && rec.reasoningTokens === 0) continue;
+    out.push(rec);
+  }
+  return out;
+}
+
+/** 降级路径所需列白名单：token 归一化键 + model/ts 键（不拉内容列/正文） */
 const NEEDED_COLS = new Set<string>([
   ...Object.keys(TOKEN_KEY_MAP),
   'model', 'model_id', 'modelID',
-  'created_at', 'timestamp', 'createdAt',
+  'created_at', 'timestamp', 'createdAt', 'time_created', 'started_at', 'startedAt',
 ]);
 
-/** 查询 db：遍历表找含 token 列的表 → 只 SELECT 所需列 → UsageRecord[] */
-export function parseZcodeSource(dbPath: string, fallbackTs = new Date(0).toISOString()): UsageRecord[] {
+/** 降级路径：泛化遍历含 token 列的表（model_usage 不存在时）；行级 ts 提取不到 → 跳过该行 */
+function parseGeneric(dbPath: string): UsageRecord[] {
   const tables = querySqlite(dbPath, "SELECT name FROM sqlite_master WHERE type='table'");
   if (!tables) return [];
   const out: UsageRecord[] = [];
@@ -76,11 +134,19 @@ export function parseZcodeSource(dbPath: string, fallbackTs = new Date(0).toISOS
     const rows = querySqlite(dbPath, `SELECT ${selCols.map(quoteIdent).join(', ')} FROM ${quoteIdent(name)}`);
     if (!rows) continue;
     for (const row of rows) {
-      const rec = zcodeRowToRecord(row, fallbackTs);
+      const rec = zcodeRowToRecord(row);
       if (rec) out.push(rec);
     }
   }
   return out;
+}
+
+/** 查询 db：精确 model_usage 优先（漂移 → []）→ 表缺失降级泛化扫描（无行级 ts 行跳过） */
+export function parseZcodeSource(dbPath: string): UsageRecord[] {
+  if (hasTable(dbPath, 'model_usage')) {
+    return parseModelUsage(dbPath) ?? [];
+  }
+  return parseGeneric(dbPath);
 }
 
 /** 平台源：listFiles 返回存在的 db；parseFile 内 querySqlite */
@@ -90,6 +156,6 @@ export function createZcodeSource(home = homedir()): PlatformSource {
     platform: 'zcode',
     home: join(home, '.zcode', 'cli', 'db'),
     listFiles: () => (existsSync(dbPath) ? [dbPath] : []),
-    parseFile: (_text, fallbackTs) => parseZcodeSource(dbPath, fallbackTs),
+    parseFile: (_text) => parseZcodeSource(dbPath),
   };
 }

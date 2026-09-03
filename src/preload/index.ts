@@ -150,7 +150,7 @@ contextBridge.exposeInMainWorld('connections', {
 });
 
 contextBridge.exposeInMainWorld('tokens', {
-  getUsage: (granularity: string) => invoke('tokens:getUsage', granularity),
+  getUsage: (period: string, customFrom?: string, customTo?: string) => invoke('tokens:getUsage', period, customFrom, customTo),
 });
 
 contextBridge.exposeInMainWorld('kanban', {

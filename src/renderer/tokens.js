@@ -12,10 +12,22 @@
     return String(n);
   };
   const pct = (v, total) => (total > 0 ? Math.round((v / total) * 100) : 0);
-  const GRAN = [['hour', '1小时'], ['day', '1天'], ['month', '1月'], ['year', '1年'], ['all', '全部']];
-  /* 日历对齐范围标签（hour=本小时整点起、day=今天 0 点、month=本月 1 号、year=今年 1/1、all=全部历史） */
-  const RANGE_LABELS = { hour: '本小时', day: '今天', month: '本月', year: '今年', all: '全部' };
+  /* 明细表占比（TokenTracker 同款，1-2 位小数）：零总量/除零 → '—' */
+  const pctS = (v, total) => (total > 0 ? ((v / total) * 100).toFixed(1).replace(/\.0$/, '') + '%' : '—');
+  /* 成本格式（估算，非官方账单）：≥$1K 用 K、≥$1 两位小数、更小四位小数；null（含未定价模型）→ '—' */
+  const fmtUsd = (n) => {
+    if (n === null || n === undefined) return '—';
+    n = Number(n);
+    if (!Number.isFinite(n)) return '—';
+    if (n >= 1000) return '$' + (n / 1000).toFixed(2) + 'K';
+    if (n >= 1) return '$' + n.toFixed(2);
+    return '$' + n.toFixed(4);
+  };
+  const GRAN = [['day', '日'], ['week', '周'], ['month', '月'], ['total', '总计'], ['custom', '自定义']];
+  /* 范围标签（TokenTracker 同构五档）：day=今天、week=本周（周一起）、month=本月、total=最近 24 个月（有界）、custom=用户区间 */
+  const RANGE_LABELS = { day: '今天', week: '本周', month: '本月', total: '最近 24 个月', custom: '自定义区间' };
   const granRange = (k) => RANGE_LABELS[k] || k;
+  const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const PLATFORM_NAMES = {
     'claude-code': 'Claude Code', codex: 'Codex', dsh: 'dsh', opencode: 'OpenCode', cline: 'Cline', roo: 'Roo Code',
     gemini: 'Gemini CLI', kimi: 'Kimi Code', goose: 'Goose', continue: 'Continue', zed: 'Zed', warp: 'Warp',
@@ -39,6 +51,7 @@
   const root = document.getElementById('tokens-root');
 
   function renderShell() {
+    const now = new Date();
     root.innerHTML = `
       <div class="tk-toolbar">
         <span class="tk-mark" aria-hidden="true"></span>
@@ -47,16 +60,29 @@
         <div class="tk-gran" role="radiogroup" aria-label="统计粒度">
           ${GRAN.map(([k, n]) => `<button type="button" data-gran="${k}" aria-pressed="${k === granularity}">${n}</button>`).join('')}
         </div>
+        <div class="tk-custom-range" id="tk-custom-range" hidden style="display:inline-flex;align-items:center;gap:6px;font-size:var(--text-sm);color:var(--hull-text-dim)">
+          <input type="date" id="tk-from" value="${isoDate(new Date(now.getFullYear(), now.getMonth(), 1))}" style="padding:4px 8px;border:1px solid var(--hull-border);border-radius:var(--radius-md);background:var(--hull-bg);color:var(--hull-text);font-size:var(--text-sm)">
+          <span>至</span>
+          <input type="date" id="tk-to" value="${isoDate(now)}" style="padding:4px 8px;border:1px solid var(--hull-border);border-radius:var(--radius-md);background:var(--hull-bg);color:var(--hull-text);font-size:var(--text-sm)">
+        </div>
         <button class="tk-btn" id="tk-refresh" title="重新扫描各平台会话数据">刷新</button>
       </div>
       <div id="tk-body"><div class="tk-empty">选择粒度后加载…</div></div>`;
+    const rangeBox = root.querySelector('#tk-custom-range');
+    const syncRangeBox = () => {
+      if (rangeBox) rangeBox.hidden = granularity !== 'custom';
+    };
+    syncRangeBox();
     root.querySelectorAll('[data-gran]').forEach((b) =>
       b.addEventListener('click', () => {
         granularity = b.dataset.gran;
         root.querySelectorAll('[data-gran]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+        syncRangeBox();
         void load();
       })
     );
+    root.querySelector('#tk-from')?.addEventListener('change', () => void load());
+    root.querySelector('#tk-to')?.addEventListener('change', () => void load());
     root.querySelector('#tk-refresh')?.addEventListener('click', () => void load());
   }
 
@@ -70,7 +96,9 @@
     body.innerHTML = '<div class="tk-loading"><div class="spinner"></div>扫描各平台会话数据中…</div>';
     let r;
     try {
-      r = await window.tokens.getUsage(granularity);
+      const customFrom = granularity === 'custom' ? root.querySelector('#tk-from')?.value || undefined : undefined;
+      const customTo = granularity === 'custom' ? root.querySelector('#tk-to')?.value || undefined : undefined;
+      r = await window.tokens.getUsage(granularity, customFrom, customTo);
     } catch (err) {
       body.innerHTML = `<div class="tk-error">加载失败：${esc(err.message || String(err))}</div>`;
       return;
@@ -107,7 +135,7 @@
             </svg>
           </div>
           <h2>暂无 Token 用量数据</h2>
-          <p>使用以下任一支持的 AI 编程工具产生会话后，这里会自动统计输入 / 输出 / 缓存 / 推理 token（${GRAN.map(([k]) => RANGE_LABELS[k]).join(' / ')}）。扫描只读，不会修改各平台目录。</p>
+          <p>使用以下任一支持的 AI 编程工具产生会话后，这里会自动统计输入 / 输出 / 缓存 / 推理 token（${GRAN.map(([k]) => RANGE_LABELS[k]).join(' / ')}）。扫描只读，不会修改各平台目录。成本为本地价格表估算，非官方账单。</p>
           <div class="tk-src-grid">${srcCards || '<div class="tk-muted">未配置任何扫描源</div>'}</div>
         </div>`;
       return;
@@ -162,6 +190,11 @@
             <div class="tk-mini"><i style="width:${rw ? (read / rw) * 100 : 0}%"></i></div>
           </div>
         </div>
+        <div class="tk-tile cost">
+          <div class="tk-tile-k">成本（估算）</div>
+          <div class="tk-tile-v">${fmtUsd(t.costUsd)}</div>
+          <div class="tk-tile-sub">${t.costUsd === null || t.costUsd === undefined ? '含未定价模型' : '本地价格表估算'}</div>
+        </div>
       </div>`;
 
     /* —— 时间序列：纵向柱图（纯 CSS）+ 悬停提示 —— */
@@ -197,8 +230,9 @@
           rea: a.rea + (r.reasoningTokens || 0),
           c: a.c + (r.cacheReadTokens || 0) + (r.cacheWriteTokens || 0),
           tot: a.tot + (r.totalTokens || 0),
+          cost: a.cost === null || r.costUsd === null || r.costUsd === undefined ? null : a.cost + (r.costUsd || 0),
         }),
-        { in: 0, out: 0, rea: 0, c: 0, tot: 0 }
+        { in: 0, out: 0, rea: 0, c: 0, tot: 0, cost: 0 }
       );
       const rowsHtml = rows
         .map((r) => {
@@ -209,13 +243,15 @@
             <td class="${mode === 'platform' ? 'tk-sub' : ''}">${model}</td>
             ${num(r.inputTokens)}${num(r.outputTokens)}${num(r.reasoningTokens)}${num((r.cacheReadTokens || 0) + (r.cacheWriteTokens || 0))}
             <td class="num tk-total">${fmt(r.totalTokens)}</td>
+            <td class="num tk-pct" title="占${esc(granRange(s.granularity))}总量的百分比">${pctS(r.totalTokens, t.totalTokens)}</td>
+            <td class="num" title="本地价格表估算，非官方账单">${fmtUsd(r.costUsd)}</td>
           </tr>`;
         })
         .join('');
       return `<div class="tk-tbl-wrap"><table class="tk-table">
-        <thead><tr><th>平台</th><th>模型</th><th class="num">输入</th><th class="num">输出</th><th class="num">推理</th><th class="num">缓存</th><th class="num">合计</th></tr></thead>
+        <thead><tr><th>平台</th><th>模型</th><th class="num">输入</th><th class="num">输出</th><th class="num">推理</th><th class="num">缓存</th><th class="num">合计</th><th class="num">占比</th><th class="num">成本</th></tr></thead>
         <tbody>${rowsHtml}</tbody>
-        <tfoot><tr><td colspan="2">小计</td><td class="num">${fmt(sums.in)}</td><td class="num">${fmt(sums.out)}</td><td class="num">${fmt(sums.rea)}</td><td class="num">${fmt(sums.c)}</td><td class="num tk-total">${fmt(sums.tot)}</td></tr></tfoot>
+        <tfoot><tr><td colspan="2">小计</td><td class="num">${fmt(sums.in)}</td><td class="num">${fmt(sums.out)}</td><td class="num">${fmt(sums.rea)}</td><td class="num">${fmt(sums.c)}</td><td class="num tk-total">${fmt(sums.tot)}</td><td class="num"></td><td class="num">${fmtUsd(sums.cost)}</td></tr></tfoot>
       </table></div>`;
     };
 
