@@ -392,6 +392,8 @@
     document.querySelectorAll('[data-cancel]').forEach((b) => b.addEventListener('click', async () => { const r = await exec.cancelExecution(currentBoard.id, b.dataset.cancel); if (!r.ok) alert('取消失败：' + (r.message || r.code)); }));
     document.querySelectorAll('[data-verify]').forEach((b) => b.addEventListener('click', async () => { const r = await exec.confirmVerify(currentBoard.id, b.dataset.verify); if (r.ok) await loadBoard(currentBoard.id); else alert('确认失败：' + (r.message || r.code)); }));
     document.querySelectorAll('[data-detail]').forEach((b) => b.addEventListener('click', () => openDetail(b.dataset.detail)));
+    // V2a 通知中心「查看任务」跳转：系统通知/中心行 → 看板视图 + 打开任务详情
+    window.__kanbanOpenTask = (taskId) => { try { openDetail(taskId); } catch { /* 数据不存在等，忽略 */ } };
     // 点击卡片主体 → 弹详情（操作按钮区 stopPropagation 已挡；拖拽不触发 click）
     document.querySelectorAll('.kb-card[data-id]').forEach((c) => c.addEventListener('click', (e) => {
       if (e.target.closest('.kb-card-ops')) return; // 操作按钮区不弹详情
@@ -700,4 +702,8 @@
 
   // ── 初始化 ──
   refreshBoards();
+// V2a：系统通知点击 → notifs:openTask 事件（一次性订阅，openDetail 在上方作用域）
+window.hull?.onOpenTask?.((d) => window.__kanbanOpenTask?.(d.taskId));
+window.__kanbanOpenTask = (taskId) => { try { openDetail(taskId); } catch { /* 数据不存在等，忽略 */ } };
 })();
+

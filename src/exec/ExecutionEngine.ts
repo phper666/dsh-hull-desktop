@@ -18,6 +18,7 @@ import { EventEmitter } from 'node:events';
 import type { Board, Task } from '../kanban/types';
 import type { KanbanStore } from '../kanban/KanbanStore';
 import type { ExecutionRecord } from '../kanban/types';
+import type { NotifInput } from '../notifications/types';
 import type {
   ExecutionProvider,
   ExecutionResult,
@@ -54,6 +55,8 @@ export interface ExecutionEngineOptions {
   maxParallelTasks?: number;
   /** 心跳 idle 分钟（默认 30） */
   maxExecutionIdleMinutes?: number;
+  /** V2a：看板执行结算通知走 NotificationService（settleTask + 级联 failed；缺省不发射） */
+  emitNotif?: (input: NotifInput) => void;
 }
 
 /** 执行态变更事件负载（onExecutionUpdate 推送） */
@@ -71,6 +74,9 @@ function executionLogPath(executionId: string): string {
 
 export class ExecutionEngine extends EventEmitter {
   private readonly store: KanbanStore;
+  /** V2a：看板执行源发射（NotificationService） */
+  private readonly emitNotif?: (input: NotifInput) => void;
+  private readonly emittedNotifKeys = new Set<string>();
   private readonly scheduler: Scheduler;
   private readonly heartbeat: HeartbeatMonitor;
   private readonly convergence: Convergence;
@@ -82,6 +88,7 @@ export class ExecutionEngine extends EventEmitter {
     super();
     this.store = options.store;
     this.provider = options.provider ?? options.providerManager.getProvider();
+    this.emitNotif = options.emitNotif;
     this.heartbeat = new HeartbeatMonitor({ maxExecutionIdleMinutes: options.maxExecutionIdleMinutes ?? 30 });
 
     // 写面：落到 KanbanStore（system 事件 + 执行态 + 列流转）
@@ -270,6 +277,11 @@ export class ExecutionEngine extends EventEmitter {
           selfCheck: result.selfCheck ?? undefined,
         });
         self.writeExecutionRecord(taskId, result, outcome.executionStatus, executionId);
+        // V2a §3.2：succeeded 在此发射（info 不推送）；failed 必经 setExecutionStatus（markFailed/级联/死锁）
+        // ——failed 发射收敛在该单一出口，防止结算+状态双写路径各发一条（实测双发）
+        if (outcome.executionStatus === 'succeeded') {
+          self.maybeEmitExecutionNotif(boardId, taskId, 'succeeded', '执行完成');
+        }
         return outcome.executionStatus === 'succeeded' ? 'succeeded' : 'failed';
       },
       cancelTask: (taskId) => {
@@ -346,6 +358,26 @@ export class ExecutionEngine extends EventEmitter {
     this.emit('execution-update', { boardId, taskId, executionStatus: status, currentExecutionId: executionId } satisfies EngineExecutionUpdate);
   }
 
+  /** V2a §3.2：看板执行源——settleTask 终态与级联 failed 发射；key 去重防结算/级联双发 */
+  private maybeEmitExecutionNotif(boardId: string, taskId: string, status: 'succeeded' | 'failed', detail: string): void {
+    if (!this.emitNotif) return;
+    const task = this.findTaskById(taskId);
+    const key = `${taskId}:${status}`;
+    if (this.emittedNotifKeys.has(key)) return;
+    this.emittedNotifKeys.add(key);
+    const title = `任务 · ${task?.title ?? taskId}`;
+    try {
+      this.emitNotif({
+        source: 'board-exec',
+        severity: status === 'failed' ? 'error' : 'info',
+        title: status === 'failed' ? `${title}【失败】` : title,
+        body: detail,
+        link: { kind: 'task', boardId, taskId },
+        meta: { executionId: task?.currentExecutionId ?? null, mode: task?.executionMode ?? null },
+      });
+    } catch { /* 通知失败不影响结算 */ }
+  }
+
   private setExecutionStatus(taskId: string, status: Task['executionStatus'], reason: string, detail: string): void {
     const boardId = this.findBoardIdOf(taskId);
     if (boardId === null) return;
@@ -357,6 +389,8 @@ export class ExecutionEngine extends EventEmitter {
     task.updatedAt = new Date().toISOString();
     this.pushSystem(board, taskId, reason, detail);
     this.flushStore();
+    // V2a §3.2：级联/直接终态失败路径发射（正常结算走 settleTask）
+    if (status === 'failed') this.maybeEmitExecutionNotif(boardId, taskId, 'failed', detail || reason);
     this.emit('execution-update', { boardId, taskId, executionStatus: status, currentExecutionId: task.currentExecutionId } satisfies EngineExecutionUpdate);
   }
 

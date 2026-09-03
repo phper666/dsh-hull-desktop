@@ -141,6 +141,22 @@ contextBridge.exposeInMainWorld('workflows', {
   cronPreview: (expr: string) => invoke('workflows:cronPreview', { expr }),
 });
 
+// V2a 通知中心桥（notifs:list/markAllRead + 变更推送/任务跳转事件）
+contextBridge.exposeInMainWorld('notifs', {
+  list: () => invoke('notifs:list'),
+  markAllRead: (source?: string) => invoke('notifs:markAllRead', source),
+  onChanged: (cb: () => void) => {
+    const l = () => cb();
+    ipcRenderer.on('notifs:changed', l);
+    return () => ipcRenderer.removeListener('notifs:changed', l);
+  },
+  onOpenTask: (cb: (data: { taskId: string }) => void) => {
+    const l = (_e: unknown, data: { taskId: string }) => cb(data);
+    ipcRenderer.on('notifs:openTask', l);
+    return () => ipcRenderer.removeListener('notifs:openTask', l);
+  },
+});
+
 contextBridge.exposeInMainWorld('connections', {
   platforms: () => invoke('connections:platforms'),
   list: () => invoke('connections:list'),

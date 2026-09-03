@@ -5,6 +5,7 @@
  */
 import type { KanbanStore } from '../kanban/KanbanStore';
 import type { ExecutionEngine } from '../exec/ExecutionEngine';
+import type { NotifInput } from '../notifications/types';
 import type { WorkflowRun, WorkflowStep } from './types';
 
 export interface WorkflowEngineDeps {
@@ -16,6 +17,8 @@ export interface WorkflowEngineDeps {
   invokeAction?: (connectionId: string, params: Record<string, string>) => Promise<{ ok: boolean; message: string }>;
   /** Token 用量查询（v2）：main 装配 scanAllSources + summarize（period 日历对齐语义与 tokens 视图一致） */
   tokenUsage?: (period: 'day' | 'month' | 'all') => Promise<{ totalTokens: number }>;
+  /** V2a：run 完成通知走 NotificationService（失败 error 推系统通知/成功 info 静默入中心）；缺省不发射 */
+  emitNotif?: (input: NotifInput) => void;
   now?: () => number;
   uuid?: () => string;
 }
@@ -77,9 +80,16 @@ export class WorkflowEngine {
         run.status = 'failed';
         run.finishedAt = new Date().toISOString();
         this.deps.store.saveRun(run);
-        // §8.1：失败自动通知（手动/定时统一）——首条失败 message 截断 120 字
+        // V2a §3.1：失败走 NotificationService（error → service 推系统通知 + 入中心未读）
         try {
-          this.deps.notify(`${notifyTitle}【失败】`, message.length > 120 ? `${message.slice(0, 120)}…` : message);
+          this.deps.emitNotif?.({
+            source: 'workflow',
+            severity: 'error',
+            title: `${notifyTitle}【失败】`,
+            body: message.length > 120 ? `${message.slice(0, 120)}…` : message,
+            link: { kind: 'workflow', workflowId: def.id },
+            meta: { trigger: source, durationMs, log: run.log },
+          });
         } catch { /* 通知失败不影响运行记录 */ }
         return run;
       }
@@ -87,6 +97,17 @@ export class WorkflowEngine {
     run.status = 'success';
     run.finishedAt = new Date().toISOString();
     this.deps.store.saveRun(run);
+    // V2a §3.1：成功入中心（info 默认已读，不推系统通知）
+    try {
+      this.deps.emitNotif?.({
+        source: 'workflow',
+        severity: 'info',
+        title: notifyTitle,
+        body: run.log.length ? `${run.log[run.log.length - 1].type}: ${run.log[run.log.length - 1].message}` : '运行完成',
+        link: { kind: 'workflow', workflowId: def.id },
+        meta: { trigger: source, durationMs: run.log.reduce((a, l) => a + (l.durationMs || 0), 0), log: run.log },
+      });
+    } catch { /* 通知失败不影响运行记录 */ }
     return run;
   }
 

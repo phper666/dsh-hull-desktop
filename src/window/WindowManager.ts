@@ -254,6 +254,19 @@ export class WindowManager {
     this.showPlaceholder('notifs', '');
   }
 
+  /** V2a：通知存储变更推送（渲染层即时刷新角标/列表） */
+  notifyNotifsChanged(): void {
+    if (!this.win || this.win.isDestroyed()) return;
+    this.win.webContents.send('notifs:changed');
+  }
+
+  /** V2a：系统通知点击跳转任务详情（看板视图 + notifs:openTask 事件，kanban.js 消费） */
+  openTaskFromNotif(taskId: string): void {
+    this.showPlaceholder('board', '');
+    if (!this.win || this.win.isDestroyed()) return;
+    this.win.webContents.send('notifs:openTask', { taskId });
+  }
+
   /** 官方 view 边界同步（D2）：幂等；resize/maximize/unmaximize/全屏/display-metrics-changed 统一入口 */
   applyViewBounds(): void {
     const win = this.win;

@@ -15,6 +15,7 @@ function makeEnv(opts: { execFail?: boolean; invokeAction?: (connectionId: strin
   const dir = mkdtempSync(join(tmpdir(), 'hull-workflows-'));
   const store = new WorkflowStore(dir);
   const calls: string[] = [];
+  const emitted: Array<import('../notifications/types').NotifInput> = [];
   const deps: WorkflowEngineDeps = {
     store,
     kanban: {
@@ -31,6 +32,9 @@ function makeEnv(opts: { execFail?: boolean; invokeAction?: (connectionId: strin
       }) as unknown as ExecutionEngine['executeTask'],
     } as unknown as ExecutionEngine,
     notify: (title: string, body: string) => calls.push(`notify:${title}:${body}`),
+    emitNotif: (input) => {
+      emitted.push(input);
+    },
     invokeAction: opts.invokeAction,
     tokenUsage: opts.tokenUsage,
     now: (() => {
@@ -42,7 +46,7 @@ function makeEnv(opts: { execFail?: boolean; invokeAction?: (connectionId: strin
       return () => `run-${++n}`;
     })(),
   };
-  return { engine: new WorkflowEngine(deps), store, calls, dir };
+  return { engine: new WorkflowEngine(deps), store, calls, emitted, dir };
 }
 
 test('顺序执行：dsh-card(不执行)/http 校验失败即中止/notification/delay 全链', async () => {
@@ -201,8 +205,8 @@ test('connection-action：未装配 invokeAction → 明确报错', async () => 
 
 // ── v2：token-budget 步骤 ──
 
-test('token-budget：未超限通过 / 超限 fail+notify / 阈值非法报错 / 未装配报错', async () => {
-  const { engine, store, calls } = makeEnv({ tokenUsage: async (period) => ({ totalTokens: period === 'day' ? 900 : 5000 }) });
+test('token-budget：未超限通过 / 超限 emit error / 阈值非法报错 / 未装配报错', async () => {
+  const { engine, store, calls, emitted } = makeEnv({ tokenUsage: async (period) => ({ totalTokens: period === 'day' ? 900 : 5000 }) });
 
   const w1 = store.save({ name: '预算内', steps: [{ id: 's1', type: 'token-budget', config: { period: 'day', thresholdTokens: '1000' } }] });
   const r1 = await engine.run(w1.id);
@@ -215,12 +219,12 @@ test('token-budget：未超限通过 / 超限 fail+notify / 阈值非法报错 /
   equal(r2.status, 'failed');
   ok(r2.log[0].message.includes('900'));
   ok(r2.log[0].message.includes('500'));
-  // §8.1：超限 = 步骤失败 = run 失败 = 失败自动通知统一承载（notifyOnExceed 被取代，置不置都发）
-  ok(calls.some((c) => c.startsWith('notify:工作流 · 超限告警【失败】:')), '超限经失败自动通知，标题带工作流名+【失败】');
+  // V2a：超限 = 步骤失败 = run 失败 = emitNotif error（service 推系统通知）
+  ok(emitted.some((n) => n.severity === 'error' && String(n.title).includes('工作流 · 超限告警【失败】')), '超限 emit error，标题带【失败】');
 
   const w3 = store.save({ name: '超限告警B', steps: [{ id: 's1', type: 'token-budget', config: { period: 'day', thresholdTokens: '500' } }] });
   await engine.run(w3.id);
-  ok(calls.some((c) => c.startsWith('notify:工作流 · 超限告警B【失败】:')), '未置 notifyOnExceed 也发（语义已被失败自动通知取代）');
+  ok(emitted.some((n) => String(n.title).includes('工作流 · 超限告警B【失败】')), '未置 notifyOnExceed 也发（语义被失败通知取代）');
 
   const w4 = store.save({ name: '阈值非法', steps: [{ id: 's1', type: 'token-budget', config: { period: 'day', thresholdTokens: 'abc' } }] });
   const r4 = await engine.run(w4.id);
@@ -236,11 +240,12 @@ test('token-budget：未超限通过 / 超限 fail+notify / 阈值非法报错 /
 
 // ── §8.1：失败自动通知 ──
 
-test('失败自动通知：run 失败 → title 带工作流名【失败】+ 首条错误；成功 run 无【失败】通知', async () => {
-  const { engine, store, calls } = makeEnv();
+test('V2a 失败通知：run 失败 → emitNotif error（【失败】+ 首条错误 + link/meta）；成功 → info 静默', async () => {
+  const { engine, store, calls, emitted } = makeEnv();
   const ok1 = store.save({ name: '全成功', steps: [{ id: 's1', type: 'notification', config: { message: '完成' } }] });
   await engine.run(ok1.id);
-  equal(calls.filter((c) => c.includes('【失败】')).length, 0, '成功 run 不发失败通知');
+  ok(!emitted.some((n) => String(n.title).includes('【失败】')), '成功 run 不发 error 通知');
+  ok(emitted.some((n) => n.severity === 'info'), '成功 emit info 入中心（readAt 默认已读由 service 负责，已在 service 测试覆盖）');
 
   const w1 = store.save({
     name: '夜巡',
@@ -250,20 +255,23 @@ test('失败自动通知：run 失败 → title 带工作流名【失败】+ 首
     ],
   });
   await engine.run(w1.id);
-  const failNotifies = calls.filter((c) => c.startsWith('notify:工作流 · 夜巡【失败】:'));
-  equal(failNotifies.length, 1, '失败发一次自动通知');
-  ok(failNotifies[0].includes('http'), 'body 含首条失败 message');
-  // 步骤通知仍带工作流名（§8.1 标注语义）
+  const fails = emitted.filter((n) => n.severity === 'error');
+  equal(fails.length, 1, '失败 emit 一次 error');
+  equal(fails[0].title, '工作流 · 夜巡【失败】');
+  ok(String(fails[0].body).includes('http'), 'body 含首条失败 message');
+  deepEqual((fails[0].link as Record<string, string>).kind, 'workflow');
+  equal((fails[0].meta as Record<string, unknown>).trigger, 'manual');
+  // 显式 notification 步骤仍走 notify（系统通知，不进中心——§3.1 语义）
   ok(calls.includes('notify:工作流 · 夜巡:开始'));
 });
 
-test('失败自动通知：长 message 截断 120 字', async () => {
-  const { engine: e2, store: s2, calls: calls2 } = makeEnv({
+test('V2a 失败通知：长 message 截断 120 字', async () => {
+  const { engine: e2, store: s2, emitted } = makeEnv({
     invokeAction: async () => ({ ok: false, message: 'x'.repeat(200) }),
   });
   const w2 = s2.save({ name: '长错误B', steps: [{ id: 's1', type: 'connection-action', config: { connectionId: 'c', params: '{}' } }] });
   await e2.run(w2.id);
-  const n = calls2.filter((c) => c.startsWith('notify:工作流 · 长错误B【失败】:'))[0];
-  const body = n.split(':').slice(2).join(':');
-  ok(body.length <= 121, `body 截断至 ≤120 字，实际 ${body.length}`);
+  const n = emitted.find((x) => x.severity === 'error') as { body: string } | undefined;
+  ok(n, '有 error 通知');
+  ok(n.body.length <= 121, `body 截断至 ≤120 字，实际 ${n.body.length}`);
 });
