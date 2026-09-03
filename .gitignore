@@ -27,6 +27,8 @@ src/**/*.js.map
 !src/renderer/tokens.js
 !src/renderer/connections.js
 !src/renderer/workflows.js
+# §9 通知中心页手写源（同 workflows 先例——第三次静默忽略事故 2026-09-03：notifs.js 未反排除致合并后断链）
+!src/renderer/notifs.js
 # U3 依赖图手写源（同 kanban 先例；core=纯函数/渲染/单测，node:test 直跑不入 dist）
 !src/renderer/depgraph.js
 !src/renderer/depgraph-core.js
