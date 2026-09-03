@@ -66,7 +66,6 @@
       <div class="wf-toolbar"><span class="tk-title">工作流</span><span class="cn-spacer"></span>
         <button class="wf-btn primary" id="wf-add">＋ 新建工作流</button></div>
       <div class="wf-list">${cards || ''}</div>
-      ${runs.length ? `<div class="wf-runs"><h3>最近运行</h3>${runs.slice(0, 8).map(runHtml).join('')}</div>` : ''}
       ${workflows.length ? '' : '<div class="wf-empty"><div class="empty-ico" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="24" r="5"/><path d="M17 24h14"/><circle cx="38" cy="24" r="5" opacity="0.55"/><path d="M29 17l7 7-7 7" opacity="0.6"/></svg></div><h2>还没有工作流</h2><p>把「建卡 → 执行 → 通知」这类重复动作串成一条自动化链；也可配置 cron 定时触发。</p></div>'}`;
     root.querySelector('#wf-add').addEventListener('click', () => { editor = { name: '', enabled: true, steps: [], trigger: null }; renderEditor(); });
     for (const b of root.querySelectorAll('[data-toggle]'))
@@ -100,15 +99,17 @@
         await renderList();
       });
     void window.__notifsRefreshBadge?.();
-  }
-
-  function runHtml(r) {
-    const src = r.trigger === 'cron' ? '<span class="wf-badge cron">定时</span> ' : '';
-    return `<div class="wf-run">
-      <div class="head">${src}<b>${esc(r.workflowName)}</b><span class="wf-badge ${r.status}">${r.status === 'success' ? '成功' : r.status === 'failed' ? '失败' : '运行中'}</span>
-        <span class="time">${esc((r.startedAt || '').replace('T', ' ').slice(0, 19))}</span></div>
-      ${r.log.map((l) => `<div class="stepline ${l.ok ? '' : 'err'}">${l.ok ? '✓' : '✗'} [${esc(stepTypeName(l.type))}] ${esc(l.message)}（${l.durationMs}ms）</div>`).join('')}
-    </div>`;
+    // §9.5：通知中心「查看工作流」跳转消费——定位 + flash 高亮
+    const hl = window.__workflowsHighlightId;
+    window.__workflowsHighlightId = null;
+    if (hl) {
+      const card = root.querySelector(`.wf-card[data-id="${hl}"]`);
+      if (card) {
+        card.scrollIntoView({ block: 'center' });
+        card.classList.add('flash');
+        setTimeout(() => card.classList.remove('flash'), 1600);
+      }
+    }
   }
 
   /* ── 编辑器 ── */

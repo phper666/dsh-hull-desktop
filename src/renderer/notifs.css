@@ -30,6 +30,16 @@
   padding: 9px 18px; font-size: 12px; border-bottom: 1px solid var(--hull-border);
   cursor: pointer; align-items: center;
 }
+.nt-item:not(:last-child) .nt-detail:not(.hidden) { border-bottom: 1px solid var(--hull-border); }
+.nt-detail { padding: 8px 18px 10px 28px; background: var(--hull-panel); font-size: 11px; }
+.nt-detail-inner { display: flex; flex-direction: column; gap: 6px; }
+.nt-meta-line { color: var(--hull-text-sub); }
+.nt-steps { display: flex; flex-direction: column; gap: 2px; font-family: var(--font-mono); word-break: break-all; }
+.nt-step { color: var(--hull-text-dim); padding: 1px 0; }
+.nt-step.err { color: var(--hull-danger); }
+.nt-detail-ops { display: flex; }
+.nt-goto { padding: 4px 12px; border-radius: var(--radius-sm); border: 1px solid var(--hull-border); background: transparent; color: var(--hull-accent); font-size: 11px; cursor: pointer; }
+.nt-goto:hover { border-color: var(--hull-accent); background: var(--hull-accent-soft); }
 .nt-row:hover { background: var(--hull-hover); }
 .nt-row.unread { box-shadow: inset 3px 0 0 var(--hull-danger); background: var(--hull-accent-faint, transparent); }
 .nt-row .wf { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

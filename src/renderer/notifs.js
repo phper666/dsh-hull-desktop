@@ -27,6 +27,8 @@
       status: r.status,
       trigger: r.trigger === 'cron' ? 'cron' : 'manual',
       startedAt: r.startedAt,
+      finishedAt: r.finishedAt,
+      log: r.log || [],
       durationMs: (r.log || []).reduce((acc, l) => acc + (l.durationMs || 0), 0),
       message: r.status === 'failed'
         ? (r.log || []).find((l) => !l.ok)?.message || '运行失败'
@@ -44,6 +46,11 @@
     return new Date(iso).toLocaleString('zh-CN', { hour12: false });
   };
   const fmtDur = (ms) => (!ms ? '—' : ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
+  const fmtAbs = (iso) => (iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '—');
+  const STEP_NAMES = {
+    'dsh-card': 'dsh 任务卡片', http: 'HTTP 请求', 'connection-action': '工作台连接动作',
+    'token-budget': 'Token 预算检查', notification: '系统通知', delay: '延时等待',
+  };
 
   /* ── 角标（铃铛；进页面清零） ── */
   async function refreshBadge() {
@@ -73,13 +80,28 @@
     const statusBadge = n.status === 'success' ? '<span class="badge success">成功</span>'
       : n.status === 'failed' ? '<span class="badge failed">失败</span>' : '<span class="badge running">运行中</span>';
     const triggerBadge = n.trigger === 'cron' ? '<span class="badge cron">定时</span>' : '<span class="badge muted">手动</span>';
-    return `<div class="nt-row ${n.unread ? 'unread' : ''}" data-id="${esc(n.id)}">
-      <span class="st">${statusBadge}</span>
-      <span class="wf" title="${esc(n.title)}">${esc(n.title)}</span>
-      <span>${triggerBadge}</span>
-      <span class="msg ${n.status === 'failed' ? 'err' : ''}" title="${esc(n.message)}">${esc(n.message)}</span>
-      <span class="dur">${fmtDur(n.durationMs)}</span>
-      <span class="tm" title="${esc(new Date(n.startedAt).toLocaleString('zh-CN', { hour12: false }))}">${esc(fmtRel(n.startedAt))}</span>
+    return `<div class="nt-item" data-id="${esc(n.id)}">
+      <div class="nt-row ${n.unread ? 'unread' : ''}" data-toggle-detail>
+        <span class="st">${statusBadge}</span>
+        <span class="wf" title="${esc(n.title)}">${esc(n.title)}</span>
+        <span>${triggerBadge}</span>
+        <span class="msg ${n.status === 'failed' ? 'err' : ''}" title="${esc(n.message)}">${esc(n.message)}</span>
+        <span class="dur">${fmtDur(n.durationMs)}</span>
+        <span class="tm" title="${esc(fmtAbs(n.startedAt))}">${esc(fmtRel(n.startedAt))}</span>
+      </div>
+      <div class="nt-detail hidden">${detailHtml(n)}</div>
+    </div>`;
+  }
+
+  /** §9.5：展开详情——完整步骤日志 + 触发/起止 + 显式跳转按钮（行点击不再直接跳转） */
+  function detailHtml(n) {
+    const steps = n.log.length
+      ? n.log.map((l) => `<div class="nt-step ${l.ok ? '' : 'err'}">${l.ok ? '✓' : '✗'} [${esc(STEP_NAMES[l.type] || l.type)}] ${esc(l.message)}（${fmtDur(l.durationMs)}）</div>`).join('')
+      : '<div class="nt-step">（无步骤——空工作流直接运行）</div>';
+    return `<div class="nt-detail-inner">
+      <div class="nt-meta-line">触发 ${n.trigger === 'cron' ? '定时（cron）' : '手动'} · 开始 ${esc(fmtAbs(n.startedAt))} · 结束 ${esc(fmtAbs(n.finishedAt))} · 总耗时 ${fmtDur(n.durationMs)}</div>
+      <div class="nt-steps">${steps}</div>
+      <div class="nt-detail-ops"><button class="nt-goto" data-goto-wf="${esc(n.workflowId)}">查看工作流 →</button></div>
     </div>`;
   }
 
@@ -123,10 +145,17 @@
     root.querySelector('#nt-trigger').addEventListener('change', (e) => { triggerFilter = e.target.value; render(); });
     root.querySelector('#nt-mark').addEventListener('click', () => { rows.forEach((n) => { n.unread = false; }); markRead(); render(); });
     root.querySelector('#nt-rows').addEventListener('click', (e) => {
-      const row = e.target.closest('.nt-row');
+      const goto = e.target.closest('.nt-goto');
+      if (goto) {
+        e.stopPropagation();
+        window.__workflowsHighlightId = goto.dataset.gotoWf; // 工作流页 renderList 消费：定位 + flash
+        if (window.hull) void window.hull.showWorkflows();
+        window.__workflowsRefresh?.();
+        return;
+      }
+      const row = e.target.closest('[data-toggle-detail]');
       if (!row) return;
-      if (window.hull) void window.hull.showWorkflows();
-      window.__workflowsRefresh?.();
+      row.parentElement.querySelector('.nt-detail')?.classList.toggle('hidden');
     });
   }
 
