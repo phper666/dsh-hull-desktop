@@ -730,6 +730,12 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     winMgr.showWorkflows();
     return { ok: true };
   });
+  // 通知中心视图（§9 V1：铃铛入口，镜像 showWorkflows）
+  ipcMain.handle('hull:showNotifs', async () => {
+    if (quitting) return { ok: false, message: '正在退出' };
+    winMgr.showNotifs();
+    return { ok: true };
+  });
   // B2 补丁：壳导航 dsh web 入口 → 恢复官方 view（与 showBoard 对称；无新通道）
   // 语义照 onStatus 映射：Ready → loadOfficialUrl（officialDirty 则重载，否则复用）；
   // Failed → failed 占位；NotInstalled（未安装）→ not-installed 引导态；

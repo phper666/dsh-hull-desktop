@@ -138,3 +138,30 @@ src/workflows/
 ### 8.4 实现管道
 
 TDD 核心路径：引擎标题组合 + 失败自动通知（WorkflowEngine.test 扩展）；其余为渲染层胶水（node --check + 手动走查）。工程基线三问全 ✓。
+
+## 九、通知中心 V1（2026-09-03 定稿，判级：常规 → 方案冻结）
+
+> 需求（用户 2026-09-03，4 方案原型对比后拍板）：选 C「独立通知页」形态，**按壳级通知中心架构第一期建设**——本期只接工作流源，schema/UI 预留 source 维度。
+> 判级：常规——渲染层为主的新视图 + 复用现有 IPC（workflows:runs）与视图机制（placeholder view）；无新存储/无主进程新子系统/无安全面。视觉基准：docs/prototype/2026-09-03-workflow-notify-variants-prototype.html（C 方案）。
+
+### 9.1 架构决策（V1 边界）
+
+- **NotificationService 本期不建**：数据仍读 `workflows:runs`（零新增存储/IPC）；渲染层 `toNotifRows(runs)` 归一化为 `NotifRow { source: 'workflow', ... }`——source 维度从第一天存在于 UI 与数据模型层，v2 接入第二源（看板执行通知）时再建 service + 迁移，页面零返工。
+- **§8.2 overlay 面板被本页取代**：铃铛语义保留（入口 + 未读失败角标），点击从「开弹层」改为「切 `placeholder:notifs` 视图」；弹层代码摘除。
+- **待办型事件不进中心**（审批请求 = 强实时弹窗）；候选源（v2+）：看板执行完成/失败、dsh/Hull 更新可用（需与「稍后再说」去重）。
+
+### 9.2 页面（#notifs，nav「通知中心」之后、设置之前）
+
+- **视图机制**：PlaceholderMode 增 `'notifs'`；WindowManager.showNotifs()（镜像 showWorkflows）；IPC `hull:showNotifs`；preload `hull.showNotifs`；navActiveByView 增映射；铃铛 id 改 `nav-notifs` 参与高亮。
+- **工具栏**：标题「通知中心」+ 搜索框（实时过滤工作流名/消息）+ 状态 segmented（全部/失败/成功）+ 触发下拉（全部/定时/手动）+ 来源 chips（工作流，单选占位）+ 右侧计数（N 条 · 未读失败 M）。
+- **表格**：状态徽标 / 工作流（名+定时徽标）/ 消息（失败红显首条错误）/ 耗时 / 时间（相对+悬浮绝对）；未读失败行左缘红条 + faint 底；行点击 → 切工作流视图。
+- **未读语义**：沿 §8.2——status=failed 且 startedAt > localStorage `workflows:notifLastReadTs`；**进入页面即标记已读**（清角标）；角标 60s 轮询保留；runs.json 50 条上限维持（页脚注明）。
+- **页脚**：「标记全部已读」+ 容量提示。
+
+### 9.3 非目标（V1）
+
+第二源接入与 NotificationService · 服务端持久化已读状态（localStorage 即可，单用户桌面壳）· 导出 · 通知规则配置。
+
+### 9.4 实现管道
+
+轻量（常规级，渲染层胶水豁免 TDD）：node --check + 全量单测/e2e 回归 + **新增 notifs e2e 首例**（seed runs.json → 点铃铛 → 断言页面/行/角标）。UI 规范缺失登记降级（--hull-* 令牌 + 原型为视觉基准）。

@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="tokens.css" />
   <link rel="stylesheet" href="connections.css" />
   <link rel="stylesheet" href="workflows.css" />
+  <link rel="stylesheet" href="notifs.css" />
 <style>
   /* T1 主题变量（CON-R-theme-002）：暗色默认 + 亮色[data-theme="light"] */
   :root, [data-theme="dark"] {
@@ -455,9 +456,9 @@
       <button id="nav-workflows" class="nav-item"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5.5" cy="12" r="2.5"/><path d="M10 12h4" opacity="0.6"/><circle cx="18.5" cy="12" r="2.5" opacity="0.55"/></svg>工作流</button>
       <button id="nav-settings" class="nav-item"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>设置</button>
     </div>
-    <!-- §8.2 通知中心入口：未读失败角标（workflows.js 驱动；角标只计失败，打开即清零） -->
-    <button id="wf-bell" class="nav-item wf-bell" title="工作流通知" aria-label="工作流通知">
-      <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10.3 20a2 2 0 0 0 3.4 0"/></svg>通知<span id="wf-bell-badge" class="wf-badge-dot" hidden></span>
+    <!-- §9 V1 通知中心：铃铛 = 页面入口 + 未读失败角标（notifs.js 驱动；进入页面即已读） -->
+    <button id="nav-notifs" class="nav-item wf-bell" title="通知中心" aria-label="通知中心">
+      <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10.3 20a2 2 0 0 0 3.4 0"/></svg>通知中心<span id="notifs-badge" class="wf-badge-dot" hidden></span>
     </button>
     <div id="nav-status">
       <div class="row"><span>dsh 状态</span><span id="status-phase" class="val">…</span></div>
@@ -529,6 +530,10 @@
     <!-- 工作流（设置之前；顺序步骤引擎：dsh-card/http/notification/delay） -->
     <section id="workflows" class="placeholder hidden">
       <div id="workflows-root"></div>
+    </section>
+    <!-- §9 V1 通知中心（工作流首源，source 维度预留；notifs.js 渲染） -->
+    <section id="notifs" class="placeholder hidden">
+      <div id="notifs-root"></div>
     </section>
     <!-- S8' S6'：设置视图（D1 迁移自 settings.html，重渲染；持久化走 hull:setSettings，CON-R002 不破）。
          通用/dsh/Hull/诊断 4 卡；dsh/Hull 升级反馈（确认/进度/失败/回滚/重启安装提示）内联各自区块底部 -->
@@ -698,7 +703,7 @@
   const bridge = window.hull;
   const PLACEHOLDER_PREFIX = 'placeholder:';
   // S8' S8'：sections 扩 1（settings）——view 2→3 态（official/board/settings）
-  const sections = ['starting', 'installing', 'failed', 'not-installed', 'board', 'skills', 'tokens', 'connections', 'workflows', 'settings'];
+  const sections = ['starting', 'installing', 'failed', 'not-installed', 'board', 'skills', 'tokens', 'connections', 'workflows', 'notifs', 'settings'];
 
   // 占位视图切换（view 字段驱动；official → 全隐藏）
   function setView(view) {
@@ -758,6 +763,7 @@
     'placeholder:tokens': 'nav-tokens',
     'placeholder:connections': 'nav-connections',
     'placeholder:workflows': 'nav-workflows',
+    'placeholder:notifs': 'nav-notifs',
     'placeholder:settings': 'nav-settings',
   };
   // 升级进行中例外（M1-重构）：升级已并入 settings 视图——view=placeholder:settings 且 upgrade.phase ∈ 进行中
@@ -1505,5 +1511,6 @@
   <script src="tokens.js"></script>
   <script src="connections.js"></script>
   <script src="workflows.js"></script>
+  <script src="notifs.js"></script>
 </body>
 </html>
