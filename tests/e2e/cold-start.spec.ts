@@ -64,7 +64,7 @@ test.describe('E2E-01 冷启动', () => {
       await expect(shell.locator('#status-upgrade')).toHaveText('无');
       // nav 排序（M1-重构 + S1 + tokens/connections/workflows 增量）：dsh web → 任务看板 → Skills → Token 消耗 → 工作台连接 → 工作流 → 设置（设置恒最后，无 nav-upgrade）
       const navOrder = await shell.locator('#nav-items .nav-item').evaluateAll((els) => els.map((e) => e.id));
-      expect(navOrder).toEqual(['nav-web', 'nav-board', 'nav-skills', 'nav-tokens', 'nav-connections', 'nav-workflows', 'nav-settings']);
+      expect(navOrder).toEqual(['nav-web', 'nav-board', 'nav-skills', 'nav-tokens', 'nav-connections', 'nav-workflows', 'nav-notifs', 'nav-settings']);
       await expect(shell.locator('#nav-upgrade')).toHaveCount(0);
       // 占位区块：official 时全隐藏
       await expect(shell.locator('#starting')).toBeHidden();
