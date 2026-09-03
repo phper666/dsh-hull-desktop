@@ -27,11 +27,22 @@
 }
 .nt-row {
   display: grid; grid-template-columns: 72px 1.2fr 64px 2.4fr 76px 110px; gap: 10px;
-  padding: 9px 18px; font-size: 12px; border-bottom: 1px solid var(--hull-border);
+  padding: 8px 18px; font-size: 12px; border-bottom: 1px solid var(--hull-border);
   cursor: pointer; align-items: center;
 }
+/* §9.5 视觉修订：状态/触发「色点+文本」——无 pill 底盒，文字起点与表头对齐 */
+.nt-row .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.nt-row .dot.ok { background: var(--hull-success); }
+.nt-row .dot.err { background: var(--hull-danger); }
+.nt-row .dot.run { background: var(--hull-info); }
+.nt-row .st-t.ok { color: var(--hull-success); }
+.nt-row .st-t.err { color: var(--hull-danger); }
+.nt-row .st-t.run { color: var(--hull-info); }
+.nt-row .tg { color: var(--hull-text-muted); }
+.nt-row .tg.tg-cron { color: var(--hull-accent); }
 .nt-item:not(:last-child) .nt-detail:not(.hidden) { border-bottom: 1px solid var(--hull-border); }
-.nt-detail { padding: 8px 18px 10px 28px; background: var(--hull-panel); font-size: 11px; }
+.nt-detail { padding: 8px 18px 10px 100px; background: var(--hull-panel); font-size: 11px; } /* 缩进对齐「工作流」列：18 页边 + 72 状态 + 10 gap */
+.nt-row:has(+ .nt-detail:not(.hidden)) { border-bottom-color: transparent; }
 .nt-detail-inner { display: flex; flex-direction: column; gap: 6px; }
 .nt-meta-line { color: var(--hull-text-sub); }
 .nt-steps { display: flex; flex-direction: column; gap: 2px; font-family: var(--font-mono); word-break: break-all; }
