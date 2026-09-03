@@ -21,10 +21,11 @@
     if (n >= 1) return '$' + n.toFixed(2);
     return '$' + n.toFixed(4);
   };
-  const GRAN = [['hour', '1小时'], ['day', '1天'], ['month', '1月'], ['year', '1年'], ['all', '全部']];
-  /* 日历对齐范围标签（hour=本小时整点起、day=今天 0 点、month=本月 1 号、year=今年 1/1、all=全部历史） */
-  const RANGE_LABELS = { hour: '本小时', day: '今天', month: '本月', year: '今年', all: '全部' };
+  const GRAN = [['day', '日'], ['week', '周'], ['month', '月'], ['total', '总计'], ['custom', '自定义']];
+  /* 范围标签（TokenTracker 同构五档）：day=今天、week=本周（周一起）、month=本月、total=最近 24 个月（有界）、custom=用户区间 */
+  const RANGE_LABELS = { day: '今天', week: '本周', month: '本月', total: '最近 24 个月', custom: '自定义区间' };
   const granRange = (k) => RANGE_LABELS[k] || k;
+  const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const PLATFORM_NAMES = {
     'claude-code': 'Claude Code', codex: 'Codex', dsh: 'dsh', opencode: 'OpenCode', cline: 'Cline', roo: 'Roo Code',
     gemini: 'Gemini CLI', kimi: 'Kimi Code', goose: 'Goose', continue: 'Continue', zed: 'Zed', warp: 'Warp',
@@ -48,6 +49,7 @@
   const root = document.getElementById('tokens-root');
 
   function renderShell() {
+    const now = new Date();
     root.innerHTML = `
       <div class="tk-toolbar">
         <span class="tk-mark" aria-hidden="true"></span>
@@ -56,16 +58,29 @@
         <div class="tk-gran" role="radiogroup" aria-label="统计粒度">
           ${GRAN.map(([k, n]) => `<button type="button" data-gran="${k}" aria-pressed="${k === granularity}">${n}</button>`).join('')}
         </div>
+        <div class="tk-custom-range" id="tk-custom-range" hidden style="display:inline-flex;align-items:center;gap:6px;font-size:var(--text-sm);color:var(--hull-text-dim)">
+          <input type="date" id="tk-from" value="${isoDate(new Date(now.getFullYear(), now.getMonth(), 1))}" style="padding:4px 8px;border:1px solid var(--hull-border);border-radius:var(--radius-md);background:var(--hull-bg);color:var(--hull-text);font-size:var(--text-sm)">
+          <span>至</span>
+          <input type="date" id="tk-to" value="${isoDate(now)}" style="padding:4px 8px;border:1px solid var(--hull-border);border-radius:var(--radius-md);background:var(--hull-bg);color:var(--hull-text);font-size:var(--text-sm)">
+        </div>
         <button class="tk-btn" id="tk-refresh" title="重新扫描各平台会话数据">刷新</button>
       </div>
       <div id="tk-body"><div class="tk-empty">选择粒度后加载…</div></div>`;
+    const rangeBox = root.querySelector('#tk-custom-range');
+    const syncRangeBox = () => {
+      if (rangeBox) rangeBox.hidden = granularity !== 'custom';
+    };
+    syncRangeBox();
     root.querySelectorAll('[data-gran]').forEach((b) =>
       b.addEventListener('click', () => {
         granularity = b.dataset.gran;
         root.querySelectorAll('[data-gran]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+        syncRangeBox();
         void load();
       })
     );
+    root.querySelector('#tk-from')?.addEventListener('change', () => void load());
+    root.querySelector('#tk-to')?.addEventListener('change', () => void load());
     root.querySelector('#tk-refresh')?.addEventListener('click', () => void load());
   }
 
@@ -79,7 +94,9 @@
     body.innerHTML = '<div class="tk-loading"><div class="spinner"></div>扫描各平台会话数据中…</div>';
     let r;
     try {
-      r = await window.tokens.getUsage(granularity);
+      const customFrom = granularity === 'custom' ? root.querySelector('#tk-from')?.value || undefined : undefined;
+      const customTo = granularity === 'custom' ? root.querySelector('#tk-to')?.value || undefined : undefined;
+      r = await window.tokens.getUsage(granularity, customFrom, customTo);
     } catch (err) {
       body.innerHTML = `<div class="tk-error">加载失败：${esc(err.message || String(err))}</div>`;
       return;

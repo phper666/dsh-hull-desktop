@@ -1,12 +1,13 @@
 /**
  * 用量聚合器：UsageRecord[] → 桶序列 + 平台/模型透视。
  * 纯函数（无 IO），单测覆盖；桶键本地时区。
- * 粒度 = 日历对齐范围（本地时区）：hour=本小时整点起、day=今天 0 点、month=本月 1 号、year=今年 1/1、all=不过滤：
- * summarize 按 generatedAt 所在日历边界过滤 records（all 不过滤），全视图（总计/序列/透视）只含边界后记录。
- * 序列分桶粒度按范围推导（RANGE_BUCKET）：hour 范围 → 10 分钟桶、day → 小时桶、month → 天桶、year/all → 月桶。
+ * 范围 = 日历对齐窗口（TokenTracker 同构五档）：day=今天、week=本周（周一起）、month=本月、total=最近 24 个月（有界）、custom=用户区间：
+ * getRangeWindow 产出 {fromMs,toMs} 双边界（to = 当天 23:59:59.999 本地封顶——未来时间戳脏数据被右边界挡住），
+ * summarize 按双边界过滤 records（fromMs <= ts <= toMs），全视图（总计/序列/透视）只含窗口内记录；UsageSummary.range 填实际窗口 ISO。
+ * 序列分桶粒度按范围推导：day→hour 桶、week/month→day 桶、total→month 桶、custom→跨度自适应（≤3 天 hour、≤90 天 day、否则 month）。
  * 成本（costUsd）：行内全部 record 模型命中 PRICING_SEED → 数值累加；任一未命中 → null（诚实不估算，UI 显示「—」）。
  */
-import type { UsageBucket, UsageDimensionRow, UsageGranularity, UsageRecord, UsageSummary, UsageTotals } from './types';
+import type { CustomRange, UsageBucket, UsageDimensionRow, UsageGranularity, UsageRecord, UsageSummary, UsageTotals } from './types';
 import { computeCost, matchPrice } from './pricing';
 
 type MutableTotals = {
@@ -14,29 +15,55 @@ type MutableTotals = {
   costUsd: number; costKnown: boolean;
 };
 
-/** 日历对齐边界（本地时区，Date 无参构造即本地）：hour=本小时整点、day=今天 0 点、month=本月 1 号、year=今年 1/1、all=0（不过滤） */
-export function rangeCutoffMs(granularity: UsageGranularity, now: Date): number {
+/** 当天 23:59:59.999（本地）——窗口右边界封顶 */
+function dayEndMs(y: number, m: number, d: number): number {
+  return new Date(y, m, d, 23, 59, 59, 999).getTime();
+}
+
+/** 范围窗口（本地时区）：day=今天、week=本周一 00:00~周日 23:59:59.999（周一起，getDay 转周一偏移）、month=本月 1 号~月末、total=最近 24 个月（本月-23 月 1 号~今天）、custom=用户区间（from>to 交换） */
+export function getRangeWindow(period: UsageGranularity, now: Date, custom?: CustomRange): { fromMs: number; toMs: number } {
   const y = now.getFullYear(), m = now.getMonth(), d = now.getDate();
-  switch (granularity) {
-    case 'hour':  return new Date(y, m, d, now.getHours()).getTime();
-    case 'day':   return new Date(y, m, d).getTime();
-    case 'month': return new Date(y, m, 1).getTime();
-    case 'year':  return new Date(y, 0, 1).getTime();
-    case 'all':   return 0;
+  switch (period) {
+    case 'day':
+      return { fromMs: new Date(y, m, d).getTime(), toMs: dayEndMs(y, m, d) };
+    case 'week': {
+      const offset = (now.getDay() + 6) % 7; // 周一=0（getDay：日=0…六=6）
+      const mon = new Date(y, m, d - offset); // Date 负日期自动回滚
+      return { fromMs: new Date(mon.getFullYear(), mon.getMonth(), mon.getDate()).getTime(), toMs: dayEndMs(y, m, d) };
+    }
+    case 'month':
+      return { fromMs: new Date(y, m, 1).getTime(), toMs: dayEndMs(y, m + 1, 0) }; // 月末 = 下月 0 号
+    case 'total':
+      return { fromMs: new Date(y, m - 23, 1).getTime(), toMs: dayEndMs(y, m, d) }; // 24 个月窗口（含本月）
+    case 'custom': {
+      if (!custom || !custom.from || !custom.to) return { fromMs: 0, toMs: 0 }; // 缺参 → 空窗
+      let from = custom.from, to = custom.to;
+      if (from > to) { const tmp = from; from = to; to = tmp; } // from>to → 交换（YYYY-MM-DD 字典序=时间序）
+      return { fromMs: new Date(`${from}T00:00:00`).getTime(), toMs: new Date(`${to}T23:59:59.999`).getTime() };
+    }
   }
 }
 
-/** 序列分桶粒度（独立类型：'week' 保留兼容 bucketKey/isoWeekKey，范围推导不再产出） */
+/** 序列分桶粒度（独立类型：'min10'/'week' 保留兼容 bucketKey/isoWeekKey，范围推导仅产出 hour/day/month） */
 export type BucketGran = 'min10' | 'hour' | 'day' | 'week' | 'month';
 
-/** 范围档 → 序列分桶粒度（解耦：1 小时范围用 10 分钟桶才有多桶） */
+/** 范围档 → 序列分桶粒度（custom 由 customBucketGran 按跨度自适应覆盖） */
 const RANGE_BUCKET: Record<UsageGranularity, BucketGran> = {
-  hour: 'min10',
   day: 'hour',
+  week: 'day',
   month: 'day',
-  year: 'month',
-  all: 'month',
+  total: 'month',
+  custom: 'month',
 };
+
+/** custom 跨度自适应：≤3 天 hour、≤90 天 day、否则 month */
+function customBucketGran(custom?: CustomRange): BucketGran {
+  if (!custom || !custom.from || !custom.to) return 'month';
+  const days = Math.round((new Date(`${custom.to}T23:59:59.999`).getTime() - new Date(`${custom.from}T00:00:00`).getTime()) / 86400000) + 1;
+  if (days <= 3) return 'hour';
+  if (days <= 90) return 'day';
+  return 'month';
+}
 
 function emptyTotals(): MutableTotals {
   return { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 0, costUsd: 0, costKnown: true };
@@ -103,16 +130,21 @@ export interface ScanSourceInfo {
   error?: string;
 }
 
-/** 汇总：按粒度时间范围过滤 records → 桶序列（升序）+ 平台/模型透视 + 全局总计 */
+/** 汇总：按范围窗口 {from,to} 双边界过滤 records → 桶序列（升序）+ 平台/模型透视 + 全局总计 */
 export function summarize(
   records: UsageRecord[],
   granularity: UsageGranularity,
   sources: ScanSourceInfo[],
-  generatedAt = new Date().toISOString()
+  generatedAt = new Date().toISOString(),
+  custom?: CustomRange
 ): UsageSummary {
-  // 粒度 = 日历对齐范围：只聚合 generatedAt 所在日历边界之后的记录
-  const cutoff = rangeCutoffMs(granularity, new Date(generatedAt));
-  const scoped = records.filter((r) => new Date(r.ts).getTime() >= cutoff);
+  // 范围 = 日历对齐窗口：fromMs <= ts <= toMs（右边界封顶挡未来时间戳脏数据）
+  const { fromMs, toMs } = getRangeWindow(granularity, new Date(generatedAt), custom);
+  const scoped = records.filter((r) => {
+    const t = new Date(r.ts).getTime();
+    return t >= fromMs && t <= toMs;
+  });
+  const bucketGran = granularity === 'custom' ? customBucketGran(custom) : RANGE_BUCKET[granularity];
   const grand = emptyTotals();
   const buckets = new Map<string, MutableTotals & { records: number }>();
   const byPlatform = new Map<string, MutableTotals>();
@@ -120,7 +152,7 @@ export function summarize(
 
   for (const r of scoped) {
     addTotals(grand, r);
-    const key = bucketKey(r.ts, RANGE_BUCKET[granularity]);
+    const key = bucketKey(r.ts, bucketGran);
     let b = buckets.get(key);
     if (!b) {
       b = { ...emptyTotals(), records: 0 };
@@ -159,6 +191,7 @@ export function summarize(
   return {
     granularity,
     generatedAt,
+    range: { from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString() },
     totals: finalize(grand),
     series,
     byPlatform: dimRows(byPlatform),

@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import { equal, deepEqual } from 'node:assert/strict';
 
-import { bucketKey, isoWeekKey, rangeCutoffMs, summarize } from './aggregator';
+import { bucketKey, getRangeWindow, isoWeekKey, summarize } from './aggregator';
 import type { ScanSourceInfo } from './aggregator';
-import type { UsageRecord } from './types';
+import type { CustomRange, UsageRecord } from './types';
 
 const rec = (ts: string, platform: UsageRecord['platform'], model: string, inputTokens: number, outputTokens: number, cacheReadTokens = 0, cacheWriteTokens = 0): UsageRecord => ({
   ts, platform, model, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, reasoningTokens: 0,
@@ -28,13 +28,41 @@ test('桶键：ISO 周（周一起始，跨年归属）', () => {
   equal(bucketKey('2024-01-04T10:00:00+08:00', 'week'), '2024-W01');
 });
 
-test('rangeCutoffMs：日历对齐边界（本地时区整点/0 点/1 号/1/1）', () => {
-  const now = new Date(2026, 8, 2, 12, 45); // 本地 2026-09-02 12:45
-  equal(rangeCutoffMs('hour', now), new Date(2026, 8, 2, 12, 0).getTime());
-  equal(rangeCutoffMs('day', now), new Date(2026, 8, 2).getTime());
-  equal(rangeCutoffMs('month', now), new Date(2026, 8, 1).getTime());
-  equal(rangeCutoffMs('year', now), new Date(2026, 0, 1).getTime());
-  equal(rangeCutoffMs('all', now), 0, 'all 不过滤');
+test('getRangeWindow：day/week/month/total 双边界（本地时区日历窗口）', () => {
+  const now = new Date(2026, 8, 2, 12, 45); // 本地 2026-09-02（周三）12:45
+  const day = getRangeWindow('day', now);
+  equal(day.fromMs, new Date(2026, 8, 2).getTime());
+  equal(day.toMs, new Date(2026, 8, 2, 23, 59, 59, 999).getTime());
+  const week = getRangeWindow('week', now);
+  equal(week.fromMs, new Date(2026, 7, 31).getTime(), '本周一 2026-08-31'); // 周三 − 2 天
+  equal(week.toMs, new Date(2026, 8, 2, 23, 59, 59, 999).getTime());
+  const month = getRangeWindow('month', now);
+  equal(month.fromMs, new Date(2026, 8, 1).getTime());
+  equal(month.toMs, new Date(2026, 8, 30, 23, 59, 59, 999).getTime(), '月末 9/30');
+  const total = getRangeWindow('total', now);
+  equal(total.fromMs, new Date(2024, 9, 1).getTime(), '24 个月窗口：2024-10-01（本月-23 月）');
+  equal(total.toMs, new Date(2026, 8, 2, 23, 59, 59, 999).getTime(), 'to 封顶今天');
+});
+
+test('getRangeWindow：周日归本周（周一起算，getDay 0 → 前周一）', () => {
+  const sun = new Date(2026, 8, 6); // 2026-09-06 周日
+  const week = getRangeWindow('week', sun);
+  equal(week.fromMs, new Date(2026, 7, 31).getTime(), '周日 − 6 天 = 周一 8/31');
+});
+
+test('getRangeWindow：custom 区间 + from>to 交换', () => {
+  const now = new Date(2026, 8, 2, 12, 0);
+  const c: CustomRange = { from: '2026-09-01', to: '2026-09-05' };
+  const w = getRangeWindow('custom', now, c);
+  equal(w.fromMs, new Date(2026, 8, 1).getTime());
+  equal(w.toMs, new Date(2026, 8, 5, 23, 59, 59, 999).getTime());
+  const rev: CustomRange = { from: '2026-09-05', to: '2026-09-01' };
+  const wr = getRangeWindow('custom', now, rev);
+  equal(wr.fromMs, new Date(2026, 8, 1).getTime(), 'from>to → 交换');
+  equal(wr.toMs, new Date(2026, 8, 5, 23, 59, 59, 999).getTime());
+  const none = getRangeWindow('custom', now);
+  equal(none.fromMs, 0);
+  equal(none.toMs, 0, '缺 custom → 空窗');
 });
 
 test('汇总：总计/透视/序列与排序（day 范围 → 今天 hour 桶）', () => {
@@ -78,54 +106,87 @@ test('空记录 → 零总计空序列', () => {
   deepEqual(s.byPlatform, []);
 });
 
-test('粒度=日历范围：hour/day/month/year 边界过滤 + 桶推导', () => {
-  const now = new Date(2026, 8, 2, 12, 0); // 本地 2026-09-02 12:00
+test('范围=五档窗口：day/week/month/total/custom 双边界过滤 + 桶推导', () => {
+  const now = new Date(2026, 8, 2, 12, 0); // 本地 2026-09-02 周三 12:00
   const G = now.toISOString();
   const records = [
-    rec(L(2026, 8, 2, 12, 30), 'claude-code', 'm1', 100, 10), // 本小时（12 点整点后）
-    rec(L(2026, 8, 2, 9, 30), 'codex', 'm2', 200, 20), // 今天上午（hour 外、day 内）
-    rec(L(2026, 8, 1, 10, 0), 'gemini', 'm3', 300, 30), // 昨天（day 外、month 内）
-    rec(L(2026, 7, 2, 10, 0), 'dsh', 'm4', 400, 40), // 上月（month 外、year 内）
+    rec(L(2026, 8, 2, 9, 0), 'claude-code', 'm1', 100, 10), // 9/2 上午 → day/week/month/total
+    rec(L(2026, 8, 2, 14, 0), 'codex', 'm2', 200, 20), // 9/2 下午（now 后、toMs 内）
+    rec(L(2026, 8, 1, 10, 0), 'gemini', 'm3', 300, 30), // 9/1 → week/month/total（day 外）
+    rec(L(2026, 7, 31, 10, 0), 'dsh', 'm4', 400, 40), // 8/31 周一 → week/total（month 外）
+    rec(L(2025, 10, 2, 10, 0), 'dsh', 'm5', 500, 50), // 2025-10 → total 24 个月窗口内（month 外）
+    rec(L(2027, 3, 1, 10, 0), 'dsh', 'm6', 600, 60), // 未来 → 全部档 toMs 封顶滤掉
   ];
   const sources: ScanSourceInfo[] = [{ platform: 'claude-code', home: '/x', files: 1, records: 1 }];
 
-  const sH = summarize(records, 'hour', sources, G);
-  equal(sH.totals.totalTokens, 110, 'hour 只含本小时（12:30）');
-  equal(sH.series.length, 1, 'hour 序列 min10 1 桶');
-  equal(sH.byModel.length, 1, 'hour 透视只含 1 模型');
-
   const sD = summarize(records, 'day', sources, G);
-  equal(sD.totals.totalTokens, 330, 'day 含今天全部 2 条（昨天被滤）');
+  equal(sD.totals.totalTokens, 330, 'day 只含今天 2 条');
   equal(sD.series.length, 2, 'day 序列 hour 2 桶');
+  equal(sD.byModel.length, 2);
+
+  const sW = summarize(records, 'week', sources, G);
+  equal(sW.totals.totalTokens, 1100, 'week 含 8/31 周一~今天 3 天');
+  equal(sW.series.length, 3, 'week 序列 day 3 桶（8/31、9/1、9/2）');
 
   const sM = summarize(records, 'month', sources, G);
-  equal(sM.totals.totalTokens, 660, 'month 含本月 3 条（上月被滤）');
-  equal(sM.series.length, 2, 'month 序列 day 2 桶（9/2 与 9/1）');
+  equal(sM.totals.totalTokens, 660, 'month 只含本月 2 条（8/31 是 8 月 → 滤）');
+  equal(sM.series.length, 2, 'month 序列 day 2 桶（9/1、9/2）');
   equal(sM.byPlatform.length, 3);
 
-  const sY = summarize(records, 'year', sources, G);
-  equal(sY.totals.totalTokens, 1100, 'year 含全部 4 条');
-  equal(sY.series.length, 2, 'year 序列 month 2 桶（9 月与 8 月）');
-  equal(sY.byPlatform.length, 4);
+  const sT = summarize(records, 'total', sources, G);
+  equal(sT.totals.totalTokens, 1650, 'total 24 个月含 5 条（未来滤）');
+  equal(sT.series.length, 3, 'total 序列 month 3 桶（2025-10、2026-08、2026-09）');
+  equal(sT.byPlatform.length, 4);
+
+  const sC = summarize(records, 'custom', sources, G, { from: '2026-08-01', to: '2026-09-02' });
+  equal(sC.totals.totalTokens, 1100, 'custom 8/1~9/2 含 4 条（2025-10 与未来滤）');
 });
 
-test('hour 范围：本小时内跨 40 分钟 → min10 多桶 + 上小时记录被滤', () => {
-  const now = new Date(2026, 8, 2, 12, 0); // 本地 12:00，hour 边界 = 12:00:00
+test('custom 跨度自适应桶：≤3 天 hour、≤90 天 day、否则 month', () => {
+  const now = new Date(2026, 8, 2, 12, 0);
   const G = now.toISOString();
   const records = [
-    rec(L(2026, 8, 2, 12, 5), 'claude-code', 'm1', 100, 10), // 12:00 桶
-    rec(L(2026, 8, 2, 12, 30), 'codex', 'm2', 200, 20), // 12:30 桶
-    rec(L(2026, 8, 2, 11, 50), 'dsh', 'm3', 400, 40), // 上小时 → 本小时边界外
+    rec(L(2026, 8, 2, 9, 0), 'codex', 'm1', 100, 10),
+    rec(L(2026, 8, 2, 11, 0), 'codex', 'm2', 200, 20),
+    rec(L(2026, 8, 1, 10, 0), 'codex', 'm3', 300, 30),
+    rec(L(2026, 6, 1, 10, 0), 'codex', 'm4', 400, 40),
   ];
-  const s = summarize(records, 'hour', [], G);
-  equal(s.totals.totalTokens, 330, 'hour 只含本小时 2 条');
-  equal(s.series.length, 2, 'min10 桶 2 个（12:00 + 12:30）');
-  deepEqual(s.series.map((b) => b.bucket), [
-    bucketKey(L(2026, 8, 2, 12, 5), 'min10'),
-    bucketKey(L(2026, 8, 2, 12, 30), 'min10'),
+  const sH = summarize(records, 'custom', [], G, { from: '2026-09-02', to: '2026-09-02' }); // 1 天
+  equal(sH.series.length, 2, '≤3 天 → hour 桶');
+  deepEqual(sH.series.map((b) => b.bucket), [
+    bucketKey(L(2026, 8, 2, 9, 0), 'hour'),
+    bucketKey(L(2026, 8, 2, 11, 0), 'hour'),
   ]);
-  equal(s.series[0].totalTokens, 110);
-  equal(s.series[1].totalTokens, 220);
+  const sD = summarize(records, 'custom', [], G, { from: '2026-06-15', to: '2026-09-02' }); // 80 天
+  equal(sD.series.length, 3, '≤90 天 → day 桶（7/1、9/1、9/2）');
+  deepEqual(sD.series.map((b) => b.bucket), [
+    bucketKey(L(2026, 6, 1, 10, 0), 'day'),
+    bucketKey(L(2026, 8, 1, 10, 0), 'day'),
+    bucketKey(L(2026, 8, 2, 9, 0), 'day'),
+  ]);
+  const sM = summarize(records, 'custom', [], G, { from: '2026-01-01', to: '2026-09-02' }); // >90 天
+  equal(sM.series.length, 2, '>90 天 → month 桶（7 月、9 月）');
+  deepEqual(sM.series.map((b) => b.bucket), [
+    bucketKey(L(2026, 6, 1, 10, 0), 'month'),
+    bucketKey(L(2026, 8, 1, 10, 0), 'month'),
+  ]);
+});
+
+test('toMs 封顶：未来时间戳记录被滤（脏数据不污染窗口）', () => {
+  const now = new Date(2026, 8, 2, 12, 0);
+  const G = now.toISOString();
+  const records = [
+    rec(L(2026, 8, 2, 10, 0), 'codex', 'm1', 100, 10), // 今天 → 内
+    rec(L(2026, 8, 2, 23, 59), 'codex', 'm2', 200, 20), // 今天 23:59:00 → toMs(23:59:59.999) 内
+    rec(L(2027, 1, 1, 0, 0), 'codex', 'm3', 400, 40), // 未来 → 滤
+    rec(L(2026, 8, 3, 0, 0), 'codex', 'm4', 800, 80), // 明天 0 点 → toMs 外 → 滤
+  ];
+  const s = summarize(records, 'day', [], G);
+  equal(s.totals.totalTokens, 330, 'day 只含今天 2 条');
+  equal(s.byModel.length, 2);
+  const sT = summarize(records, 'total', [], G);
+  equal(sT.totals.totalTokens, 330, 'total 也滤未来（to 封顶今天）');
+  equal(sT.byModel.length, 2);
 });
 
 test('day 范围：hour 桶 + 今天 0 点后（昨天记录被滤）', () => {
@@ -147,20 +208,21 @@ test('day 范围：hour 桶 + 今天 0 点后（昨天记录被滤）', () => {
   equal(s.series[1].totalTokens, 220);
 });
 
-test('all 档：不过滤全部计入（含去年记录），序列 month 桶', () => {
+test('total 档：最近 24 个月有界窗口（24 个月前被滤），序列 month 桶', () => {
   const now = new Date(2026, 8, 2, 12, 0); // 本地 2026-09-02 12:00
   const G = now.toISOString();
   const records = [
     rec(L(2026, 8, 2, 10, 0), 'claude-code', 'm1', 100, 10), // 本月（9 月）
-    rec(L(2026, 7, 20, 9, 0), 'codex', 'm2', 200, 20), // 上月（8 月）
+    rec(L(2026, 7, 20, 9, 0), 'codex', 'm2', 200, 20), // 8 月
     rec(L(2026, 6, 15, 10, 0), 'gemini', 'm3', 300, 30), // 7 月
-    rec(L(2025, 11, 20, 10, 0), 'dsh', 'm4', 400, 40), // 去年 → year 档滤掉、all 保留
+    rec(L(2024, 11, 20, 10, 0), 'dsh', 'm4', 400, 40), // 2024-12 → 24 个月窗口内（≥2024-10-01）
+    rec(L(2024, 8, 20, 10, 0), 'dsh', 'm5', 500, 50), // 2024-09 → 窗口外（<2024-10-01）→ 滤
   ];
-  const s = summarize(records, 'all', [], G);
-  equal(s.totals.totalTokens, 1100, 'all 全部 4 条计入（含去年）');
-  equal(s.series.length, 4, 'month 桶 4 个（25-11/26-7/26-8/26-9）');
+  const s = summarize(records, 'total', [], G);
+  equal(s.totals.totalTokens, 1100, 'total 24 个月含 4 条（2024-09 被滤）');
+  equal(s.series.length, 4, 'month 桶 4 个（24-12/26-7/26-8/26-9）');
   deepEqual(s.series.map((b) => b.bucket), [
-    bucketKey(L(2025, 11, 20, 10, 0), 'month'),
+    bucketKey(L(2024, 11, 20, 10, 0), 'month'),
     bucketKey(L(2026, 6, 15, 10, 0), 'month'),
     bucketKey(L(2026, 7, 20, 9, 0), 'month'),
     bucketKey(L(2026, 8, 2, 10, 0), 'month'),
@@ -169,9 +231,9 @@ test('all 档：不过滤全部计入（含去年记录），序列 month 桶', 
   equal(s.series[3].totalTokens, 110);
   equal(s.byModel.length, 4);
   equal(s.byPlatform.length, 4);
-  // 对照：year 档滤掉去年记录（只 3 条）
-  const sY = summarize(records, 'year', [], G);
-  equal(sY.totals.totalTokens, 660, 'year 不含去年记录');
+  // range 窗口边界断言
+  equal(s.range.from, new Date(2024, 9, 1).toISOString());
+  equal(s.range.to, new Date(2026, 8, 2, 23, 59, 59, 999).toISOString());
 });
 
 /* —— 成本（costUsd）语义：全定价 → 数值累加；任一未知 → null —— */
