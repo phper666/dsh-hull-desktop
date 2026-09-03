@@ -5,26 +5,29 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-import { createOpenCodeSource, opencodeDbPaths, parseOpenCodeDb, parseOpenCodeEntry, parseOpenCodeFile } from './opencode';
+import { createOpenCodeSource, opencodeDbPaths, parseOpenCodeMessages, parseOpenCodeEntry, parseOpenCodeFile } from './opencode';
 
 const FALLBACK = '1970-01-01T00:00:00.000Z';
 
-/** 建 Session 表 fixture（行数组），db 落在 dir 内并返回路径（dir 由调用方 rmSync 清理；同名多次调用需传不同 name） */
-function makeSessionDb(dir: string, rows: Array<Record<string, unknown>>, cols = ['id', 'Model', 'CreatedAt', 'PromptTokens', 'CompletionTokens', 'CacheCreationTokens', 'CacheReadTokens'], name = 'opencode.db'): string {
+/** 建 message 表 fixture（data JSON 行），db 落在 dir 内并返回路径（dir 由调用方 rmSync 清理） */
+function makeMessageDb(dir: string, rows: Array<{ id: string; time_created: number | null; data: string }>, name = 'opencode.db'): string {
   const dbPath = join(dir, name);
   const db = new DatabaseSync(dbPath);
   try {
-    db.exec(`CREATE TABLE Session (${cols.map((c) => `"${c}"`).join(', ')})`); // 无列类型声明 → 数值/字符串按原样存储
-    const placeholders = cols.map(() => '?').join(', ');
-    const stmt = db.prepare(`INSERT INTO Session (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders})`);
-    for (const r of rows) stmt.run(...cols.map((c) => (r[c] ?? null) as string | number | null));
+    db.exec('CREATE TABLE message (id TEXT, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)');
+    const ins = db.prepare('INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?,?,?,?,?)');
+    for (const r of rows) ins.run(r.id, 'ses_x', r.time_created, r.time_created, r.data);
   } finally {
     db.close();
   }
   return dbPath;
 }
 
-// 真实格式样本：按月 JSON 数组，每条含 totals + byModel（2 模型）
+/** message.data JSON 构造 */
+const msgData = (role: string, tokens: unknown, modelID?: string, extra: Record<string, unknown> = {}): string =>
+  JSON.stringify({ role, ...(modelID ? { modelID } : {}), ...(tokens !== undefined ? { tokens } : {}), ...extra });
+
+// 真实格式样本：按月 JSON 数组，每条含 totals + byModel（2 模型）——token-history 降级源格式
 const ENTRY = {
   sessionID: 'ses_faa0e8ea8ffeTZylJzRTHnlOYu',
   projectID: '4f604cd87b5debc04b049a33bf94b14756d97915',
@@ -72,7 +75,93 @@ test('parseOpenCodeFile：整 JSON 数组 → 全部记录', () => {
   equal(parseOpenCodeFile('{"a":1}', 'x').length, 0);
 });
 
-test('createOpenCodeSource：listFiles 读 token-history/*.json + 端到端 parseFile', () => {
+test('parseOpenCodeMessages：assistant 行 → per-message 记录（modelID/ts unix ms/output 含 reasoning）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-oc-msg-'));
+  try {
+    const t1 = 1785000000000;
+    const t2 = 1785003600000;
+    const dbPath = makeMessageDb(dir, [
+      { id: 'm1', time_created: t1, data: msgData('assistant', { input: 700, output: 150, reasoning: 40, cache: { read: 200, write: 30 } }, 'deepseek-v4') },
+      { id: 'm2', time_created: t2, data: msgData('assistant', { input: 800, output: 60, reasoning: 0, cache: { read: 0, write: 0 } }, 'gpt-5.2') },
+    ]);
+    const recs = parseOpenCodeMessages(dbPath);
+    equal(recs.length, 2);
+    equal(recs[0].platform, 'opencode');
+    equal(recs[0].model, 'deepseek-v4', 'model 取 modelID');
+    equal(recs[0].ts, new Date(t1).toISOString(), 'time_created unix ms → ISO');
+    equal(recs[0].inputTokens, 700);
+    equal(recs[0].outputTokens, 150 + 40, 'output 含 reasoning（对齐 opencode 语义）');
+    equal(recs[0].reasoningTokens, 40);
+    equal(recs[0].cacheReadTokens, 200);
+    equal(recs[0].cacheWriteTokens, 30);
+    equal(recs[1].model, 'gpt-5.2');
+    equal(recs[1].outputTokens, 60, 'reasoning=0 时 output 不变');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('parseOpenCodeMessages：role 过滤 + 全零跳过 + data 损坏跳过 + 无 modelID → unknown', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-oc-msgdef-'));
+  try {
+    const t = 1785000000000;
+    const dbPath = makeMessageDb(dir, [
+      { id: 'a', time_created: t, data: msgData('user', { input: 100, output: 10, reasoning: 0, cache: { read: 0, write: 0 } }, 'm1') }, // 非 assistant → 跳过
+      { id: 'b', time_created: t, data: msgData('assistant', { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, 'm2') }, // 全零 → 跳过
+      { id: 'c', time_created: t, data: '{broken json' }, // data 损坏 → 跳过
+      { id: 'd', time_created: t, data: msgData('assistant', undefined, 'm3') }, // 无 tokens → 跳过
+      { id: 'e', time_created: t, data: msgData('assistant', { input: 5, output: 1, reasoning: 0, cache: { read: 0, write: 0 } }) }, // 无 modelID → unknown
+      { id: 'f', time_created: null, data: msgData('assistant', { input: 9, output: 9, reasoning: 0, cache: { read: 0, write: 0 } }, 'm4') }, // 无 ts → 跳过
+    ]);
+    const recs = parseOpenCodeMessages(dbPath);
+    equal(recs.length, 1, '只留有值 assistant 行');
+    equal(recs[0].model, 'unknown', '无 modelID → unknown');
+    equal(recs[0].inputTokens, 5);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('parseOpenCodeMessages：表缺失 / db 不存在 → []（防御）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-oc-msgdef2-'));
+  try {
+    const emptyDb = join(dir, 'empty.db');
+    const db0 = new DatabaseSync(emptyDb);
+    db0.close();
+    equal(parseOpenCodeMessages(emptyDb).length, 0, '无 message 表 → []');
+    equal(parseOpenCodeMessages(join(dir, 'nope.db')).length, 0, 'db 不存在 → []');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('createOpenCodeSource：db 存在 → 主源 message 表（不读 token-history 诱饵）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-oc-dbfirst-'));
+  try {
+    // db（Linux 候选路径）+ token-history 诱饵（若误读会混入）
+    const rel = join(dir, '.local', 'share', 'opencode');
+    mkdirSync(rel, { recursive: true });
+    const dbPath = makeMessageDb(rel, [{ id: 'm1', time_created: 1785000000000, data: msgData('assistant', { input: 700, output: 150, reasoning: 0, cache: { read: 0, write: 0 } }, 'deepseek-v4') }]);
+    const th = join(dir, '.opencode', 'token-history');
+    mkdirSync(th, { recursive: true });
+    writeFileSync(join(th, '2026-09.json'), JSON.stringify([ENTRY]));
+
+    const src = createOpenCodeSource(dir);
+    const files = src.listFiles();
+    equal(files.length, 1);
+    ok(files[0].endsWith('opencode.db'), 'listFiles 返回 db（主源优先）');
+    const text = src.readFile?.(files[0]) ?? '';
+    const recs = src.parseFile?.(text, FALLBACK) ?? [];
+    equal(recs.length, 1, '只用 db 数据');
+    equal(recs[0].model, 'deepseek-v4');
+    ok(recs.every((r) => r.model !== 'new-api/glm-5.3-flash'), 'token-history 诱饵未混入');
+    ok(dbPath.endsWith('opencode.db'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('createOpenCodeSource：db 缺失 → token-history 兜底（端到端 parseFile）', () => {
   const dir = mkdtempSync(join(tmpdir(), 'hull-opencode-'));
   try {
     const th = join(dir, '.opencode', 'token-history');
@@ -82,6 +171,7 @@ test('createOpenCodeSource：listFiles 读 token-history/*.json + 端到端 pars
     const src = createOpenCodeSource(dir);
     const files = src.listFiles();
     equal(files.length, 1, '只收 .json');
+    ok(files[0].endsWith('.json'), 'db 缺失 → token-history json');
     equal(src.platform, 'opencode');
     const rs = src.parseFile!(JSON.stringify([ENTRY]), 'fallback');
     equal(rs.length, 2);
@@ -90,113 +180,27 @@ test('createOpenCodeSource：listFiles 读 token-history/*.json + 端到端 pars
   }
 });
 
-test('parseOpenCodeDb：Session 行 → UsageRecord（token 列 + 模型 + ISO 时间戳）', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'hull-opencode-pdb-'));
+test('createOpenCodeSource：db 存在但 message 表缺失 → 降级 token-history', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-oc-nomsg-'));
   try {
-    const dbPath = makeSessionDb(dir, [
-      { id: 's1', Model: 'deepseek-v4', CreatedAt: '2026-09-02T10:00:00.000Z', PromptTokens: 700, CompletionTokens: 150, CacheCreationTokens: 30, CacheReadTokens: 200 },
-      { id: 's2', Model: 'gpt-5.2', CreatedAt: '2026-09-02T11:00:00.000Z', PromptTokens: 800, CompletionTokens: 60, CacheCreationTokens: 0, CacheReadTokens: 0 },
-    ]);
-    const recs = parseOpenCodeDb(dbPath, FALLBACK);
-    equal(recs.length, 2);
-    equal(recs[0].platform, 'opencode');
-    equal(recs[0].model, 'deepseek-v4');
-    equal(recs[0].inputTokens, 700);
-    equal(recs[0].outputTokens, 150);
-    equal(recs[0].cacheReadTokens, 200);
-    equal(recs[0].cacheWriteTokens, 30);
-    equal(recs[0].reasoningTokens, 0);
-    equal(recs[0].ts, '2026-09-02T10:00:00.000Z');
-    equal(recs[1].inputTokens, 800);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('parseOpenCodeDb：表缺失 / 关键列缺失 / db 不存在 → []（防御）', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'hull-opencode-def-'));
-  try {
-    // 无 Session 表
-    const emptyDb = join(dir, 'empty.db');
-    const db0 = new DatabaseSync(emptyDb);
-    db0.close();
-    equal(parseOpenCodeDb(emptyDb).length, 0, '无 Session 表 → []');
-    // 列漂移：缺 CompletionTokens
-    const driftDb = makeSessionDb(dir, [{ id: 's1', Model: 'm', CreatedAt: 't', PromptTokens: 100 }], ['id', 'Model', 'CreatedAt', 'PromptTokens']);
-    equal(parseOpenCodeDb(driftDb).length, 0, '缺 CompletionTokens → []');
-    // db 文件不存在
-    equal(parseOpenCodeDb(join(dir, 'nope.db')).length, 0, 'db 不存在 → []');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('parseOpenCodeDb：cache 列缺失容忍（→0）+ 时间戳 unix ms 转 ISO + 缺 ts 列用 fallbackTs', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'hull-opencode-tol-'));
-  try {
-    // 无 cache 列 + CreatedAt 为 unix ms 数字
-    const msDb = makeSessionDb(dir, [{ id: 's1', Model: 'm1', CreatedAt: 1785000000000, PromptTokens: 111, CompletionTokens: 22 }], ['id', 'Model', 'CreatedAt', 'PromptTokens', 'CompletionTokens'], 'ms.db');
-    const recs = parseOpenCodeDb(msDb, FALLBACK);
-    equal(recs.length, 1);
-    equal(recs[0].cacheReadTokens, 0, 'cache 列缺失 → 0');
-    equal(recs[0].cacheWriteTokens, 0);
-    equal(recs[0].ts, new Date(1785000000000).toISOString(), 'unix ms → ISO');
-    // 无时间戳列 → fallbackTs
-    const noTsDb = makeSessionDb(dir, [{ id: 's2', Model: 'm2', PromptTokens: 5, CompletionTokens: 6 }], ['id', 'Model', 'PromptTokens', 'CompletionTokens'], 'nots.db');
-    const recs2 = parseOpenCodeDb(noTsDb, FALLBACK);
-    equal(recs2.length, 1);
-    equal(recs2[0].ts, FALLBACK);
-    equal(recs2[0].model, 'm2');
-    // 无模型列 → 'unknown'
-    const noModelDb = makeSessionDb(dir, [{ id: 's3', PromptTokens: 7, CompletionTokens: 8 }], ['id', 'PromptTokens', 'CompletionTokens'], 'nomodel.db');
-    equal(parseOpenCodeDb(noModelDb, FALLBACK)[0].model, 'unknown');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('createOpenCodeSource：token-history 有数据 → 只用 token-history（不碰 db）', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'hull-opencode-thonly-'));
-  try {
+    // db 存在但只有无关表（message 表不可用）
+    const rel = join(dir, '.local', 'share', 'opencode');
+    mkdirSync(rel, { recursive: true });
+    const db = new DatabaseSync(join(rel, 'opencode.db'));
+    try {
+      db.exec('CREATE TABLE other (id TEXT)');
+    } finally {
+      db.close();
+    }
     const th = join(dir, '.opencode', 'token-history');
     mkdirSync(th, { recursive: true });
     writeFileSync(join(th, '2026-09.json'), JSON.stringify([ENTRY]));
-    // db 兜底路径存在且含不同数据——若误触发 db 会混入记录
-    const rel = join(dir, 'Library', 'Application Support', 'opencode');
-    mkdirSync(rel, { recursive: true });
-    makeSessionDb(join(dir, 'Library', 'Application Support', 'opencode'), [{ id: 's1', Model: 'db-model', CreatedAt: 't', PromptTokens: 999, CompletionTokens: 999 }]);
 
     const src = createOpenCodeSource(dir);
     const files = src.listFiles();
-    equal(files.length, 1);
-    ok(files[0].endsWith('.json'), 'listFiles 返回 token-history json（非 db）');
+    ok(files.length === 1 && files[0].endsWith('.json'), 'message 表不可用 → 降级 token-history');
     const text = src.readFile?.(files[0]) ?? '';
-    const recs = src.parseFile?.(text, FALLBACK) ?? [];
-    equal(recs.length, 2, '只用 token-history 数据');
-    ok(recs.every((r) => r.model !== 'db-model'), 'db 记录未混入');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('createOpenCodeSource：token-history 缺失 → db 兜底（macOS 候选路径）', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'hull-opencode-dbfallback-'));
-  try {
-    const rel = join(dir, 'Library', 'Application Support', 'opencode');
-    mkdirSync(rel, { recursive: true });
-    makeSessionDb(rel, [{ id: 's1', Model: 'deepseek-v4', CreatedAt: '2026-09-02T10:00:00.000Z', PromptTokens: 700, CompletionTokens: 150, CacheCreationTokens: 30, CacheReadTokens: 200 }]);
-    // 无 token-history 目录
-    const src = createOpenCodeSource(dir);
-    const files = src.listFiles();
-    equal(files.length, 1);
-    ok(files[0].endsWith('opencode.db'), 'listFiles 返回 db 路径兜底');
-    const text = src.readFile?.(files[0]) ?? '';
-    const recs = src.parseFile?.(text, FALLBACK) ?? [];
-    equal(recs.length, 1);
-    equal(recs[0].platform, 'opencode');
-    equal(recs[0].model, 'deepseek-v4');
-    equal(recs[0].inputTokens, 700);
-    equal(recs[0].ts, '2026-09-02T10:00:00.000Z');
+    equal((src.parseFile?.(text, FALLBACK) ?? []).length, 2, 'token-history 数据生效');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
