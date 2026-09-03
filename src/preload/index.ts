@@ -52,7 +52,8 @@ contextBridge.exposeInMainWorld('hull', {
   /** 工作台连接视图（设置之前） */
   showConnections: () => ipcRenderer.invoke('hull:showConnections'),
   /** 工作流视图（设置之前） */
-  showWorkflows: () => ipcRenderer.invoke('hull:showWorkflows'),
+  showWorkflows: () => invoke('hull:showWorkflows'),
+  showNotifs: () => invoke('hull:showNotifs'),
 
   // ─────────── S8' D2：设置页桥 15 方法并入（原 src/preload/settings.ts 删除） ───────────
   /** 读全量设置（settings.json 持久化，CON-R002 走主进程 SettingsProvider） */

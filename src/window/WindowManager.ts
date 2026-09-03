@@ -59,8 +59,9 @@ export type PlaceholderView =
   | 'placeholder:tokens'
   | 'placeholder:connections'
   | 'placeholder:workflows'
+  | 'placeholder:notifs'
   | 'placeholder:settings';
-export type PlaceholderMode = 'starting' | 'installing' | 'failed' | 'not-installed' | 'board' | 'skills' | 'tokens' | 'connections' | 'workflows' | 'settings';
+export type PlaceholderMode = 'starting' | 'installing' | 'failed' | 'not-installed' | 'board' | 'skills' | 'tokens' | 'connections' | 'workflows' | 'notifs' | 'settings';
 
 /**
  * 主窗口壳框架（S8 D1-D7 唯一实现依据）：
@@ -246,6 +247,11 @@ export class WindowManager {
   /** 工作流视图（设置之前，镜像 showConnections） */
   showWorkflows(): void {
     this.showPlaceholder('workflows', '');
+  }
+
+  /** 通知中心视图（§9 V1：铃铛入口；工作流首源，source 维度预留） */
+  showNotifs(): void {
+    this.showPlaceholder('notifs', '');
   }
 
   /** 官方 view 边界同步（D2）：幂等；resize/maximize/unmaximize/全屏/display-metrics-changed 统一入口 */
