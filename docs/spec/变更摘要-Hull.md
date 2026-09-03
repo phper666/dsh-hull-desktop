@@ -3,6 +3,14 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-09-03 通知偏好 V2b——按源系统通知开关 + 免打扰时段
+
+- 类型：功能需求实现（判级常规，设计 §八 轻量冻结；无共识规则变化）
+- 内容：settings.json 字段级扩展 notifPrefs（systemPushWorkflow/systemPushBoardExec/dndEnabled/dndFrom/dndTo，不 bump schemaVersion，三路径归一化对称）；推送策略纯函数 shouldSystemPush（源开关 + DND 跨午夜/含头不含尾/零长不启用），notifSystemChannel 每次推送动态读设置即时生效；不推≠不入中心（error 照常入中心未读）；设置页新增「通知」卡（双源开关 + 免打扰开关与时段）；按工作流静音列候选未做
+- 核验：单测 918 绿（prefs 3 + settings 3 新增）+ e2e 33 绿 + tsc ✓
+- 文档：docs/design/通知中心v2a-notify-service-design.md §八 · docs/records/通知偏好V2b-notif-prefs-record.md
+- commits：6cfef14 → merge（本条随 merge 入 main）
+
 ## 2026-09-03 通知中心 V2a——NotificationService 底座 + 看板执行通知源
 
 - 类型：功能需求实现（判级复杂，设计 docs/design/通知中心v2a-notify-service-design.md 冻结；无共识规则变化）
