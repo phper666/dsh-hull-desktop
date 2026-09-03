@@ -445,6 +445,18 @@
   }
   @keyframes ui-rise { from { opacity: 0; transform: translateY(4px); } }
   /* 间距特例：1px×2、2px×7、5px×3、6px×8、7px×2、9px×1、10px×14、14px×4、18px×1、22px×1（待归并档位） */
+
+  /* 全局 toast：反色 pill（bg=--hull-text → 深浅主题自动高对比），右下堆叠 */
+  #toast-root { position: fixed; right: 20px; bottom: 20px; z-index: 1000; display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); pointer-events: none; }
+  .toast { display: flex; align-items: center; gap: 8px; pointer-events: auto; max-width: 360px; padding: 8px 14px 8px 11px; border-radius: var(--radius-pill); background: var(--hull-text); color: var(--hull-bg); font-size: var(--text-md); line-height: 1.45; box-shadow: var(--shadow-2); }
+  .toast svg { flex-shrink: 0; width: 15px; height: 15px; }
+  .toast--ok svg { color: var(--hull-success); }
+  .toast--err svg { color: var(--hull-danger); }
+  .toast--out { opacity: 0; transform: translateY(6px); transition: opacity var(--dur-fast) ease-in, transform var(--dur-fast) ease-in; }
+  @media (prefers-reduced-motion: no-preference) {
+    .toast { animation: toast-in var(--dur-med) var(--ease-out); }
+  }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
 </style>
 </head>
 <body data-theme="dark">
@@ -849,16 +861,29 @@
       }
     }
   };
-  let toastTimer = null;
+  // 全局 toast：轻量反色 pill（弃用 wa-alert 大卡样式），右下堆叠 + 进出场
+  // ponytail: 错误判定靠关键词启发（签名 toast(msg) 固定，调用点不可改）；若将来加 toast(msg, type) 参数再收敛
+  const toastRoot = document.createElement('div');
+  toastRoot.id = 'toast-root';
+  toastRoot.setAttribute('aria-live', 'polite');
+  document.body.appendChild(toastRoot);
+  const TOAST_ICONS = {
+    ok: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3.2L13 5"/></svg>',
+    err: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="8" cy="8" r="6.3"/><path d="M8 4.8v3.8" stroke-linecap="round"/><path d="M8 11h.01" stroke-linecap="round" stroke-width="2.2"/></svg>',
+  };
   function toast(msg) {
-    // P1：迁移 wa-alert（Web Awesome）——手写 .toast div 移除；组件自带进出场与 aria-live
-    const t = document.createElement('wa-alert');
-    t.setAttribute('variant', 'brand');
-    t.setAttribute('closable', '');
-    t.style.cssText = 'position:fixed; right:16px; bottom:16px; z-index:100;';
-    t.textContent = msg;
-    document.body.appendChild(t);
-    setTimeout(() => t.remove(), 2100);
+    const isErr = /失败|错误|无法|请先/.test(msg);
+    const t = document.createElement('div');
+    t.className = 'toast ' + (isErr ? 'toast--err' : 'toast--ok');
+    t.setAttribute('role', isErr ? 'alert' : 'status');
+    t.innerHTML = TOAST_ICONS[isErr ? 'err' : 'ok'] + '<span></span>';
+    t.lastElementChild.textContent = msg;
+    toastRoot.appendChild(t);
+    setTimeout(() => {
+      t.classList.add('toast--out');
+      t.addEventListener('transitionend', () => t.remove(), { once: true });
+      setTimeout(() => t.remove(), 400); // reduced-motion 下无 transition，兜底移除
+    }, isErr ? 3000 : 2000);
   }
 
   const sett = {
