@@ -512,6 +512,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     if (result.ok) {
       logger.info(`dsh 安装成功 v${result.version}`);
       // B7：install success 即提交；start() 失败归 S1 failed 态（占位页重试），不触发安装回滚
+      winMgr.requestWeb(); // 装完落 web（既有行为：start() → Ready → loadOfficialUrl）
       try {
         await runtime.start();
       } catch (err) {
@@ -734,7 +735,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   // 渲染侧 section#board 显示；复用 showPlaceholder 机制，D6 view 单一事实源不破）
   ipcMain.handle('hull:showBoard', async () => {
     if (quitting) return { ok: false, message: '正在退出' };
-    winMgr.showPlaceholder('board', '');
+    winMgr.showBoard();
     return { ok: true };
   });
   // S1：壳导航 Skills 入口 → 主进程切 view 到 placeholder:skills（官方 WebContentsView 隐藏，
@@ -774,6 +775,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   // 其余（idle/starting）→ starting 占位
   ipcMain.handle('hull:showWeb', async () => {
     if (quitting) return { ok: false, message: '正在退出' };
+    winMgr.requestWeb(); // 用户主动想看 dsh web：非 Ready 落占位，加载完自动进入
     const s = runtime.snapshot();
     if (s.phase === RuntimePhase.Ready && s.url) {
       winMgr.loadOfficialUrl(s.url);

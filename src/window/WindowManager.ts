@@ -93,6 +93,9 @@ export class WindowManager {
   private officialUrl: string | null = null;
   /** 退出编排中：close 事件放行（防 closeToQuit=false 的 preventDefault 阻断 app.quit() 最终退出） */
   private quitting = false;
+  /** 用户正在等待/查看 dsh web。初始 true（冷启动默认落 web）；主动离开 web 的导航置 false。
+   *  onStatus 据此条件切换：Ready/Failed/starting 不再把停在别的视图的用户强拽回 dsh web */
+  private webIntent = true;
   private readonly options: WindowManagerOptions;
   private readonly logger: RuntimeLogger;
 
@@ -178,18 +181,27 @@ export class WindowManager {
     if (!this.win || this.win.isDestroyed()) return;
     this.win.setTitle(`Dsh Hull Desktop — ${s.phase}`);
     if (s.phase === RuntimePhase.Ready && s.url) {
-      this.loadOfficialUrl(s.url);
+      // 有 web 意图（showWeb 点入/默认落 web）、已在 web、或曾离开 official（D6：升级/回滚/重试后重载）才切；
+      // 冷启动期间用户点到别的菜单（webIntent 已清、无 dirty）→ 停在当前视图，不强拽
+      if (this.webIntent || this.officialDirty || this.view === 'official') this.loadOfficialUrl(s.url);
     } else if (s.phase === RuntimePhase.Failed) {
-      this.showPlaceholder('failed', s.message);
+      // 同理：用户在别的视图时不强拽到 failed（标题照常更新，view 不动）
+      if (this.webIntent || this.view === 'official') this.showPlaceholder('failed', s.message);
     } else {
       // idle/starting：占位 starting（升级/回滚/重试期间的过渡态推送，S8 §6 R6）
-      this.showPlaceholder('starting', '');
+      if (this.webIntent || this.view === 'official') this.showPlaceholder('starting', '');
     }
+  }
+
+  /** 用户意图：等待/查看 dsh web（hull:showWeb 点入、安装完成等待落地） */
+  requestWeb(): void {
+    this.webIntent = true;
   }
 
   /** 官方 UI（零注入，D2/D4）：setBounds → setVisible(true) → loadURL（顺序固化）；
    *  未加载过 / URL 变化 / 视图曾离开 official（升级/回滚/崩溃/失败）→ loadURL；否则仅复用显示（D6） */
   loadOfficialUrl(url: string): void {
+    this.webIntent = true; // 显式进 web 即意图（auto Ready 路径置 true 无害）
     const win = this.win;
     const view = this.officialView;
     if (!win || win.isDestroyed() || !view) return;
@@ -226,31 +238,43 @@ export class WindowManager {
 
   /** S8' D1：壳导航/托盘设置入口 → 切 settings 视图（封装 showPlaceholder + 推送，§4.1） */
   showSettings(): void {
+    this.webIntent = false; // 用户主动离开 web
     this.showPlaceholder('settings', '');
+  }
+
+  /** B2：壳导航任务看板入口 → 切 board 视图（原 main 直调 showPlaceholder，收口进来清 webIntent） */
+  showBoard(): void {
+    this.webIntent = false; // 用户主动离开 web
+    this.showPlaceholder('board', '');
   }
 
   /** S1：壳导航 Skills 入口 → 切 skills 视图（镜像 showSettings/showBoard，D6 view 单一事实源不破） */
   showSkills(): void {
+    this.webIntent = false; // 用户主动离开 web
     this.showPlaceholder('skills', '');
   }
 
   /** Token 消耗视图（Skills 之后，镜像 showSkills） */
   showTokens(): void {
+    this.webIntent = false; // 用户主动离开 web
     this.showPlaceholder('tokens', '');
   }
 
   /** 工作台连接视图（设置之前，镜像 showTokens） */
   showConnections(): void {
+    this.webIntent = false; // 用户主动离开 web
     this.showPlaceholder('connections', '');
   }
 
   /** 工作流视图（设置之前，镜像 showConnections） */
   showWorkflows(): void {
+    this.webIntent = false; // 用户主动离开 web
     this.showPlaceholder('workflows', '');
   }
 
   /** 通知中心视图（§9 V1：铃铛入口；工作流首源，source 维度预留） */
   showNotifs(): void {
+    this.webIntent = false; // 用户主动离开 web
     this.showPlaceholder('notifs', '');
   }
 
@@ -262,6 +286,7 @@ export class WindowManager {
 
   /** V2a：系统通知点击跳转任务详情（看板视图 + notifs:openTask 事件，kanban.js 消费） */
   openTaskFromNotif(taskId: string): void {
+    this.webIntent = false; // 用户主动离开 web
     this.showPlaceholder('board', '');
     if (!this.win || this.win.isDestroyed()) return;
     this.win.webContents.send('notifs:openTask', { taskId });
