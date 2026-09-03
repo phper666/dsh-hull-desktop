@@ -3,6 +3,13 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-09-03 工作流 token-budget 适配 Token 视图 v2 五档语义（PR #8 集成修复）
+
+- 类型：集成修复（并行需求 PR #8 重设计 UsageGranularity 'all'→'total'，工作流装配层旧枚举致 main typecheck 断；无共识规则变化）
+- 内容：main 装配 tokenUsage 映射 period 'all'→'total'（最近 24 个月有界）；token-budget 步骤语义/UI 选项文案同步（引擎 period 枚举与已存配置零迁移）
+- 核验：tsc ✓ + 单测 912 绿 + e2e 33 绿
+- commits：随 main 直推（集成修复）
+
 ## 2026-09-03 通知中心 §9.5 交互修订（行展开详情/显式跳转定位/移除冗余最近运行段）
 
 - 类型：交互修订（判级简单，用户三项确认；设计 §9.5）
