@@ -229,11 +229,12 @@ test('K15 updateTask 非法字段（直接改 executionStatus）→ validation-e
 });
 
 // ─────────────────────── K16/K17 Blocked 进出 ───────────────────────
-test('K16 moveTask 进 Blocked → 自动记 blockedFromColumnId', () => {
+test('K16 moveTask 进 Blocked → 落入 Blocked 列 + 记 blockedFromColumnId', () => {
   const { store } = makeStore();
   const board = store.getBoards()[0];
   const task = store.createTask(board.id, { title: 'x', columnId: 'c_in_progress' });
   const moved = store.moveTask(board.id, task.id, 'c_blocked');
+  equal(moved.columnId, 'c_blocked', '卡片实际进入 Blocked 列（BUG-3 回归）');
   equal(moved.blockedFromColumnId, 'c_in_progress');
   // executionStatus 不变（双轨）
   equal(moved.executionStatus, 'idle');
@@ -246,8 +247,9 @@ test('K17 moveTask 解除 Blocked → 回来源列；来源列已删/隐藏 → 
   const { store } = makeStore();
   const board = store.getBoards()[0];
   const task = store.createTask(board.id, { title: 'x', columnId: 'c_verify' });
-  store.moveTask(board.id, task.id, 'c_blocked');
-  // 解除回原列
+  const blocked = store.moveTask(board.id, task.id, 'c_blocked');
+  equal(blocked.columnId, 'c_blocked', '进 Blocked 先落列（BUG-3 回归）');
+  // 解除回原列（落点列被忽略，设计语义 P2-4）
   const restored = store.moveTask(board.id, task.id, 'c_done');
   equal(restored.columnId, 'c_verify', '回来源列');
   equal(restored.blockedFromColumnId, null);
@@ -262,6 +264,34 @@ test('K17 moveTask 解除 Blocked → 回来源列；来源列已删/隐藏 → 
   const r2 = store.moveTask(custom.id, t2.id, 'c_done');
   equal(r2.columnId, 'c_todo', '来源列隐藏 → Todo');
 });
+
+// ─────────────────────── 列原语：createColumn（BUG-1 修复） ───────────────────────
+test('createColumn 新建自定义列：追加列尾/type 空/改名隐藏删除全生命周期', () => {
+  const { store } = makeStore();
+  const board = store.getBoards()[0];
+  const col = store.createColumn(board.id, '  待评审  ');
+  equal(col.name, '待评审', '列名 trim');
+  equal(col.type, null, '非模板列');
+  equal(col.hidden, false);
+  const cols = store.getBoards()[0].columns;
+  equal(cols[cols.length - 1].id, col.id, '追加列尾');
+  equal(col.order, Math.max(...cols.slice(0, -1).map((c) => c.order)) + 1, 'order = 最大 +1');
+  // 可更新（改名/隐藏）
+  store.updateColumn(board.id, col.id, { name: '评审中', hidden: true });
+  const updated = store.getBoards()[0].columns.find((c) => c.id === col.id);
+  equal(updated?.name, '评审中');
+  equal(updated?.hidden, true);
+  // 列内卡片 → 删列迁移 Todo
+  const task = store.createTask(board.id, { title: 'x', columnId: col.id });
+  store.updateColumn(board.id, col.id, { hidden: false });
+  store.deleteColumn(board.id, col.id);
+  const migrated = store.getBoards()[0].tasks.find((t) => t.id === task.id);
+  equal(migrated?.columnId, 'c_todo', '删列卡片迁 Todo');
+  // 空名拒绝
+  throws(() => store.createColumn(board.id, '  '), (e: unknown) => (e as { code: string }).code === KANBAN_STORE_ERRORS.validation);
+  store.dispose();
+});
+
 
 // ─────────────────────── K18 deleteBoard 级联 ───────────────────────
 test('K18 deleteBoard：含 ticket 拒删；清空后可删；最后看板不可删', () => {

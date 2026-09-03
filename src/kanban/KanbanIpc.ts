@@ -23,6 +23,7 @@ export const KANBAN_IPC_CHANNELS = [
   'kanban:deleteTask',
   'kanban:addComment',
   'kanban:deleteComment',
+  'kanban:createColumn',
   'kanban:updateColumn',
   'kanban:deleteColumn',
   'kanban:archiveTask',
@@ -76,6 +77,7 @@ export function registerKanbanIpcWithTransfer(store: KanbanStore, transfer?: Kan
   ipcMain.handle('kanban:deleteComment', (_e, boardId: string, taskId: string, commentId: string) =>
     toResult(() => store.deleteComment(boardId, taskId, commentId))
   );
+  ipcMain.handle('kanban:createColumn', (_e, boardId: string, name: string) => toResult(() => store.createColumn(boardId, name)));
   ipcMain.handle('kanban:updateColumn', (_e, boardId: string, columnId: string, patch: { name?: string; order?: number; color?: string; hidden?: boolean }) =>
     toResult(() => store.updateColumn(boardId, columnId, patch))
   );

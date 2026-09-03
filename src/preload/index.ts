@@ -164,6 +164,8 @@ contextBridge.exposeInMainWorld('kanban', {
   deleteTask: (boardId: string, taskId: string) => invoke('kanban:deleteTask', boardId, taskId),
   addComment: (input: unknown) => invoke('kanban:addComment', input),
   deleteComment: (boardId: string, taskId: string, commentId: string) => invoke('kanban:deleteComment', boardId, taskId, commentId),
+  /** 新建自定义列（BUG-1 修复：此前 UI 误走 updateColumn(null) 必失败） */
+  createColumn: (boardId: string, name: string) => invoke('kanban:createColumn', boardId, name),
   updateColumn: (boardId: string, columnId: string, patch: unknown) => invoke('kanban:updateColumn', boardId, columnId, patch),
   deleteColumn: (boardId: string, columnId: string) => invoke('kanban:deleteColumn', boardId, columnId),
   archiveTask: (boardId: string, taskId: string) => invoke('kanban:archiveTask', boardId, taskId),

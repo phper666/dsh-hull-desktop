@@ -1,12 +1,12 @@
 /**
  * IPC channel 白名单集中常量源（B3 design §4.8 P2-5，冻结）
  *
- * 唯一事实源：B1 16 数据原语 + B5 2 导出/导入 + B3 10 执行控制 = 28 channel 共面。
+ * 唯一事实源：B1 16 数据原语 + createColumn（2026-09-03 BUG-1 修复新增）+ B5 2 导出/导入 + B3 10 执行控制 = 29 channel 共面。
  * preload 按清单逐条 exposeInMainWorld（src/preload/index.ts 桥），禁止散落硬编码。
  * 新增 channel 必须更新本清单（评审 checklist 项）。
  */
 
-/** B1 数据原语 16 channel（feishu-b1-m2 契约 §接口清单）+ B5 导出/导入 2 channel */
+/** B1 数据原语 16 channel（feishu-b1-m2 契约 §接口清单）+ createColumn（BUG-1 修复）+ B5 导出/导入 2 channel */
 export const KANBAN_IPC_CHANNELS = [
   'kanban:getBoards',
   'kanban:createBoard',
@@ -19,6 +19,7 @@ export const KANBAN_IPC_CHANNELS = [
   'kanban:deleteTask',
   'kanban:addComment',
   'kanban:deleteComment',
+  'kanban:createColumn',
   'kanban:updateColumn',
   'kanban:deleteColumn',
   'kanban:archiveTask',

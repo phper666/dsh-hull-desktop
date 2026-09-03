@@ -442,9 +442,10 @@ export class KanbanStore {
     if (!target) throw new HullError(ERR.validation, '目标列不存在');
     const from = task.columnId;
     if (from === toColumnId) return structuredClone(task);
-    // Blocked 语义（P2-4）
+    // Blocked 语义（P2-4）：进入 Blocked 落入 Blocked 列 + 记来源列（此前漏改 columnId，卡片永远进不了 Blocked 列）
     if (toColumnId === 'c_blocked') {
       task.blockedFromColumnId = task.blockedFromColumnId ?? task.columnId;
+      task.columnId = toColumnId;
     } else if (task.blockedFromColumnId) {
       // 解除 Blocked：来源列非隐藏 → 回来源列；已删/隐藏 → 回 Todo
       const src = board.columns.find((c) => c.id === task.blockedFromColumnId);
@@ -532,6 +533,20 @@ export class KanbanStore {
   }
 
   // ─────────────────────────── 列原语 ───────────────────────────
+
+  /** 新建自定义列（追加列尾；type=null 非模板列可删。UI 新建列此前误走 updateColumn(null) 必报「列不存在」） */
+  createColumn(boardId: string, name: string): Column {
+    const board = this.findBoard(boardId);
+    const trimmed = name.trim();
+    if (!trimmed) throw new HullError(ERR.validation, '列名不能为空');
+    if (trimmed.length > 200) throw new HullError(ERR.validation, '列名超长（≤200）');
+    const maxOrder = board.columns.reduce((m, c) => Math.max(m, c.order ?? 0), -1);
+    const col: Column = { id: newId('c'), type: null, name: trimmed, order: maxOrder + 1, color: '#8b949e', hidden: false };
+    board.columns.push(col);
+    board.updatedAt = nowIso();
+    this.scheduleFlush();
+    return structuredClone(col);
+  }
 
   updateColumn(boardId: string, columnId: string, patch: { name?: string; order?: number; color?: string; hidden?: boolean }): Column {
     const board = this.findBoard(boardId);

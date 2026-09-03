@@ -13,11 +13,11 @@ import {
   SKILLS_IPC_CHANNELS,
 } from './ipc-channels';
 
-test('白名单计数：B1 16 + B5 2 = 18，B3 10，B4 4，S1+S2 12，共面 44', () => {
-  equal(KANBAN_IPC_CHANNELS.length, 18, 'B1 16 数据原语 + B5 2 导出/导入');
+test('白名单计数：B1 16 + createColumn + B5 2 = 19，B3 10，B4 4，S1+S2 12，共面 45', () => {
+  equal(KANBAN_IPC_CHANNELS.length, 19, 'B1 16 数据原语 + createColumn（BUG-1 修复）+ B5 2 导出/导入');
   equal(KANBAN_EXEC_IPC_CHANNELS.length, 10, 'B3 10 执行控制');
   equal(SKILLS_IPC_CHANNELS.length, 12, 'S1 4 skills:* + S2 7 操作 + hull:showSkills 导航');
-  equal(ALL_IPC_CHANNELS.length, 44);
+  equal(ALL_IPC_CHANNELS.length, 45);
 });
 
 test('唯一性：全部 channel 无重复', () => {
