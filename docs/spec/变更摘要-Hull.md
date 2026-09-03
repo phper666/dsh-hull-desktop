@@ -3,6 +3,15 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-09-03 通知中心 V2a——NotificationService 底座 + 看板执行通知源
+
+- 类型：功能需求实现（判级复杂，设计 docs/design/通知中心v2a-notify-service-design.md 冻结；无共识规则变化）
+- 内容：①NotificationService——统一 emit + 独立 notifications.json（按源保留 workflow 50/board-exec 100）+ 逐条 readAt + onChanged 推送 + V1 runs.json 迁移（幂等，runs 原样保留）；②工作流源改造——run 完成 emit 进中心（失败 error 推系统通知+未读/成功 info 静默），notify 收敛为显式步骤专用；③看板执行源——failed 唯一出口 setExecutionStatus（结算/级联 E15/死锁必经，键 taskId:status 防双发——实测修正：settleTask 附加发射会双发且含 execId 键失效）、succeeded 在 settleTask、未入队依赖保持 idle 不通知；④渲染层多源筛选/双跳转（看板行→任务详情）；⑤notifs:changed 推送替代轮询主力
+- 实测修正设计假设：failed 双发（去重键含被清空 executionId 失效）与 E15 级联边界（未入队不级联）——已回写设计 §3.2
+- 核验：单测 933 绿（新增 12）+ e2e 33 绿（notifs V2a 重写全链）+ tsc ✓
+- 文档：docs/design/通知中心v2a-notify-service-design.md · docs/records/通知中心v2a-notify-service-record.md
+- commits：4159f19 → merge（本条随 merge 入 main）
+
 ## 2026-09-03 通知中心入口移入主导航组（视觉归位）
 
 - 类型：视觉/交互调整（判级简单，用户反馈悬空铃铛奇怪；无规则变化）
