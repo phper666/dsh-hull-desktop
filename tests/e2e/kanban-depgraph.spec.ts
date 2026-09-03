@@ -69,6 +69,17 @@ test.describe('U3 依赖图可视化', () => {
     await expect(shell.locator('.dg-modal .dg-edge')).not.toHaveCount(0);
     await expect(shell.locator('.dg-modal .dg-li')).toHaveCount(4); // 左栏子任务列表
     await expect(shell.locator('.dg-modal .dg-li', { hasText: '子任务一' })).toBeVisible();
+    // 缩放工具条：滚轮放大 + 适配复位
+    await expect(shell.locator('.dg-modal .dg-zoom')).toBeVisible();
+    const pctBefore = await shell.locator('#dg-zoom-pct').textContent();
+    const vpBox = await shell.locator('.dg-modal .dg-vp').boundingBox();
+    if (vpBox) {
+      await shell.mouse.move(vpBox.x + vpBox.width / 2, vpBox.y + vpBox.height / 2);
+      await shell.mouse.wheel(0, -200);
+    }
+    await expect(shell.locator('#dg-zoom-pct')).not.toHaveText(pctBefore);
+    await shell.locator('.dg-modal [data-zoom-fit]').click();
+    await expect(shell.locator('#dg-zoom-pct')).toHaveText(pctBefore);
     await shell.keyboard.press('Escape');
     await expect(shell.locator('.dg-modal')).toHaveCount(0);
 

@@ -24,7 +24,7 @@
 /* ── 独立弹框（复刻 .kb-modal 遮罩；900px × 78vh，body 级 fixed） ── */
 .dg-modal { position: fixed; inset: 0; background: var(--hull-overlay); display: flex; align-items: center; justify-content: center; z-index: 200; }
 .dg-box {
-  width: 900px; max-width: 92vw; max-height: 78vh; background: var(--hull-panel);
+  width: 900px; max-width: 92vw; max-height: min(88vh, calc(100vh - 64px)); background: var(--hull-panel);
   border: 1px solid var(--hull-border); border-radius: var(--radius-xl); box-shadow: var(--shadow-2);
   display: flex; flex-direction: column; overflow: hidden;
 }
@@ -73,10 +73,21 @@
 .dg-li.st-halted .dg-li-dot { background: var(--hull-danger); opacity: 0.5; }
 .dg-li.st-halted .dg-li-badge { color: var(--hull-danger); }
 
-.dg-vp { flex: 1; min-width: 0; overflow: auto; display: flex; align-items: center; justify-content: center; }
-.dg-canvas { position: relative; }          /* 布局盒 = 缩放后尺寸（不产生幻影滚动） */
-.dg-scale { position: relative; }           /* 未缩放内容层，transform: scale(s) */
+.dg-vp { flex: 1; min-width: 0; overflow: auto; display: flex; cursor: grab; }
+.dg-vp.dg-dragging { cursor: grabbing; }
+.dg-canvas { position: relative; margin: auto; }  /* margin:auto：fit 时居中，超视口可滚动到全图 */
+.dg-scale { position: relative; }           /* 未缩放内容层，transform: translate+scale（交互缩放） */
 .dg-svg { position: absolute; inset: 0; overflow: visible; }
+
+/* ── 缩放工具条（头部右侧；复用 --hull-* 按钮风格） ── */
+.dg-zoom { display: inline-flex; align-items: center; gap: 2px; }
+.dg-zoom button {
+  background: transparent; border: 1px solid var(--hull-border); color: var(--hull-text-dim);
+  cursor: pointer; font-size: 12px; padding: 1px 8px; border-radius: var(--radius-sm); line-height: 1.6;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.dg-zoom button:hover { background: var(--hull-hover); color: var(--hull-text); }
+.dg-zoom .dg-zoom-pct { font-family: var(--font-mono); font-size: 10px; color: var(--hull-text-muted); min-width: 40px; text-align: center; white-space: nowrap; }
 .dg-foot { padding: 5px 14px; border-top: 1px solid var(--hull-border); display: flex; gap: 6px; flex-wrap: nowrap; align-items: center; font-size: 10px; color: var(--hull-text-muted); }
 .dg-hint { margin-left: auto; color: var(--hull-text-sub); white-space: nowrap; }
 .dg-cycle { color: var(--hull-danger); border: 1px dashed var(--hull-danger-hover); border-radius: var(--radius-sm); padding: 0 6px; white-space: nowrap; }

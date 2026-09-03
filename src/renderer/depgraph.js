@@ -27,6 +27,12 @@
   let wrap = null;  // 弹框 DOM（isConnected 判断开/关）
   let onCloseCb = null; // kanban 关闭回调（复位 openDepgraphTaskId）
 
+  // 交互缩放状态（每弹框实例独立；transform = translate(tx,ty) scale(k)，不改 core 布局数据）
+  let zoom = { k: 1, tx: 0, ty: 0 };
+  let zoomInit = false; // 首帧以 fit 值初始化（后续刷新保留用户缩放）
+  let fitK = 1;         // 当前 fit 缩放（「适配」按钮回到此值）
+  let vpEl = null, scaleElEl = null;
+
   function open(task, subtasks) {
     if (!task) return;
     state = { task, subtasks: subtasks || [] };
@@ -53,6 +59,12 @@
           <span class="dg-title">依赖关系图</span>
           <span class="dg-chip" id="dg-maxp">并发 ≤3</span>
           <span class="dg-pool" id="dg-pool"><span class="dg-slots" id="dg-slots"></span><b id="dg-cnt">0/3</b></span>
+          <span class="dg-zoom">
+            <button data-zoom-out title="缩小" aria-label="缩小">−</button>
+            <span class="dg-zoom-pct" id="dg-zoom-pct">100%</span>
+            <button data-zoom-in title="放大" aria-label="放大">＋</button>
+            <button data-zoom-fit title="适配窗口">适配</button>
+          </span>
           <button class="dg-listtoggle" id="dg-listtoggle" title="折叠/展开子任务列表" aria-pressed="true">▤</button>
           <button class="dg-close" data-close aria-label="关闭">✕</button>
         </div>
@@ -76,11 +88,76 @@
     });
     const legend = wrap.querySelector('#dg-legend');
     legend.innerHTML = LEGEND.map(([cls, name]) => `<span class="dg-lg"><i class="${cls}"></i>${name}</span>`).join('');
+
+    // ── 交互缩放：滚轮以鼠标为锚 / 拖拽平移 / ＋−适配工具条（只动 transform，不改布局数据） ──
+    zoom = { k: 1, tx: 0, ty: 0 };
+    zoomInit = false;
+    vpEl = wrap.querySelector('#dg-vp');
+    scaleElEl = wrap.querySelector('#dg-scale');
+    // 滚轮缩放（被动 false 才能 preventDefault 阻止原生滚动）
+    const onWheel = (e) => {
+      e.preventDefault();
+      const rect = vpEl.getBoundingClientRect();
+      zoomAt(e.clientX - rect.left, e.clientY - rect.top, e.deltaY < 0 ? 1.12 : 1 / 1.12);
+    };
+    vpEl.addEventListener('wheel', onWheel, { passive: false });
+    // 拖拽平移（按住空白/边线拖动；节点上不拖，保留 hover；左栏列表在 vp 外不受影响）
+    let drag = null;
+    const onPointerDown = (e) => {
+      if (e.button !== 0) return;
+      if (e.target.closest && e.target.closest('.dg-node')) return;
+      drag = { x: e.clientX, y: e.clientY, tx: zoom.tx, ty: zoom.ty };
+      vpEl.classList.add('dg-dragging');
+      try { vpEl.setPointerCapture(e.pointerId); } catch { /* 非 pointer 环境降级 */ }
+    };
+    const onPointerMove = (e) => {
+      if (!drag) return;
+      zoom.tx = drag.tx + (e.clientX - drag.x);
+      zoom.ty = drag.ty + (e.clientY - drag.y);
+      applyZoom();
+    };
+    const onPointerUp = () => { drag = null; vpEl.classList.remove('dg-dragging'); };
+    vpEl.addEventListener('pointerdown', onPointerDown);
+    vpEl.addEventListener('pointermove', onPointerMove);
+    vpEl.addEventListener('pointerup', onPointerUp);
+    vpEl.addEventListener('pointercancel', onPointerUp);
+    // ＋/−（以视口中心为锚）/适配
+    const centerZoom = (factor) => () => { const r = vpEl.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, factor); };
+    wrap.querySelector('[data-zoom-in]').addEventListener('click', centerZoom(1.25));
+    wrap.querySelector('[data-zoom-out]').addEventListener('click', centerZoom(1 / 1.25));
+    wrap.querySelector('[data-zoom-fit]').addEventListener('click', () => { zoom = { k: fitK, tx: 0, ty: 0 }; applyZoom(); });
+    // 事件清理走既有弹框关闭路径（close() 调 _zoomCleanup）
+    wrap._zoomCleanup = () => {
+      vpEl.removeEventListener('wheel', onWheel);
+      vpEl.removeEventListener('pointerdown', onPointerDown);
+      vpEl.removeEventListener('pointermove', onPointerMove);
+      vpEl.removeEventListener('pointerup', onPointerUp);
+      vpEl.removeEventListener('pointercancel', onPointerUp);
+    };
+  }
+
+  // 交互缩放应用（模块级，render()/工具条共用）：transform = translate(tx,ty) scale(k)
+  function applyZoom() {
+    if (!scaleElEl) return;
+    scaleElEl.style.transform = (zoom.k === 1 && zoom.tx === 0 && zoom.ty === 0)
+      ? '' : `translate(${zoom.tx}px, ${zoom.ty}px) scale(${zoom.k})`;
+    const pct = wrap?.querySelector('#dg-zoom-pct');
+    if (pct) pct.textContent = Math.round(zoom.k * 100) + '%';
+  }
+  // 以 (cx,cy) 为锚缩放（锚点屏幕位置不动）
+  function zoomAt(cx, cy, factor) {
+    const k2 = Math.min(3.0, Math.max(0.4, zoom.k * factor));
+    const f = k2 / zoom.k;
+    zoom.tx = cx - (cx - zoom.tx) * f;
+    zoom.ty = cy - (cy - zoom.ty) * f;
+    zoom.k = k2;
+    applyZoom();
   }
 
   function close() {
     if (!wrap) return;
     if (wrap._onKey) document.removeEventListener('keydown', wrap._onKey);
+    if (wrap._zoomCleanup) { wrap._zoomCleanup(); wrap._zoomCleanup = null; }
     wrap.remove();
     wrap = null;
     state = null;
@@ -127,18 +204,21 @@
 
     const canvas = wrap.querySelector('#dg-canvas');
     const scaleEl = wrap.querySelector('#dg-scale');
-    /* 等比缩放适配视口：允许放大撑满（上限 1.6 保可读）；图过大（s<0.5）不缩放交滚动 */
+    /* fit 缩放：允许放大撑满（上限 1.6 保可读）；图过大（s<0.5）不缩放交滚动 */
     const vp = wrap.querySelector('#dg-vp');
     const vpW = vp.clientWidth || 880, vpH = vp.clientHeight || 480;
     let s = Math.min(vpW / res.W, vpH / res.H);
     if (s > 1.6) s = 1.6;
     if (s < 0.5) s = 1;
-    canvas.style.width = (res.W * s) + 'px';
-    canvas.style.height = (res.H * s) + 'px';
+    fitK = s;
+    /* 画布布局盒 = fit 尺寸（决定居中与滚动区）；内容层 transform 交给交互缩放（applyZoom） */
+    canvas.style.width = (res.W * fitK) + 'px';
+    canvas.style.height = (res.H * fitK) + 'px';
     scaleEl.style.width = res.W + 'px';
     scaleEl.style.height = res.H + 'px';
-    scaleEl.style.transform = s === 1 ? '' : `scale(${s})`;
     scaleEl.style.transformOrigin = '0 0';
+    if (!zoomInit) { zoom = { k: fitK, tx: 0, ty: 0 }; zoomInit = true; }
+    applyZoom();
     scaleEl.innerHTML = ''; // 只清空内容层（保留 #dg-scale 容器本体，勿清 canvas——否则容器被销毁）
 
     // SVG 边（<g class="dg-edge …">，path 描边 + polygon 箭头，CSS currentColor 取色）
