@@ -17,6 +17,7 @@ import { MockProvider, type MockOutcome } from './provider/MockProvider';
 import type { ExecutionProvider, ExecutionTask, ExecutionHandlers } from './provider/ExecutionProvider';
 import { ProviderManager } from './provider/ProviderManager';
 import { ExecutionEngine } from './ExecutionEngine';
+import type { NotifInput } from '../notifications/types';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -35,7 +36,7 @@ after(() => {
   for (const fn of cleanup) fn();
 });
 
-function makeEnv(outcome?: MockOutcome, delayMs = 0) {
+function makeEnv(outcome?: MockOutcome, delayMs = 0, emitNotif?: (input: NotifInput) => void) {
   const dir = mkdtempSync(join(tmpdir(), 'hull-engine-'));
   cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
   const store = new KanbanStore({ userDataPath: dir });
@@ -47,6 +48,7 @@ function makeEnv(outcome?: MockOutcome, delayMs = 0) {
     providerManager: new ProviderManager({ env: { HULL_EXEC_PROVIDER: 'mock' } }),
     provider,
     maxParallelTasks: 3,
+    emitNotif,
   });
   cleanup.push(() => engine.dispose());
   return { store, board, engine };
@@ -385,4 +387,46 @@ test('🟡-4 succeeded 任务重跑后 currentExecutionId=null + 新 execution r
   ok(execs[1].id.startsWith('e_'), '新记录为 e_<seq> 格式');
   ok(execs[1].id !== firstId, '新记录不指向旧执行');
   ok(execs[1].execution?.outputPath?.includes(execs[1].id), '新记录 outputPath 指向本次执行日志');
+});
+
+// ── V2a §3.2：看板执行源发射 ──
+
+test('V2a 看板执行源：succeeded → info / failed → error（title/body/link）', async () => {
+  const emitted: NotifInput[] = [];
+  const { store, board, engine } = makeEnv({ kind: 'success', selfCheck: { passed: true } }, 0, (n) => emitted.push(n));
+  const task = makeTask(store, board.id, { title: '自动任务', executionMode: 'auto', ac: true });
+  await engine.executeTask(board.id, task.id);
+  await waitFor(() => emitted.length >= 1, 5000);
+  equal(emitted[0].severity, 'info');
+  equal(emitted[0].title, '任务 · 自动任务');
+  equal(emitted[0].link.kind, 'task');
+  if (emitted[0].link.kind === 'task') equal(emitted[0].link.taskId, task.id);
+
+  const emitted2: NotifInput[] = [];
+  const env2 = makeEnv({ kind: 'success', selfCheck: { passed: false }, exitCode: 1 }, 0, (n) => emitted2.push(n));
+  const task2 = makeTask(env2.store, env2.board.id, { title: '会失败的任务', executionMode: 'auto', ac: true });
+  await env2.engine.executeTask(env2.board.id, task2.id);
+  await waitFor(() => emitted2.length >= 1, 5000);
+  equal(emitted2[0].severity, 'error');
+  ok(emitted2[0].title.includes('【失败】'));
+});
+
+test('V2a 看板执行源：failed 去重单发 + 父卡聚合通知 + 未入队依赖不发', async () => {
+  const emitted: NotifInput[] = [];
+  const { store, board, engine } = makeEnv({ kind: 'success', selfCheck: { passed: false }, exitCode: 1 }, 0, (n) => emitted.push(n));
+  const parent = makeTask(store, board.id, { title: '父卡' });
+  const ac = { what: 'w', expected: 'e', verify: 'v' };
+  const childA = store.createTask(board.id, { title: '子任务A（失败）', parentId: parent.id, executionMode: 'auto', acceptanceCriteria: ac, dependencies: [] });
+  const childB = store.createTask(board.id, { title: '子任务B（依赖A）', parentId: parent.id, executionMode: 'auto', acceptanceCriteria: ac, dependencies: [childA.id] });
+  await engine.executeTask(board.id, parent.id);
+  // §3.2（实测修订）：failed 发射唯一出口 = setExecutionStatus（A 结算 + 父卡聚合推导各一条）；
+  // B 依赖未满足保持 idle 不入队 → 不级联不发通知（E15 级联边界）
+  const countFor = (taskId: string) => emitted.filter((n) => n.link.kind === 'task' && n.link.taskId === taskId).length;
+  await waitFor(() => countFor(childA.id) >= 1, 5000);
+  await new Promise((r) => setTimeout(r, 50));
+  equal(countFor(childA.id), 1, 'A 结算失败恰好一条（去重生效）');
+  equal(countFor(parent.id), 1, '父卡聚合 failed 一条（deriveParent → setExecutionStatus）');
+  equal(countFor(childB.id), 0, 'B 未入队保持 idle，不发通知');
+  equal(status(store, board.id, childB.id), 'idle');
+  equal(emitted.every((n) => n.severity === 'error'), true);
 });

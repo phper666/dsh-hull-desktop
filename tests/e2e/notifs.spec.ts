@@ -1,6 +1,6 @@
 /**
- * 通知中心 e2e（§9 V1 首例）：seed 工作流运行记录 → 铃铛入口 → 页面/表格/角标/已读语义。
- * 数据经 <userData>/workflows/runs.json（WorkflowStore 磁盘格式）注入，不触真实用户数据。
+ * 通知中心 e2e（V2a）：双源（工作流 + 看板执行）seed notifications.json →
+ * 铃铛入口 → 页面/未读行/角标/已读 → 来源筛选 → 双跳转（工作流视图 / 看板任务详情）。
  */
 import { expect, test } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -17,10 +17,8 @@ import {
   type ElectronApplication,
 } from './helpers';
 
-/** 种子运行记录：1 条未读失败（时间 = 现在）+ 1 条已读成功（昨天）+ 1 条定时成功（刚才） */
-function seedRuns(userData: string): void {
-  const now = Date.now();
-  const iso = (offsetMs: number) => new Date(now + offsetMs).toISOString();
+/** 种子工作流定义（WorkflowStore 磁盘格式）：让「查看工作流」flash 定位有真实卡片 */
+function seedWorkflows(userData: string): void {
   const dir = join(userData, 'workflows');
   mkdirSync(dir, { recursive: true });
   writeFileSync(
@@ -28,92 +26,107 @@ function seedRuns(userData: string): void {
     JSON.stringify({
       version: 1,
       workflows: [
-        { id: 'wf-night', name: '夜间巡检', enabled: true, steps: [], createdAt: iso(-86400_000), updatedAt: iso(-86400_000), trigger: { type: 'cron', expr: '0 9 * * *' } },
-        { id: 'wf-budget', name: 'Token 预算告警', enabled: true, steps: [], createdAt: iso(-86400_000), updatedAt: iso(-86400_000) },
+        { id: 'wf-night', name: '夜间巡检', enabled: true, steps: [], createdAt: '2026-09-03T00:00:00Z', updatedAt: '2026-09-03T00:00:00Z' },
       ],
     })
   );
+}
+
+/** 种子通知（NotificationService 磁盘格式）：工作流失败(未读)/工作流通知(已读)/看板执行失败(未读) */
+function seedNotifs(userData: string): void {
+  const now = Date.now();
+  const iso = (offsetMs: number) => new Date(now + offsetMs).toISOString();
+  const dir = join(userData, 'notifications');
+  mkdirSync(dir, { recursive: true });
   writeFileSync(
-    join(dir, 'runs.json'),
+    join(dir, 'notifications.json'),
     JSON.stringify({
       version: 1,
-      runs: [
+      notifications: [
         {
-          id: 'run-fail', workflowId: 'wf-night', workflowName: '夜间巡检', startedAt: iso(-600_000),
-          finishedAt: iso(-590_000), status: 'failed', trigger: 'cron',
-          log: [{ stepId: 's1', type: 'http', ok: false, message: 'HTTP 503：dsh 探活失败', durationMs: 2100 }],
+          id: 'n-wf-fail', source: 'workflow', severity: 'error', title: '工作流 · 夜间巡检【失败】',
+          body: 'HTTP 503：dsh 探活失败', link: { kind: 'workflow', workflowId: 'wf-night' },
+          ts: iso(-600_000), readAt: null,
+          meta: { trigger: 'cron', durationMs: 2100, log: [{ stepId: 's1', type: 'http', ok: false, message: 'HTTP 503：dsh 探活失败', durationMs: 2100 }] },
         },
         {
-          id: 'run-ok', workflowId: 'wf-night', workflowName: '夜间巡检', startedAt: iso(-86_400_000),
-          finishedAt: iso(-86_340_000), status: 'success', trigger: 'cron',
-          log: [{ stepId: 's1', type: 'http', ok: true, message: '巡检完成', durationMs: 6200 }],
+          id: 'n-wf-ok', source: 'workflow', severity: 'info', title: '工作流 · Token 预算告警',
+          body: 'token-budget: Token 预算正常', link: { kind: 'workflow', workflowId: 'wf-budget' },
+          ts: iso(-3_600_000), readAt: iso(-3_590_000),
+          meta: { trigger: 'cron', durationMs: 700, log: [] },
         },
         {
-          id: 'run-budget', workflowId: 'wf-budget', workflowName: 'Token 预算告警', startedAt: iso(-120_000),
-          finishedAt: iso(-119_000), status: 'success', trigger: 'manual',
-          log: [{ stepId: 's1', type: 'token-budget', ok: true, message: 'Token 预算正常', durationMs: 700 }],
+          id: 'n-exec-fail', source: 'board-exec', severity: 'error', title: '任务 · 数据迁移【失败】',
+          body: '执行失败（selfCheck 未通过或异常退出）', link: { kind: 'task', boardId: 'b-1', taskId: 't-migrate' },
+          ts: iso(-120_000), readAt: null, meta: { executionId: 'e_1', mode: 'auto' },
         },
       ],
     })
   );
 }
 
-test('E2E-08 通知中心 › 铃铛入口 → 页面/未读行/角标/标记已读（§9 V1）', async () => {
+test('E2E-08 通知中心 › 双源列表/角标/已读/来源筛选/双跳转（V2a）', async () => {
   const tmp = makeTempUserData();
   let app: ElectronApplication | null = null;
   try {
     seedFakeDsh(tmp.dir);
     seedSettings(tmp.dir);
-    seedRuns(tmp.dir);
+    seedNotifs(tmp.dir);
+    seedWorkflows(tmp.dir);
     app = await launchApp({ userData: tmp.dir });
     await waitForReady(app);
     const shell = shellPage(app);
     if (!shell) throw new Error('shell page 未就绪');
 
-    // 铃铛角标：1 条未读失败（run-fail；run-ok/run-budget 已读或成功）
+    // 角标：2 条未读失败（工作流 + 看板执行）
     const bell = shell.locator('#nav-notifs');
     await expect(bell).toBeVisible();
-    await expect(bell.locator('#notifs-badge')).toHaveText('1');
+    await expect(bell.locator('#notifs-badge')).toHaveText('2');
 
-    // 点铃铛 → 切 notifs 视图 + 页面渲染
+    // 点铃铛 → 通知中心页 3 行；失败行未读态
     await bell.click();
     await expect(shell.locator('#notifs')).toBeVisible();
     const rows = shell.locator('#nt-rows .nt-row');
     await expect(rows).toHaveCount(3);
-    // 失败行未读态（红条 + 消息红显）排最前（runs 倒序）
+    // service 排序：未读优先 → 看板执行失败(最新未读) → 工作流失败 → 已读通知
+    await expect(rows.nth(0).locator('.wf')).toHaveText('任务 · 数据迁移【失败】');
     await expect(rows.nth(0)).toHaveClass(/unread/);
-    await expect(rows.nth(0).locator('.msg')).toHaveText('HTTP 503：dsh 探活失败');
-    await expect(rows.nth(0).locator('.st-t')).toHaveText('失败');
+    await expect(rows.nth(1).locator('.wf')).toHaveText('工作流 · 夜间巡检【失败】');
+    await expect(rows.nth(1)).toHaveClass(/unread/);
+    await expect(rows.nth(2).locator('.st-t')).toHaveText('通知');
+    await expect(rows.nth(2)).not.toHaveClass(/unread/);
+    await expect(bell.locator('#notifs-badge')).toBeHidden({ timeout: 5000 });
 
-    // 进页面即已读：角标清零
-    await expect(bell.locator('#notifs-badge')).toBeHidden();
-
-    // 搜索实时过滤
-    await shell.fill('#nt-search', 'Token');
+    // 来源筛选：看板执行 → 只剩 board-exec 行
+    await shell.click('#nt-source button[data-f="board-exec"]');
     await expect(rows).toHaveCount(1);
-    await expect(rows.nth(0).locator('.wf')).toHaveText('Token 预算告警');
-    await shell.fill('#nt-search', '');
+    await expect(rows.nth(0).locator('.wf')).toHaveText('任务 · 数据迁移【失败】');
 
-    // 状态筛选：失败
-    await shell.click('#nt-status button[data-f="failed"]');
-    await expect(rows).toHaveCount(1);
-
-    // §9.5：行点击 = 原地展开详情（步骤日志/起止时间），再点收起
-    await shell.click('#nt-status button[data-f="all"]');
-    await rows.nth(1).click();
-    const detail = shell.locator('#nt-rows .nt-item').nth(1).locator('.nt-detail');
+    // 看板执行行：展开详情 + 查看任务 → 看板视图 + openTask 路由（seed 的 taskId 无真实任务数据，
+    // 详情弹层由 kanban 自身 data-detail 用例覆盖；此处断言路由参数正确）
+    await shell.evaluate(() => {
+      const orig = window.__kanbanOpenTask;
+      window.__lastOpenTaskId = null;
+      window.__kanbanOpenTask = (taskId: string) => {
+        window.__lastOpenTaskId = taskId;
+        orig(taskId);
+      };
+    });
+    await rows.nth(0).click();
+    const detail = shell.locator('#nt-rows .nt-item').nth(0).locator('.nt-detail');
     await expect(detail).toBeVisible();
-    await expect(detail.locator('.nt-step')).toContainText('巡检完成');
-    await expect(detail.locator('.nt-meta-line')).toContainText('定时（cron）');
-    await rows.nth(1).click();
-    await expect(detail).toBeHidden();
-
-    // §9.5：详情内「查看工作流」→ 跳工作流视图 + 卡片 flash 定位 + 全局最近运行段已移除
-    await rows.nth(1).click();
     await detail.locator('.nt-goto').click();
+    await expect(shell.locator('#board')).toBeVisible();
+    await expect(shell.evaluate(() => window.__lastOpenTaskId)).resolves.toBe('t-migrate');
+
+    // 回通知中心：工作流行「查看工作流」→ 工作流视图 + 卡片 flash
+    await shell.locator('#nav-notifs').click();
+    await shell.click('#nt-source button[data-f="workflow"]');
+    const wfRows = shell.locator('#nt-rows .nt-row');
+    await expect(wfRows).toHaveCount(2);
+    await wfRows.nth(0).click();
+    await shell.locator('#nt-rows .nt-item').nth(0).locator('.nt-goto').click();
     await expect(shell.locator('#workflows')).toBeVisible();
-    await expect(shell.locator('#notifs')).toBeHidden();
-    await expect(shell.locator('.wf-runs')).toHaveCount(0);
     await expect(shell.locator('#workflows .wf-card[data-id="wf-night"]')).toHaveClass(/flash/, { timeout: 1000 });
   } finally {
     if (app) await app.close().catch(() => {});

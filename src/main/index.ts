@@ -16,6 +16,9 @@ import { createPkgMgrRunner, toRunNpmInstall, type PkgMgrRunOptions, type PkgMgr
 import { Updater } from '../updater/Updater';
 import { registerTokenUsageIpc } from '../tokens/TokenUsageIpc';
 import { registerConnectionsIpc } from '../connections/ConnectionsIpc';
+import { registerNotifsIpc } from '../notifications/NotifsIpc';
+import { NotificationService } from '../notifications/NotificationService';
+import type { NotifRow } from '../notifications/types';
 import { registerWorkflowIpc } from '../workflows/WorkflowIpc';
 import { WorkflowEngine } from '../workflows/WorkflowEngine';
 import { WorkflowScheduler } from '../workflows/WorkflowScheduler';
@@ -122,7 +125,38 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     store: kanbanStore,
     providerManager,
     maxExecutionIdleMinutes: 30,
+    // V2a §3.2：看板执行结算/级联 emit 进中心；error 级推系统通知（点击跳任务详情）
+    emitNotif: (input) => {
+      const row = notifService.emit(input);
+      if (row.severity === 'error') notifSystemChannel(row);
+    },
   });
+  // V2a 通知中心底座：统一 emit → notifications.json → onChanged 推送；error 级推系统通知（点击按 link 路由）
+  let notifsWinRef: WindowManager | null = null;
+  const notifService = new NotificationService({
+    userDataPath,
+    onChanged: () => notifsWinRef?.notifyNotifsChanged(),
+  });
+  notifService.migrateFromWorkflowRuns();
+  const notifSystemChannel = (row: NotifRow): void => {
+    try {
+      const n = new Notification({ title: row.title, body: row.body });
+      n.on('click', () => {
+        try {
+          notifsWinRef?.show();
+          notifsWinRef?.focus();
+          if (row.link.kind === 'workflow') {
+            notifsWinRef?.showWorkflows();
+          } else if (row.link.kind === 'task') {
+            notifsWinRef?.openTaskFromNotif(row.link.taskId);
+          }
+        } catch { /* 窗口已销毁等，忽略 */ }
+      });
+      n.show();
+    } catch { /* 通知失败不阻塞 */ }
+  };
+  registerNotifsIpc(notifService);
+
   // 工作流引擎（顺序步骤：dsh-card 联动看板+执行引擎；通知走系统 Notification）
   // v2：connection-action（凭据 main 侧解密 → Actions 能力层）+ token-budget（tokens 扫描聚合）+ cron 定时调度器
   // §8.1：通知点击 → 聚焦主窗口并切工作流视图（winMgr 晚于引擎构造，晚绑定引用）
@@ -132,18 +166,11 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     store: workflowStore,
     kanban: kanbanStore,
     exec: execEngine,
-    notify: (title, body) => {
-      try {
-        const n = new Notification({ title, body });
-        n.on('click', () => {
-          try {
-            winMgrRef?.show();
-            winMgrRef?.focus();
-            winMgrRef?.showWorkflows();
-          } catch { /* 窗口已销毁等，忽略 */ }
-        });
-        n.show();
-      } catch { /* 通知失败不阻塞 */ }
+    notify: (title, body) => { try { new Notification({ title, body }).show(); } catch { /* 显式通知步骤：V1 语义（不进中心） */ } },
+    // V2a §3.1：run 完成 emit 进中心；error 级经 systemChannel 推系统通知（§8.1 失败自动通知的唯一出口）
+    emitNotif: (input) => {
+      const row = notifService.emit(input);
+      if (row.severity === 'error') notifSystemChannel(row);
     },
     invokeAction: async (connectionId, params) => {
       const conn = connectionsStore.getCredentials(connectionId);
@@ -337,6 +364,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     logger,
   });
   winMgrRef = winMgr; // §8.1：工作流通知点击跳转的晚绑定引用回填
+  notifsWinRef = winMgr; // V2a：通知存储推送/系统通知点击的窗口引用回填
   // S8' D5：托盘补充入口（聚焦主窗口 + 切视图；设置 → showSettings，检查 dsh → 聚焦主窗口 + 切 settings 视图渲染确认）
   const tray = new TrayController({
     runtime,
