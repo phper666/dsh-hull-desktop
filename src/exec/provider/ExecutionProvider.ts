@@ -35,6 +35,10 @@ export interface ExecutionTask {
   title: string;
   /** auto 模式 AC（四字段） */
   ac?: { what: string; expected: string; verify: string; context?: string };
+  /** Q-018 模型选择：session/set_config_option 的 value JSON 串（task.agentSpec.model ?? board.defaultModel）；缺省走 dsh 默认 */
+  model?: string;
+  /** Q-019 工作目录：session/new cwd（task.agentSpec.cwd ?? board.defaultCwd ?? homedir；Scheduler 已展开 ~） */
+  cwd: string;
   agentSpec?: {
     /** 默认 'dsh'（CON-R030 预留多平台） */
     provider?: string;

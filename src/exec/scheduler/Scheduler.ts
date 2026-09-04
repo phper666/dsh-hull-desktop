@@ -6,8 +6,11 @@
  * 依赖就绪判据 + 失败传播 + 死锁兜底 + 父卡展开。
  */
 import { EventEmitter } from 'node:events';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 import type { Board, ExecutionStatus, Task } from '../../kanban/types';
+import { NOOP_LOGGER, type RuntimeLogger } from '../../shared/types';
 import type { ExecutionProvider, ExecutionResult } from '../provider/ExecutionProvider';
 import { ExecNotFoundError, ExecStateConflictError, ExecValidationError } from '../errors';
 
@@ -17,6 +20,8 @@ export interface SchedulerReadStore {
 
 export interface SchedulerSettledResult {
   exitCode: number;
+  /** Q-020 失败可观测性：provider 真实失败原因（结算透传到 VerifyGate 失败 detail → timeline/通知） */
+  summary?: string;
   selfCheck: { passed: boolean; evidence?: string } | null;
 }
 
@@ -27,12 +32,16 @@ export interface SchedulerMutations {
   cancelTask(taskId: string): void;
   failQueuedDependency(taskId: string, depId: string): void;
   failDeadlock(parentId: string): void;
+  /** Q-017 兜底：启动失败/重启重排校验失败——任务没跑起来 ≠ succeeded → failed + system 事件 */
+  failQueuedTask?(taskId: string, reason: string, detail: string): void;
   deriveParent(parentId: string, derived: ExecutionStatus): void;
   onStreamEvent?(taskId: string, ev: unknown): void;
 }
 
 export interface SchedulerOptions {
   maxParallelTasks?: number;
+  /** Q-017-C 观测：重启重排入队/跳过留痕（缺省 NOOP） */
+  logger?: RuntimeLogger;
 }
 
 export interface ExecuteTaskResult {
@@ -69,11 +78,22 @@ interface SnapshotEntry {
 
 const DEFAULT_MAX_PARALLEL = 3;
 
+/**
+ * Q-019：~ 形态 cwd 展开为 homedir 绝对路径（'~' 或 '~/xxx'；session/new cwd 必须绝对路径，
+ * 且 ACPProvider 对不存在目录会防御失败——相对路径/波浪号原样传入会误伤）。
+ */
+function expandTilde(p: string): string {
+  if (p === '~') return homedir();
+  if (p.startsWith('~/')) return join(homedir(), p.slice(2));
+  return p;
+}
+
 export class Scheduler extends EventEmitter {
   private readonly store: SchedulerReadStore;
   private readonly provider: ExecutionProvider;
   private readonly mutations: SchedulerMutations;
   private readonly maxParallel: number;
+  private readonly logger: RuntimeLogger;
 
   private readonly running = new Map<string, RunningRec>();
   private runningCount = 0;
@@ -97,6 +117,33 @@ export class Scheduler extends EventEmitter {
     this.provider = provider;
     this.mutations = mutations;
     this.maxParallel = options.maxParallelTasks ?? DEFAULT_MAX_PARALLEL;
+    this.logger = options.logger ?? NOOP_LOGGER;
+  }
+
+  /**
+   * Q-017 核心修复：壳重启后内存队列已空（queuedQueue 是内存 Map），Convergence 保留的
+   * queued 任务须重新塞回内存队列。复用 executeTask 守卫语义：running/queued 已有 → 跳过
+   * （幂等）；auto 缺 AC → 按现有 E2 语义转 failed（不抛错，收敛要幂等可靠）。
+   * 由引擎在收敛后批量调用，最后统一 kickNow 唤醒 drain。
+   */
+  requeuePersisted(boardId: string, task: Task): void {
+    if (this.running.has(task.id) || this.queuedQueue.has(task.id)) {
+      // Q-017-C 观测：跳过原因留痕（prod hull.log 可回答 sweep 跑没跑）
+      this.logger.info(`[Q-017] requeuePersisted 跳过（已在内存队列）: ${task.id}`);
+      return;
+    }
+    if (task.executionMode === 'auto' && !this.hasCompleteAc(task)) {
+      this.logger.info(`[Q-017] requeuePersisted 跳过（auto 缺 AC → failed）: ${task.id}`);
+      this.mutations.failQueuedTask?.(task.id, '自动执行校验失败', 'auto 任务缺验收标准（AC）（Q-017 重启重排）');
+      return;
+    }
+    this.enqueue(boardId, task, this.nextExecutionId());
+    this.logger.info(`[Q-017] requeuePersisted 已入队: ${task.id}`);
+  }
+
+  /** 公开唤醒（Q-017：引擎重启重排后 kick 单飞 drain 循环；执行入口内部已自行 kick） */
+  kickNow(): void {
+    this.kick();
   }
 
   /** 单任务执行 / 父卡展开（E17/E28/E2/E29/E30） */
@@ -220,10 +267,17 @@ export class Scheduler extends EventEmitter {
     const rec = this.running.get(taskId);
     if (!rec) return; // 双 onResult 幂等：已 settle 后 running 无此键 → 忽略
     // 🟡-2：结算在途（failRunning 已注入 failed）→ 迟到 provider 结果不覆盖（终态唯一）
-    if (this.pendingSettlements.includes(taskId)) return;
-    this.pendingResults.set(taskId, { exitCode: result.exitCode, selfCheck: result.selfCheck ?? null });
+    if (this.pendingSettlements.includes(taskId)) {
+      // Q-020：onStatus('failed') 先于 onResult（ACPProvider settleFailure 同步顺序）时，
+      // 注入条目已建但无 summary——此处合并真实失败原因（终态仍 failed，只补文案不覆盖结算意图）
+      const pending = this.pendingResults.get(taskId);
+      if (pending && !pending.summary && result.summary) pending.summary = result.summary;
+      return;
+    }
+    // Q-020：summary（真实失败原因）透传结算——此前在 pendingResults 处即被丢
+    this.pendingResults.set(taskId, { exitCode: result.exitCode, summary: result.summary, selfCheck: result.selfCheck ?? null });
     this.pendingSettlements.push(taskId);
-    this.notifyChanged();
+    this.wakeSoon();
     this.kick();
   }
 
@@ -269,7 +323,7 @@ export class Scheduler extends EventEmitter {
       if (!this.pendingSettlements.includes(taskId)) {
         this.pendingSettlements.push(taskId);
         this.pendingResults.set(taskId, { exitCode: 1, selfCheck: { passed: false } });
-        this.notifyChanged();
+        this.wakeSoon();
       }
     }
   }
@@ -280,10 +334,16 @@ export class Scheduler extends EventEmitter {
     this.loopRunning = true;
     try {
       for (;;) {
-        this.settleAll(); // ① 同步结算全部 pending（零 await）
-        const ready = this.findStartable(); // ② 重算就绪集
-        this.startBatch(ready); // ③ 入池 ≤ 空余池位（同步）
-        this.checkDeadlock(); // ④ 死锁兜底
+        // Q-017 次级修复：单轮异常（settleAll/findStartable/startBatch/checkDeadlock 任何
+        // 同步抛错）只跳过本轮，不打死单飞循环（否则全调度停摆、任务卡内存/store 之间）
+        try {
+          this.settleAll(); // ① 同步结算全部 pending（零 await）
+          const ready = this.findStartable(); // ② 重算就绪集
+          this.startBatch(ready); // ③ 入池 ≤ 空余池位（同步）
+          this.checkDeadlock(); // ④ 死锁兜底
+        } catch (err) {
+          console.error('[Scheduler] drain 单轮异常，跳过本轮等待变更:', err);
+        }
         if (this.runningCount === 0 && this.queuedQueue.size === 0) break;
         await this.waitForChange();
       }
@@ -321,11 +381,22 @@ export class Scheduler extends EventEmitter {
       const startedAt = new Date().toISOString();
       this.running.set(task.id, { executionId, startedAt, handle: null });
       this.runningCount++;
-      const handle = this.provider.execute(this.toExecutionTask(task), {
-        onEvent: (ev) => this.mutations.onStreamEvent?.(task.id, ev),
-        onStatus: (s) => this.handleStatus(task.id, s),
-        onResult: (r) => this.handleResult(task.id, r),
-      });
+      // Q-017 次级修复：provider.execute 同步抛错 → 回滚内存池 + 任务置 failed
+      //（任务没跑起来 ≠ succeeded；queuedQueue 不还原——任务已终态）
+      let handle: ExecHandleLike;
+      try {
+        handle = this.provider.execute(this.toExecutionTask(task, q.boardId), {
+          onEvent: (ev) => this.mutations.onStreamEvent?.(task.id, ev),
+          onStatus: (s) => this.handleStatus(task.id, s),
+          onResult: (r) => this.handleResult(task.id, r),
+        });
+      } catch (err) {
+        this.running.delete(task.id);
+        this.runningCount--;
+        const msg = err instanceof Error ? err.message : String(err);
+        this.mutations.failQueuedTask?.(task.id, '启动失败', `provider.execute 异常：${msg}`);
+        continue;
+      }
       const rec = this.running.get(task.id);
       if (rec) rec.handle = handle;
     }
@@ -429,6 +500,18 @@ export class Scheduler extends EventEmitter {
     for (const w of ws) w();
   }
 
+  /**
+   * Q-017-A 唤醒延迟到微任务：provider 可能在 execute **同步调用栈内**回调（ACPProvider
+   * DSH_HOME 未设 → settleFailure 立即触发）——此刻 drain 尚未执行到 waitForChange，
+   * waiters 为空，同步 notifyChanged 是空操作 → pendingSettlements 无人结算，任务僵尸
+   * （内存 running / store queued 之间）且 drain 永久挂起。微任务在 drain 挂起
+   * （waiter 已注册）后触发，恰好唤醒下一轮 settleAll。pendingSettlements 仍同步入队，
+   * 仅唤醒延迟，不改变结算语义。
+   */
+  private wakeSoon(): void {
+    queueMicrotask(() => this.notifyChanged());
+  }
+
   private waitForChange(): Promise<void> {
     return new Promise((resolve) => this.waiters.push(resolve));
   }
@@ -459,10 +542,17 @@ export class Scheduler extends EventEmitter {
     return !!ac && ac.what.trim().length > 0 && ac.expected.trim().length > 0 && ac.verify.trim().length > 0;
   }
 
-  private toExecutionTask(task: Task) {
+  /** ExecutionTask 组装（Q-018 模型合并 + Q-019 cwd 三级回落） */
+  private toExecutionTask(task: Task, boardId?: string) {
+    const board = boardId ? this.store.getBoard(boardId) : undefined;
+    const model = task.agentSpec.model ?? board?.defaultModel ?? undefined;
+    // Q-019 工作目录：task.agentSpec.cwd > board.defaultCwd > os.homedir()（会话归组正确 + agent 在指定目录干活）
+    const cwd = expandTilde(task.agentSpec.cwd ?? board?.defaultCwd ?? homedir());
     return {
       taskId: task.id,
       title: task.title,
+      cwd,
+      ...(model ? { model } : {}),
       ac: task.acceptanceCriteria ?? undefined,
       agentSpec: task.agentSpec
         ? {

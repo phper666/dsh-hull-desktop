@@ -71,6 +71,8 @@ export interface ExecIpcDeps {
   approval?: ApprovalManager;
   registry?: ProviderRegistry;
   acEditor?: AcEditor;
+  /** Q-018 模型清单：ACPProvider.listModels 透传（main 注入；未接线 → 空数组降级） */
+  listModels?: () => Promise<unknown[]>;
   /** ipcMain 注入（测试 seam；默认 electron.ipcMain） */
   ipc?: IpcMain;
   /** webContents 广播注入（测试 seam；默认 electron.webContents.getAllWebContents） */
@@ -138,6 +140,12 @@ export function registerExecIpc(deps: ExecIpcDeps): void {
   ipc.handle('kanban:getAgentProviders', () => {
     if (!registry) return { ok: true, data: [] };
     return toResult(() => registry.list());
+  });
+
+  // ── Q-018 模型清单：exec:listModels（ACPProvider 轻量会话拉 configOptions[model]，main 注入透传）──
+  ipc.handle('kanban:listModels', () => {
+    if (!deps.listModels) return Promise.resolve({ ok: true, data: [] });
+    return toResultAsync(deps.listModels);
   });
 
   // ── B3 event：onExecutionUpdate（状态/并行池变化推送）──

@@ -9,7 +9,7 @@
  *   failed；manual（无 selfCheck）→ 评论回填 + 列不自动推进
  */
 import { test } from 'node:test';
-import { deepEqual, equal, throws } from 'node:assert/strict';
+import { deepEqual, equal, ok, throws } from 'node:assert/strict';
 
 import { VerifyGate, type VerifyGateMutations, type VerifyGateResult } from './VerifyGate';
 import { ExecNotCompletableError, ExecValidationError } from './errors';
@@ -149,14 +149,16 @@ test('selfCheck passed=false → failed（E12，Q-015）', () => {
   const { gate, calls } = make([makeTask({ id: 't_1', executionStatus: 'running', columnId: 'c_in_progress' })]);
   const out = gate.applyResult(B_ID, 't_1', { exitCode: 0, summary: 'bad', outputPath: '', selfCheck: { passed: false } });
   deepEqual(out, { taskId: 't_1', executionStatus: 'failed', columnId: 'c_in_progress' });
-  deepEqual(calls, [{ method: 'markFailed', taskId: 't_1', arg2: '自验未通过', arg3: 'selfCheck.passed=false（Q-015）' }]);
+  ok(calls[0].arg3!.includes('bad'), 'summary 并入 detail（Q-020 失败可观测性）');
+  ok(calls[0].arg3!.startsWith('selfCheck.passed=false（Q-015）'), '保留 Q-015 前缀');
 });
 
 test('selfCheck passed=false + exitCode!=0（超时/通道异常）→ failed（回写 failed 记录）', () => {
   const { gate, calls } = make([makeTask({ id: 't_1', executionStatus: 'running', columnId: 'c_in_progress' })]);
   const out = gate.applyResult(B_ID, 't_1', { exitCode: 1, summary: 'timeout', outputPath: '', selfCheck: { passed: false } });
   deepEqual(out, { taskId: 't_1', executionStatus: 'failed', columnId: 'c_in_progress' });
-  deepEqual(calls, [{ method: 'markFailed', taskId: 't_1', arg2: '执行失败', arg3: 'selfCheck.passed=false（Q-015）' }]);
+  ok(calls[0].arg3!.includes('timeout'), 'summary 并入 detail');
+  ok(calls[0].arg3!.startsWith('selfCheck.passed=false（Q-015）'), '保留 Q-015 前缀');
 });
 
 test('manual（无 selfCheck）→ 结果评论回填 + 执行态 succeeded + 列不自动推进（CON-R029，E27；🟡-1 结算 succeeded）', () => {
@@ -174,4 +176,30 @@ test('任务不存在 → validation-error（exec-not-found 语义在 L3 引擎�
   throws(() => gate.confirmVerify(B_ID, 't_missing'), ExecValidationError);
   throws(() => gate.manualComplete(B_ID, 't_missing'), ExecValidationError);
   throws(() => gate.applyResult(B_ID, 't_missing', { exitCode: 0, summary: '', outputPath: '' }), ExecValidationError);
+});
+
+// ─────────────────── Q-020 失败可观测性：provider summary 并入 markFailed detail ───────────────────
+
+test('Q-020 失败 summary 并入 detail：markFailed detail 含 provider 真实失败原因', () => {
+  const { gate, calls } = make([makeTask({ id: 't_1', executionStatus: 'running', columnId: 'c_in_progress' })]);
+  gate.applyResult(B_ID, 't_1', { exitCode: 1, summary: '工作目录不存在: /opt/x', outputPath: '', selfCheck: { passed: false } });
+  equal(calls.length, 1);
+  equal(calls[0].method, 'markFailed');
+  ok(calls[0].arg3!.includes('工作目录不存在: /opt/x'), '真实失败原因可见（此前全程被丢）');
+  ok(calls[0].arg3!.startsWith('selfCheck.passed=false（Q-015）'), '保留 Q-015 判定前缀');
+});
+
+test('Q-020 失败 summary 空串/纯空白 → detail 保持现状（selfCheck.passed=false（Q-015））', () => {
+  const { gate, calls } = make([makeTask({ id: 't_1', executionStatus: 'running', columnId: 'c_in_progress' })]);
+  gate.applyResult(B_ID, 't_1', { exitCode: 1, summary: '   ', outputPath: '', selfCheck: { passed: false } });
+  equal(calls[0].arg3, 'selfCheck.passed=false（Q-015）', '无 summary → 行为与现状一致');
+});
+
+test('Q-020 失败 summary 超长 >500 → 截断保可读', () => {
+  const { gate, calls } = make([makeTask({ id: 't_1', executionStatus: 'running', columnId: 'c_in_progress' })]);
+  const long = '长'.repeat(600);
+  gate.applyResult(B_ID, 't_1', { exitCode: 1, summary: long, outputPath: '', selfCheck: { passed: false } });
+  const detail = calls[0].arg3!;
+  ok(detail.length < 600, `截断后 detail 长度可控（实际 ${detail.length}）`);
+  ok(detail.includes('截断'), '有截断标记');
 });

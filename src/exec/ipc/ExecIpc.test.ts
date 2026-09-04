@@ -60,19 +60,19 @@ function call<T>(fn: (...args: unknown[]) => T, ...args: unknown[]): T {
   return fn(null, ...args);
 }
 
-test('channel 白名单：B3 10 + B4 4 = 14 执行通道，全部在 ALL_IPC_CHANNELS', () => {
-  equal(EXEC_IPC_CHANNELS.length, 14);
+test('channel 白名单：B3 10 + B4 5 = 15 执行通道，全部在 ALL_IPC_CHANNELS', () => {
+  equal(EXEC_IPC_CHANNELS.length, 15);
   equal(KANBAN_EXEC_IPC_CHANNELS.length, 10);
-  equal(KANBAN_B4_EXEC_IPC_CHANNELS.length, 4);
+  equal(KANBAN_B4_EXEC_IPC_CHANNELS.length, 5);
   for (const c of EXEC_IPC_CHANNELS) {
     ok(ALL_IPC_CHANNELS.includes(c), `${c} 在白名单`);
   }
 });
 
-test('registerExecIpc：注册全部 12 invoke handler', () => {
+test('registerExecIpc：注册全部 13 invoke handler', () => {
   const deps = makeDeps();
   registerExecIpc(deps);
-  equal(deps.ipc.handlers.size, 12, '9 B3 invoke + approvalRespond + 2 B4 invoke + getPendingApprovals');
+  equal(deps.ipc.handlers.size, 13, '9 B3 invoke + approvalRespond + 3 B4 invoke + getPendingApprovals');
   for (const c of EXEC_IPC_CHANNELS) {
     if (c === 'kanban:onExecutionUpdate' || c === 'kanban:onPermissionRequest' || c === 'kanban:onPermissionSettled') continue; // event 通道
     ok(deps.ipc.handlers.has(c), `${c} handler 注册`);
@@ -147,6 +147,25 @@ test('getAgentProviders：registry 未接线 → 空数组', () => {
   registerExecIpc(deps);
   const fn = deps.ipc.handlers.get('kanban:getAgentProviders')!;
   const res = call(fn) as { ok: boolean; data: unknown[] };
+  equal(res.ok, true);
+  deepEqual(res.data, []);
+});
+
+test('exec:listModels：listModels 接线 → 返回模型分组（Q-018 模型选择）', async () => {
+  const groups = [{ group: '官方', name: '官方', options: [{ value: '["p","m"]', name: 'deepseek-v4' }] }];
+  const deps = makeDeps({ listModels: async () => groups });
+  registerExecIpc(deps);
+  const fn = deps.ipc.handlers.get('kanban:listModels')!;
+  const res = (await call(fn)) as { ok: boolean; data: typeof groups };
+  equal(res.ok, true);
+  deepEqual(res.data, groups);
+});
+
+test('exec:listModels：未接线 → 空数组（不报错，渲染层自行降级）', async () => {
+  const deps = makeDeps();
+  registerExecIpc(deps);
+  const fn = deps.ipc.handlers.get('kanban:listModels')!;
+  const res = (await call(fn)) as { ok: boolean; data: unknown[] };
   equal(res.ok, true);
   deepEqual(res.data, []);
 });

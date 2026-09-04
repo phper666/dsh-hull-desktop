@@ -7,10 +7,12 @@
  */
 import { test } from 'node:test';
 import { equal, ok, throws } from 'node:assert/strict';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 import type { Board, ExecutionStatus, Task } from '../../kanban/types';
 import { MockProvider } from '../provider/MockProvider';
-import type { ExecutionEvent } from '../provider/ExecutionProvider';
+import type { ExecutionEvent, ExecutionHandlers, ExecutionProvider, ExecutionTask } from '../provider/ExecutionProvider';
 import { Scheduler, type SchedulerReadStore, type SchedulerSettledResult } from './Scheduler';
 
 function sleep(ms: number): Promise<void> {
@@ -100,6 +102,13 @@ class SpyMutations {
   };
   onStreamEvent = (taskId: string, ev: unknown) => {
     this.events.set(taskId, [...(this.events.get(taskId) ?? []), ev as ExecutionEvent]);
+  };
+  /** Q-017：启动失败/重启重排缺 AC 兜底（failQueuedTask）记录 */
+  failQueuedCalls: Array<{ taskId: string; reason: string; detail: string }> = [];
+  failQueuedTask = (taskId: string, reason: string, detail: string) => {
+    this.failQueuedCalls.push({ taskId, reason, detail });
+    this.setStatus(taskId, 'failed');
+    this.calls.push(`failQueued:${taskId}`);
   };
 }
 
@@ -409,4 +418,250 @@ test('🟡-2 心跳超时 + provider settle 同帧 → 终态唯一 failed（不
   ok(!mutations.calls.includes('cancel:T'), '未走 cancelTask（不出现 cancelled 覆盖）');
   const settle = mutations.settled.get('T');
   equal(settle?.selfCheck?.passed, false, '结算按超时 failed 判定（非迟到 succeeded）');
+});
+
+// ─────────────────── Q-017 重启重排 + 启动失败兜底 ───────────────────
+
+/** Q-017：对指定 taskId 同步抛错的 provider 包装（启动失败兜底测试用） */
+class ThrowingProvider implements ExecutionProvider {
+  constructor(
+    private readonly throwIds: Set<string>,
+    private readonly inner: MockProvider,
+  ) {}
+  execute(task: ExecutionTask, handlers: ExecutionHandlers): { cancel(): Promise<void> } {
+    if (this.throwIds.has(task.taskId)) throw new Error('启动爆炸');
+    return this.inner.execute(task, handlers);
+  }
+}
+
+test('Q-017 重启重排：requeuePersisted 将 store 残留 queued 任务重新入队 → kickNow 后执行', async () => {
+  const board = makeBoard('b1', [makeTask('T', { executionStatus: 'queued' })]);
+  const { store, mutations, sched } = setup(board, { delayMs: 5 });
+  const task = store.getBoard('b1').tasks.find((x) => x.id === 'T')!;
+  sched.requeuePersisted('b1', task);
+  sched.kickNow();
+  await waitFor(() => mutations.settled.size === 1);
+  equal(store.status('T'), 'succeeded', '残留 queued 任务重启后被启动执行（不再永久排队）');
+  equal(mutations.calls.includes('start:T'), true, '任务被 start');
+});
+
+test('Q-017 requeuePersisted：auto 缺 AC → failed（E2 语义，不抛错不入队）', async () => {
+  const board = makeBoard('b1', [makeTask('T', { executionStatus: 'queued', acceptanceCriteria: null })]);
+  const { store, mutations, sched } = setup(board, { delayMs: 5 });
+  const task = store.getBoard('b1').tasks.find((x) => x.id === 'T')!;
+  sched.requeuePersisted('b1', task);
+  sched.kickNow();
+  await sleep(20);
+  equal(store.status('T'), 'failed', '缺 AC 的残留 queued 转 failed');
+  equal(mutations.calls.includes('enqueue:T'), false, '未入队');
+  equal(mutations.calls.includes('start:T'), false, '未执行');
+  const failCall = mutations.failQueuedCalls.find((c) => c.taskId === 'T');
+  ok(failCall, 'failQueuedTask 被调');
+  ok(failCall.detail.includes('验收标准'), '缺 AC 语义写入 detail');
+});
+
+test('Q-017 requeuePersisted 守卫：running/queued 已有 → 跳过（幂等）', async () => {
+  const board = makeBoard('b1', [makeTask('T', { executionStatus: 'queued' })]);
+  const { store, mutations, sched } = setup(board, { delayMs: 30 });
+  // 先正常入队（executeTask）→ kick 后同步 startBatch，任务在 running 池
+  sched.executeTask('b1', 'T');
+  const task = store.getBoard('b1').tasks.find((x) => x.id === 'T')!;
+  sched.requeuePersisted('b1', task); // 幂等跳过
+  const snap = sched.getSnapshot('b1');
+  equal(snap.running.length, 1, 'running 池不重复入池');
+  equal(snap.queued.length, 0, '不重复入队');
+  equal(mutations.calls.filter((c) => c === 'enqueue:T').length, 1, 'enqueue 仅一次');
+});
+
+test('Q-017 启动失败兜底：provider.execute 同步抛错 → 任务 failed + 启动失败事件 + drain 存活', async () => {
+  const board = makeBoard('b1', makeIndependentTasks(2));
+  const store = new FakeStore();
+  store.register(board);
+  const mutations = new SpyMutations();
+  mutations.setStatus = (taskId, s) => store.setStatus(taskId, s);
+  const provider = new ThrowingProvider(new Set(['t1']), new MockProvider({ delayMs: 5 }));
+  const sched = new Scheduler(store, provider, mutations, { maxParallelTasks: 3 });
+  sched.executeTask('b1', 't1');
+  sched.executeTask('b1', 't2');
+  await waitFor(() => mutations.settled.size === 1);
+  equal(store.status('t1'), 'failed', '启动失败任务置 failed（未跑起来 ≠ succeeded）');
+  const failCall = mutations.failQueuedCalls.find((c) => c.taskId === 't1');
+  ok(failCall, 'failQueuedTask 被调');
+  ok(failCall.reason.includes('启动失败'), '事件含「启动失败」');
+  ok(failCall.detail.includes('启动爆炸'), 'detail 含异常 message');
+  equal(store.status('t2'), 'succeeded', 'drain 存活：同批后续任务仍执行成功');
+  const snap = sched.getSnapshot('b1');
+  equal(snap.running.length, 0, '内存池已回滚（无僵尸 running）');
+  equal(snap.queued.length, 0, 'queuedQueue 不还原（任务已终态）');
+});
+
+// ─────────────────── Q-017-A startBatch 同步结算死锁 ───────────────────
+
+/**
+ * Q-017-A：复现 ACPProvider DSH_HOME 未设 → settleFailure 在 execute 调用栈内**同步**
+ * 回调 onStatus('failed') + onResult（首个 execute 同步失败，后续走正常 provider 验证 drain 存活）。
+ */
+class SyncFailOnceProvider implements ExecutionProvider {
+  private failed = false;
+  constructor(private readonly inner: MockProvider) {}
+  execute(task: ExecutionTask, handlers: ExecutionHandlers): { cancel(): Promise<void> } {
+    if (!this.failed) {
+      this.failed = true;
+      handlers.onStatus('failed');
+      handlers.onResult({ exitCode: 1, summary: '同步失败', outputPath: '', selfCheck: { passed: false } });
+      return { cancel: async () => {} };
+    }
+    return this.inner.execute(task, handlers);
+  }
+}
+
+test('Q-017-A 同步结算死锁：provider execute 内同步 onStatus(\'failed\') → 结算 failed（非 queued 僵尸）+ drain 存活', async () => {
+  const board = makeBoard('b1', makeIndependentTasks(2));
+  const store = new FakeStore();
+  store.register(board);
+  const mutations = new SpyMutations();
+  mutations.setStatus = (taskId, s) => store.setStatus(taskId, s);
+  const provider = new SyncFailOnceProvider(new MockProvider({ delayMs: 5 }));
+  const sched = new Scheduler(store, provider, mutations, { maxParallelTasks: 3 });
+  // 复现 prod 形态（用户实测：单个 queued 任务重排后 DSH_HOME 未设 ACP 同步失败）：
+  // requeuePersisted 入队不触发 notifyChanged，单次 kickNow → drain → startBatch →
+  // provider 在 execute 调用栈内同步 onStatus('failed')——此刻 waiters 空，同步唤醒丢失
+  sched.requeuePersisted('b1', store.getBoard('b1').tasks.find((x) => x.id === 't1')!);
+  sched.kickNow();
+  // 修复前：pendingSettlements 无人结算，drain 在 waitForChange 永久挂起 → waitFor 超时（红）
+  await waitFor(() => mutations.settled.size === 1, 3000);
+  equal(store.status('t1'), 'failed', '同步失败任务被结算（非内存 running/store queued 僵尸）');
+  // drain 存活：结算唤醒后新任务仍可正常执行
+  sched.executeTask('b1', 't2');
+  await waitFor(() => mutations.settled.size === 2, 3000);
+  equal(store.status('t2'), 'succeeded', 'drain 存活：后续任务正常执行');
+  const snap = sched.getSnapshot('b1');
+  equal(snap.running.length, 0, '无僵尸 running');
+});
+
+// ─────────────────── Q-018 模型选择合并（task.agentSpec.model > board.defaultModel > 不设置） ───────────────────
+
+/** 捕获 provider 收到的 ExecutionTask（模型合并断言用），行为委托 MockProvider */
+class RecordingProvider implements ExecutionProvider {
+  captured: ExecutionTask[] = [];
+  constructor(private readonly inner: MockProvider) {}
+  execute(task: ExecutionTask, handlers: ExecutionHandlers): { cancel(): Promise<void> } {
+    this.captured.push(task);
+    return this.inner.execute(task, handlers);
+  }
+}
+
+function setupRecording(board: Board, opts: { delayMs?: number } = {}) {
+  const store = new FakeStore();
+  store.register(board);
+  const mutations = new SpyMutations();
+  mutations.setStatus = (taskId: string, s: ExecutionStatus) => store.setStatus(taskId, s);
+  const provider = new RecordingProvider(new MockProvider({ delayMs: opts.delayMs ?? 0 }));
+  const sched = new Scheduler(store, provider, mutations, { maxParallelTasks: 3 });
+  return { store, mutations, provider, sched };
+}
+
+test('Q-018 模型合并：task.agentSpec.model 优先于 board.defaultModel', async () => {
+  const board = makeBoard('b1', [makeTask('T', { agentSpec: { provider: 'dsh', agent: null, model: '["task-p","task-m"]', subagentPolicy: 'auto' } })]);
+  (board as { defaultModel?: string }).defaultModel = '["board-p","board-m"]';
+  const { mutations, provider, sched } = setupRecording(board);
+  sched.executeTask('b1', 'T');
+  await waitFor(() => mutations.settled.size === 1);
+  equal(provider.captured[0].model, '["task-p","task-m"]', 'task 级模型优先');
+});
+
+test('Q-018 模型合并：task 无模型 → board.defaultModel 兜底', async () => {
+  const board = makeBoard('b1', [makeTask('T')]);
+  (board as { defaultModel?: string }).defaultModel = '["board-p","board-m"]';
+  const { mutations, provider, sched } = setupRecording(board);
+  sched.executeTask('b1', 'T');
+  await waitFor(() => mutations.settled.size === 1);
+  equal(provider.captured[0].model, '["board-p","board-m"]', 'board 默认模型兜底');
+});
+
+test('Q-018 模型合并：task/board 都无 → ExecutionTask 不带 model 字段（dsh 默认）', async () => {
+  const board = makeBoard('b1', [makeTask('T')]);
+  const { mutations, provider, sched } = setupRecording(board);
+  sched.executeTask('b1', 'T');
+  await waitFor(() => mutations.settled.size === 1);
+  equal('model' in provider.captured[0], false, '无 model 字段（不设置，走 dsh 默认）');
+});
+
+// ─────────────────── Q-019 工作目录三级回落（task.agentSpec.cwd > board.defaultCwd > homedir） ───────────────────
+
+test('Q-019 cwd 三级回落：task.agentSpec.cwd 优先', async () => {
+  const board = makeBoard('b1', [makeTask('T', { agentSpec: { provider: 'dsh', agent: null, model: null, subagentPolicy: 'auto', cwd: '/opt/task-dir' } })]);
+  (board as { defaultCwd?: string }).defaultCwd = '/opt/board-dir';
+  const { mutations, provider, sched } = setupRecording(board);
+  sched.executeTask('b1', 'T');
+  await waitFor(() => mutations.settled.size === 1);
+  equal(provider.captured[0].cwd, '/opt/task-dir', 'task 级 cwd 优先');
+});
+
+test('Q-019 cwd 三级回落：task 无 cwd → board.defaultCwd 兜底', async () => {
+  const board = makeBoard('b1', [makeTask('T')]);
+  (board as { defaultCwd?: string }).defaultCwd = '/opt/board-dir';
+  const { mutations, provider, sched } = setupRecording(board);
+  sched.executeTask('b1', 'T');
+  await waitFor(() => mutations.settled.size === 1);
+  equal(provider.captured[0].cwd, '/opt/board-dir', 'board 默认 cwd 兜底');
+});
+
+test('Q-019 cwd 三级回落：task/board 都无 → os.homedir()（不再落 overlay 目录）', async () => {
+  const board = makeBoard('b1', [makeTask('T')]);
+  const { mutations, provider, sched } = setupRecording(board);
+  sched.executeTask('b1', 'T');
+  await waitFor(() => mutations.settled.size === 1);
+  equal(provider.captured[0].cwd, homedir(), '缺省 homedir');
+});
+
+test('Q-019 cwd 展开：~/xxx 与 ~ 展开为 homedir 绝对路径', async () => {
+  const board = makeBoard('b1', [
+    makeTask('T1', { agentSpec: { provider: 'dsh', agent: null, model: null, subagentPolicy: 'auto', cwd: '~/projects/demo' } }),
+    makeTask('T2', { agentSpec: { provider: 'dsh', agent: null, model: null, subagentPolicy: 'auto', cwd: '~' } }),
+  ]);
+  const { mutations, provider, sched } = setupRecording(board);
+  sched.executeTask('b1', 'T1');
+  sched.executeTask('b1', 'T2');
+  await waitFor(() => mutations.settled.size === 2);
+  equal(provider.captured[0].cwd, join(homedir(), 'projects/demo'), '~/xxx 展开');
+  equal(provider.captured[1].cwd, homedir(), '~ 展开');
+});
+
+// ─────────────────── Q-020 结算透传 summary（失败可观测性） ───────────────────
+
+test('Q-020 结算透传 summary：onStatus(failed) 先于 onResult（settleFailure 同步顺序）→ settled 含真实 summary', async () => {
+  const board = makeBoard('b1', [makeTask('T')]);
+  const { store, mutations } = setup(board, { delayMs: 5 });
+  mutations.setStatus = (taskId, s) => store.setStatus(taskId, s);
+  const provider: ExecutionProvider = {
+    execute: (task, handlers) => {
+      // 复现 ACPProvider settleFailure 调用栈内同步顺序：onStatus('failed') 先注入结算条目、onResult 后到
+      handlers.onStatus('failed');
+      handlers.onResult({ exitCode: 1, summary: '工作目录不存在: /opt/x', outputPath: '', selfCheck: { passed: false } });
+      return { cancel: async () => {} };
+    },
+  };
+  const sched = new Scheduler(store, provider, mutations, { maxParallelTasks: 3 });
+  sched.executeTask('b1', 'T');
+  await waitFor(() => mutations.settled.size === 1);
+  equal(mutations.settled.get('T')?.summary, '工作目录不存在: /opt/x', 'onStatus 先到的注入条目被 onResult 补充真实 summary');
+  equal(mutations.settled.get('T')?.selfCheck?.passed, false, '结算意图不变（仍 failed）');
+});
+
+test('Q-020 结算透传 summary：正常顺序 onResult → settled 含 summary', async () => {
+  const board = makeBoard('b1', [makeTask('T')]);
+  const { store, mutations } = setup(board, { delayMs: 5 });
+  mutations.setStatus = (taskId, s) => store.setStatus(taskId, s);
+  const provider: ExecutionProvider = {
+    execute: (task, handlers) => {
+      handlers.onStatus('running');
+      handlers.onResult({ exitCode: 1, summary: '正常顺序失败原因', outputPath: '', selfCheck: { passed: false } });
+      return { cancel: async () => {} };
+    },
+  };
+  const sched = new Scheduler(store, provider, mutations, { maxParallelTasks: 3 });
+  sched.executeTask('b1', 'T');
+  await waitFor(() => mutations.settled.size === 1);
+  equal(mutations.settled.get('T')?.summary, '正常顺序失败原因');
 });

@@ -641,3 +641,112 @@ test('T2-13 非法日期串归一化：createTask/updateTask 非法串 → 响�
   const raw = JSON.parse(readFileSync(filePath, 'utf8')) as { boards: Array<{ tasks: Array<{ id: string; startDate: string | null }> }> };
   equal(raw.boards[0].tasks.find((x) => x.id === t.id)!.startDate, null, '落盘 null');
 });
+
+/** Q-018 模型选择：updateBoard 承载 board.defaultModel（value JSON 串持久化 + 清除回退 dsh 默认） */
+test('Q-018 updateBoard：defaultModel 设置/清除 + 落盘持久化', () => {
+  const { store, filePath } = makeStore();
+  const board = store.getBoards()[0];
+  const updated = store.updateBoard(board.id, { defaultModel: '["deepseek-official","deepseek-v4"]' });
+  equal((updated as { defaultModel?: string }).defaultModel, '["deepseek-official","deepseek-v4"]', '设置生效');
+  store.flushSync();
+  const raw = JSON.parse(readFileSync(filePath, 'utf8')) as { boards: Array<{ id: string; defaultModel?: string }> };
+  equal(raw.boards.find((b) => b.id === board.id)!.defaultModel, '["deepseek-official","deepseek-v4"]', '落盘持久化');
+  // 清除 → undefined（回 dsh 默认）
+  const cleared = store.updateBoard(board.id, { defaultModel: null });
+  equal((cleared as { defaultModel?: string }).defaultModel, undefined, 'null 清除');
+  store.flushSync();
+  const raw2 = JSON.parse(readFileSync(filePath, 'utf8')) as { boards: Array<{ id: string; defaultModel?: string }> };
+  equal(raw2.boards.find((b) => b.id === board.id)!.defaultModel, undefined, '清除后落盘无字段');
+});
+
+/** Q-018 旧 boards.json 无 defaultModel 字段 → 读入为 undefined（可选字段向后兼容，不 bump version） */
+test('Q-018 旧数据兼容：boards.json 无 defaultModel → undefined（不迁移不重建）', () => {
+  const { store } = makeStore();
+  const board = store.getBoards()[0];
+  equal((board as { defaultModel?: string }).defaultModel, undefined, '缺省 undefined');
+  equal(store.getBoards().length >= 1, true, 'store 正常工作');
+});
+
+/** Q-018 收尾：ticket 级 agentSpec.model 存储透传（UI payload → store → 执行链合并入口） */
+test('Q-018 createTask：agentSpec.model 存住；不带 → null', () => {
+  const { store } = makeStore();
+  const board = store.getBoards()[0];
+  const withModel = store.createTask(board.id, {
+    title: '带模型',
+    agentSpec: { model: '["deepseek-official","deepseek-v4-pro"]' },
+  });
+  equal(withModel.agentSpec.model, '["deepseek-official","deepseek-v4-pro"]', 'ticket 级模型存住');
+  equal(withModel.agentSpec.provider, 'dsh', 'provider 保持默认（不开放）');
+  equal(withModel.agentSpec.subagentPolicy, 'auto', 'subagentPolicy 保持默认（不开放）');
+  const without = store.createTask(board.id, { title: '不带模型' });
+  equal(without.agentSpec.model, null, '不带 → null（走看板默认/dsh 默认）');
+});
+
+test('Q-018 updateTask：显式 null / 空串 → 清除置 null；不带 agentSpec → 不动', () => {
+  const { store } = makeStore();
+  const board = store.getBoards()[0];
+  const t = store.createTask(board.id, { title: 't', agentSpec: { model: '["a","m"]' } });
+  equal(t.agentSpec.model, '["a","m"]');
+  // 不带 agentSpec 的普通更新不影响 agentSpec
+  const u1 = store.updateTask(board.id, t.id, { title: '改名' });
+  equal(u1.agentSpec.model, '["a","m"]', 'agentSpec 不动');
+  // 显式 null → 清除（回看板默认/dsh 默认）
+  const u2 = store.updateTask(board.id, t.id, { agentSpec: { model: null } });
+  equal(u2.agentSpec.model, null, '显式 null 清除');
+  // 空串 → 置 null
+  const t2 = store.createTask(board.id, { title: 't2', agentSpec: { model: '["a","m"]' } });
+  const u3 = store.updateTask(board.id, t2.id, { agentSpec: { model: '' } });
+  equal(u3.agentSpec.model, null, '空串置 null');
+});
+
+test('Q-018 超长防御：agentSpec.model > 512 → validation 拒绝（create/update 同规）', () => {
+  const { store } = makeStore();
+  const board = store.getBoards()[0];
+  const long = 'x'.repeat(513);
+  throws(() => store.createTask(board.id, { title: 't', agentSpec: { model: long } }), /超长|validation/);
+  const t = store.createTask(board.id, { title: 't2', agentSpec: { model: '["a","m"]' } });
+  throws(() => store.updateTask(board.id, t.id, { agentSpec: { model: long } }), /超长|validation/);
+  // 512 边界内合法（含 512）
+  const okTask = store.createTask(board.id, { title: 't3', agentSpec: { model: 'x'.repeat(512) } });
+  equal(okTask.agentSpec.model, 'x'.repeat(512));
+});
+
+/** Q-019 工作目录：agentSpec.cwd 存储（trim、空→null、不校验存在性——执行链防御兜底） */
+test('Q-019 createTask/updateTask：agentSpec.cwd 存住/清除/不动', () => {
+  const { store } = makeStore();
+  const board = store.getBoards()[0];
+  const t = store.createTask(board.id, { title: 't', agentSpec: { cwd: '  /opt/work  ' } });
+  equal(t.agentSpec.cwd, '/opt/work', 'create 存住（trim）');
+  // 不提供 agentSpec → cwd null
+  const t2 = store.createTask(board.id, { title: 't2' });
+  equal(t2.agentSpec.cwd, null, 'create 不带 → null');
+  // update 非空更新
+  const u1 = store.updateTask(board.id, t2.id, { agentSpec: { cwd: '/opt/other' } });
+  equal(u1.agentSpec.cwd, '/opt/other', 'update 非空更新');
+  // update 空串 → null 清除
+  const u2 = store.updateTask(board.id, t.id, { agentSpec: { cwd: '' } });
+  equal(u2.agentSpec.cwd, null, 'update 空串置 null');
+  // update 显式 null → null 清除
+  const u3 = store.updateTask(board.id, t2.id, { agentSpec: { cwd: null } });
+  equal(u3.agentSpec.cwd, null, 'update null 清除');
+  // 不带 agentSpec 的更新不动
+  const u4 = store.updateTask(board.id, t2.id, { title: '改名' });
+  equal(u4.agentSpec.cwd, null);
+  // model 与 cwd 同时提供互不影响
+  const t3 = store.createTask(board.id, { title: 't3', agentSpec: { model: '["a","m"]', cwd: '/w' } });
+  equal(t3.agentSpec.model, '["a","m"]');
+  equal(t3.agentSpec.cwd, '/w');
+});
+
+/** Q-019 board.defaultCwd：updateBoard 设置/清除（对齐 defaultModel 写法） */
+test('Q-019 updateBoard：defaultCwd 设置/清除 + 落盘持久化', () => {
+  const { store, filePath } = makeStore();
+  const board = store.getBoards()[0];
+  const updated = store.updateBoard(board.id, { defaultCwd: '/opt/board-work' });
+  equal((updated as { defaultCwd?: string }).defaultCwd, '/opt/board-work', '设置生效');
+  store.flushSync();
+  const raw = JSON.parse(readFileSync(filePath, 'utf8')) as { boards: Array<{ id: string; defaultCwd?: string }> };
+  equal(raw.boards.find((b) => b.id === board.id)!.defaultCwd, '/opt/board-work', '落盘持久化');
+  const cleared = store.updateBoard(board.id, { defaultCwd: null });
+  equal((cleared as { defaultCwd?: string }).defaultCwd, undefined, 'null 清除');
+});

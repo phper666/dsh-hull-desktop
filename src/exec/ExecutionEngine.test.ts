@@ -430,3 +430,111 @@ test('V2a 看板执行源：failed 去重单发 + 父卡聚合通知 + 未入队
   equal(status(store, board.id, childB.id), 'idle');
   equal(emitted.every((n) => n.severity === 'error'), true);
 });
+
+// ─────────────────── Q-020 失败可观测性：provider 真实原因进 timeline + 通知 body ───────────────────
+
+/** Q-020：onResult 带真实失败 summary 的 provider（复现 ACPProvider settleFailure 形态） */
+class FailWithSummaryProvider implements ExecutionProvider {
+  constructor(private readonly summary: string) {}
+  execute(task: ExecutionTask, handlers: ExecutionHandlers): { cancel(): Promise<void> } {
+    handlers.onStatus('failed');
+    handlers.onResult({ exitCode: 1, summary: this.summary, outputPath: '', selfCheck: { passed: false } });
+    return { cancel: async () => {} };
+  }
+}
+
+test('Q-020 失败原因透传：onResult summary → timeline content + 失败通知 body 含真实原因', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-engine-'));
+  cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+  const store = new KanbanStore({ userDataPath: dir });
+  cleanup.push(() => store.dispose());
+  const board = store.createBoard('b', DEFAULT_COLUMNS.map((c) => ({ ...c })));
+  const t = makeTask(store, board.id);
+  const emitted: NotifInput[] = [];
+  const engine = new ExecutionEngine({
+    store,
+    providerManager: new ProviderManager({ env: { HULL_EXEC_PROVIDER: 'mock' } }),
+    provider: new FailWithSummaryProvider('真实失败原因XYZ：工作目录不存在'),
+    emitNotif: (n) => emitted.push(n),
+  });
+  cleanup.push(() => engine.dispose());
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'failed');
+  // timeline 失败 system 事件含真实原因
+  const rec = store.getBoard(board.id).tasks.find((x) => x.id === t.id)!;
+  const failSys = rec.timeline.find((x) => x.type === 'system' && x.content.includes('真实失败原因XYZ'));
+  ok(failSys, `timeline 失败事件含真实原因（实际 system 事件：${JSON.stringify(rec.timeline.filter((x) => x.type === 'system').map((x) => x.content))}）`);
+  // 失败通知 body 含真实原因
+  const notif = emitted.find((n) => n.severity === 'error' && n.link.kind === 'task' && n.link.taskId === t.id);
+  ok(notif, '发出失败通知');
+  ok(notif!.body.includes('真实失败原因XYZ'), `通知 body 含真实原因（实际 body：${notif!.body}）`);
+});
+
+test('Q-020 失败 summary 为空 → timeline/通知行为与现状一致（不含 summary 段）', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-engine-'));
+  cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+  const store = new KanbanStore({ userDataPath: dir });
+  cleanup.push(() => store.dispose());
+  const board = store.createBoard('b', DEFAULT_COLUMNS.map((c) => ({ ...c })));
+  const t = makeTask(store, board.id);
+  const emitted: NotifInput[] = [];
+  const engine = new ExecutionEngine({
+    store,
+    providerManager: new ProviderManager({ env: { HULL_EXEC_PROVIDER: 'mock' } }),
+    provider: new FailWithSummaryProvider(''),
+    emitNotif: (n) => emitted.push(n),
+  });
+  cleanup.push(() => engine.dispose());
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'failed');
+  const rec = store.getBoard(board.id).tasks.find((x) => x.id === t.id)!;
+  ok(rec.timeline.some((x) => x.type === 'system' && x.content.includes('selfCheck.passed=false（Q-015）')), '保留 Q-015 判定文案');
+  equal(rec.timeline.some((x) => x.type === 'system' && x.content.includes('：：')), false, '无空 summary 拼接残留');
+  const notif = emitted.find((n) => n.severity === 'error' && n.link.kind === 'task' && n.link.taskId === t.id);
+  ok(notif, '仍发出失败通知');
+  ok(notif!.body.length > 0, 'body 非空（现状文案）');
+});
+
+// ─────────────────── Q-017 壳重启 queued 重排（重启后重新调度） ───────────────────
+test('Q-017 壳重启重排：store 残留 queued 任务 → engine.start() → 重新入队并被执行', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-engine-'));
+  cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+  const store = new KanbanStore({ userDataPath: dir });
+  cleanup.push(() => store.dispose());
+  const board = store.createBoard('b', DEFAULT_COLUMNS.map((c) => ({ ...c })));
+  const a = store.createTask(board.id, { title: '重启残留 queued', acceptanceCriteria: { what: 'w', expected: 'e', verify: 'v' } });
+  // 直写 raw 内部态（模拟壳重启残留：queued 持久化，调度器内存队列已随进程消失）
+  const rawBoard = (store as unknown as { data: { boards: Array<{ id: string; tasks: Array<{ id: string; executionStatus: string }> }> } }).data.boards.find((b) => b.id === board.id)!;
+  rawBoard.tasks.find((x) => x.id === a.id)!.executionStatus = 'queued';
+  const engine = new ExecutionEngine({
+    store,
+    providerManager: new ProviderManager({ env: { HULL_EXEC_PROVIDER: 'mock' } }),
+    provider: new MockProvider({ delayMs: 5 }),
+  });
+  cleanup.push(() => engine.dispose());
+  engine.start(); // 收敛 + 重排：queued 重新入队 + kick drain
+  await waitFor(() => status(store, board.id, a.id) === 'succeeded', 3000);
+  equal(status(store, board.id, a.id), 'succeeded', '残留 queued 任务重启后被执行（不再永久卡「排队中」）');
+});
+
+test('Q-017 重启重排：auto 缺 AC 的残留 queued → failed（不抛错不卡死）', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-engine-'));
+  cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+  const store = new KanbanStore({ userDataPath: dir });
+  cleanup.push(() => store.dispose());
+  const board = store.createBoard('b', DEFAULT_COLUMNS.map((c) => ({ ...c })));
+  const a = store.createTask(board.id, { title: '缺 AC 残留', executionMode: 'auto', acceptanceCriteria: { what: 'w', expected: 'e', verify: 'v' } });
+  const rawBoard = (store as unknown as { data: { boards: Array<{ id: string; tasks: Array<{ id: string; executionStatus: string; acceptanceCriteria: unknown; timeline: Array<{ type: string; content: string }> }> }> } }).data.boards.find((b) => b.id === board.id)!;
+  const rawTask = rawBoard.tasks.find((x) => x.id === a.id)!;
+  rawTask.executionStatus = 'queued';
+  rawTask.acceptanceCriteria = null;
+  const engine = new ExecutionEngine({
+    store,
+    providerManager: new ProviderManager({ env: { HULL_EXEC_PROVIDER: 'mock' } }),
+    provider: new MockProvider({ delayMs: 5 }),
+  });
+  cleanup.push(() => engine.dispose());
+  engine.start();
+  equal(status(store, board.id, a.id), 'failed', '缺 AC 的残留 queued 转 failed（E2 语义）');
+  ok(rawTask.timeline.some((x) => x.type === 'system' && x.content.includes('验收标准')), 'timeline 有缺 AC 失败 system 事件');
+});

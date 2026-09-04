@@ -142,7 +142,19 @@ export class VerifyGate {
 
     // passed=false / 超时（exitCode!=0 且 selfCheck passed=false）/ 异常 → failed
     const reason = result.exitCode === 0 ? '自验未通过' : '执行失败';
-    this.mutations.markFailed(taskId, reason, 'selfCheck.passed=false（Q-015）');
+    // Q-020 失败可观测性：provider 真实失败原因（summary）并入 detail——settleTask →
+    // setExecutionStatus 的 pushSystem（timeline content）与 maybeEmitExecutionNotif（通知 body）
+    // 都消费 detail，此单点改动同时覆盖两条出口。此前 summary 全程被丢，timeline/通知只有
+    // 通用「selfCheck.passed=false（Q-015）」，每轮排查都要读磁盘执行日志。
+    // 空串/纯空白 → 保持现状文案；>500 字截断保可读（全文已在 execution 记录 selfCheck.evidence）。
+    const trimmed = result.summary?.trim() ?? '';
+    const detail = trimmed ? `selfCheck.passed=false（Q-015）：${truncateSummary(trimmed, 500)}` : 'selfCheck.passed=false（Q-015）';
+    this.mutations.markFailed(taskId, reason, detail);
     return { taskId, executionStatus: 'failed', columnId: task.columnId };
   }
+}
+
+/** Q-020：失败摘要截断（>max 字符截断 + 标记，面向 timeline/通知可读性） */
+function truncateSummary(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max)}…（截断）` : s;
 }

@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('hull', {
   retry: () => ipcRenderer.invoke('hull:retry'),
   /** 打开日志目录 */
   openLogs: () => ipcRenderer.invoke('hull:openLogs'),
+  /** B4-工作目录 UI（2026-09-05）：原生目录选择器（取消 → { ok, path: null }）；dialog 是壳级能力，挂 hull 域 */
+  pickDirectory: () => invoke<{ ok: boolean; path: string | null }>('dialog:pickDirectory'),
   /** 触发首装/重装（引导态安装按钮） */
   install: () => ipcRenderer.invoke('hull:install'),
   /** 取消安装（进度视图取消按钮） */
@@ -210,6 +212,8 @@ contextBridge.exposeInMainWorld('exec', {
   editAcceptanceCriteria: (boardId: string, taskId: string, ac: unknown) =>
     invoke('kanban:editAcceptanceCriteria', boardId, taskId, ac),
   getAgentProviders: () => invoke('kanban:getAgentProviders'),
+  /** Q-018 模型清单：dsh configOptions[model] 分组原样透传（[{group,name,options:[{value,name,description?}]}]） */
+  listModels: () => invoke('kanban:listModels'),
   /** B3 event：执行状态/并行池变化推送（订阅返回取消函数） */
   onExecutionUpdate: (cb: (payload: unknown) => void) => {
     const listener = (_e: unknown, payload: unknown) => cb(payload);
