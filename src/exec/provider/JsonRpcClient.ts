@@ -4,7 +4,8 @@
  * 帧编解码（对齐契约 §ACP JSON-RPC 帧契约）：
  * - 行分隔（\n）+ JSON.parse，无 Content-Length 头（契约帧契约 = 逐行 JSON）
  * - 单行上限 8KB 截断丢弃（防畸形，对齐 B1 写盘防抖口径）
- * - 请求带 id 匹配响应；通知（agent_message_chunk/session/request_permission）事件分发
+ * - 请求带 id 匹配响应；通知（无 id 帧）分发 + server→client 请求（带 id 反向帧，
+ *   Q-017-C 标准 ACP session/request_permission）经 onRequest 分发、sendResponse 回帧
  * - 坏 JSON 帧丢弃 + 日志，不中断后续帧
  *
  * 通道所有权：stdin/stdout 流由本客户端独占（每 ACP 子进程一个实例）；
@@ -30,6 +31,8 @@ interface PendingRequest {
 }
 
 type NotificationHandler = (params: unknown) => void;
+/** Q-017-C：server→client 请求处理（标准 ACP session/request_permission 带 id 须回 response 帧） */
+type ServerRequestHandler = (params: unknown, id: number) => void;
 
 export class JsonRpcClient {
   private readonly stdin: NodeJS.WritableStream;
@@ -38,6 +41,7 @@ export class JsonRpcClient {
   private readonly logger: RuntimeLogger;
   private readonly pending = new Map<number, PendingRequest>();
   private readonly handlers = new Map<string, Set<NotificationHandler>>();
+  private readonly requestHandlers = new Map<string, Set<ServerRequestHandler>>();
   private nextId = 1;
   private buffer = '';
   private disposed = false;
@@ -73,12 +77,34 @@ export class JsonRpcClient {
     this.write(JSON.stringify({ jsonrpc: '2.0', method, params }));
   }
 
+  /**
+   * Q-017-C：响应 server→client 请求帧（标准 ACP：session/request_permission 是带 id 的
+   * 请求而非通知，客户端须回 {jsonrpc, id, result} 响应帧）
+   */
+  sendResponse(id: number, result: unknown): void {
+    if (this.disposed) return;
+    this.write(JSON.stringify({ jsonrpc: '2.0', id, result }));
+  }
+
   /** 订阅通知（method 匹配分发）；返回退订函数 */
   onNotification(method: string, handler: NotificationHandler): () => void {
     let set = this.handlers.get(method);
     if (!set) {
       set = new Set();
       this.handlers.set(method, set);
+    }
+    set.add(handler);
+    return () => {
+      set.delete(handler);
+    };
+  }
+
+  /** 订阅 server→client 请求（带 id 帧分发；handler 自行决定是否 sendResponse） */
+  onRequest(method: string, handler: ServerRequestHandler): () => void {
+    let set = this.requestHandlers.get(method);
+    if (!set) {
+      set = new Set();
+      this.requestHandlers.set(method, set);
     }
     set.add(handler);
     return () => {
@@ -99,6 +125,7 @@ export class JsonRpcClient {
     }
     this.pending.clear();
     this.handlers.clear();
+    this.requestHandlers.clear();
   }
 
   private onData(chunk: Buffer | string): void {
@@ -126,8 +153,13 @@ export class JsonRpcClient {
     }
     if (msg === null || typeof msg !== 'object') return;
     const m = msg as { method?: unknown; id?: unknown; result?: unknown; error?: unknown; params?: unknown };
-    // 有 method = 通知（dsh 侧请求帧亦按 method 分发，request_permission 以 requestId 业务键关联）
+    // 有 method = 反向帧：带 id = server→client 请求（Q-017-C 分派 onRequest）；
+    // 无 id = 通知（dispatch）
     if (typeof m.method === 'string') {
+      if (typeof m.id === 'number') {
+        this.dispatchRequest(m.method, m.params, m.id);
+        return;
+      }
       this.dispatch(m.method, m.params);
       return;
     }
@@ -153,6 +185,21 @@ export class JsonRpcClient {
         h(params);
       } catch (err) {
         this.logger.error(`[jsonrpc] 通知处理异常: ${(err as Error).message}`);
+      }
+    }
+  }
+
+  private dispatchRequest(method: string, params: unknown, id: number): void {
+    const set = this.requestHandlers.get(method);
+    if (!set || set.size === 0) {
+      this.logger.info(`[jsonrpc] 未订阅请求: ${method}`);
+      return;
+    }
+    for (const h of set) {
+      try {
+        h(params, id);
+      } catch (err) {
+        this.logger.error(`[jsonrpc] 请求处理异常: ${(err as Error).message}`);
       }
     }
   }

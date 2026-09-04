@@ -19,6 +19,7 @@ import type { Board, Task } from '../kanban/types';
 import type { KanbanStore } from '../kanban/KanbanStore';
 import type { ExecutionRecord } from '../kanban/types';
 import type { NotifInput } from '../notifications/types';
+import { NOOP_LOGGER, type RuntimeLogger } from '../shared/types';
 import type {
   ExecutionProvider,
   ExecutionResult,
@@ -57,6 +58,8 @@ export interface ExecutionEngineOptions {
   maxExecutionIdleMinutes?: number;
   /** V2a：看板执行结算通知走 NotificationService（settleTask + 级联 failed；缺省不发射） */
   emitNotif?: (input: NotifInput) => void;
+  /** Q-017-C 观测：重启 sweep 异常/重排留痕（缺省 NOOP；main 传 logger） */
+  logger?: RuntimeLogger;
 }
 
 /** 执行态变更事件负载（onExecutionUpdate 推送） */
@@ -82,6 +85,7 @@ export class ExecutionEngine extends EventEmitter {
   private readonly convergence: Convergence;
   private readonly verifyGate: VerifyGate;
   private readonly provider: ExecutionProvider;
+  private readonly logger: RuntimeLogger;
   private readonly mutations: SchedulerMutations & VerifyGateMutations & ConvergenceMutations;
 
   constructor(options: ExecutionEngineOptions) {
@@ -89,6 +93,7 @@ export class ExecutionEngine extends EventEmitter {
     this.store = options.store;
     this.provider = options.provider ?? options.providerManager.getProvider();
     this.emitNotif = options.emitNotif;
+    this.logger = options.logger ?? NOOP_LOGGER;
     this.heartbeat = new HeartbeatMonitor({ maxExecutionIdleMinutes: options.maxExecutionIdleMinutes ?? 30 });
 
     // 写面：落到 KanbanStore（system 事件 + 执行态 + 列流转）
@@ -98,15 +103,35 @@ export class ExecutionEngine extends EventEmitter {
     this.convergence = new Convergence(this.store, this.mutations);
     this.scheduler = new Scheduler(this.store, this.provider, this.mutations, {
       maxParallelTasks: options.maxParallelTasks ?? 3,
+      logger: this.logger, // Q-017-C：重排入队/跳过留痕透传
     });
 
     // 心跳接线：timeout → 引擎层 failed + kill（HeartbeatMonitor 只 emit，引擎订阅执行）
     this.heartbeat.on('timeout', (ev: HeartbeatTimeoutEvent) => this.handleHeartbeatTimeout(ev));
   }
 
-  /** 启动：壳重启收敛（IPC 就绪前执行，防 UI 读到未收敛态） */
+  /** 启动：壳重启收敛（IPC 就绪前执行，防 UI 读到未收敛态）+ Q-017 重启重排 */
   start(): void {
     this.convergence.run();
+    // Q-017 核心修复：Scheduler 的 queuedQueue 是内存 Map（重启即空），Convergence 对
+    // queued 任务只写 store 状态 + timeline「已重新排队」→ 无人启动，永久卡「排队中」。
+    // 此处遍历 store 全部 board 的收敛后残留 queued 任务，重新塞回调度器内存队列并 kick drain。
+    try {
+      let swept = 0;
+      for (const board of this.rawBoards()) {
+        for (const task of board.tasks) {
+          if (task.executionStatus !== 'queued') continue;
+          swept++;
+          this.scheduler.requeuePersisted(board.id, task);
+        }
+      }
+      this.scheduler.kickNow();
+      // Q-017-C 观测：sweep 规模留痕（0 也记——prod 可区分「跑了没」与「没活干」）
+      this.logger.info(`[Q-017] 重启重排 sweep 完成: ${swept} 个 queued 任务`);
+    } catch (err) {
+      // Q-017-C：sweep/kick 静默失败 = queued 永久卡死且无痕——必须落 error 日志
+      this.logger.error(`[Q-017] 重启重排 sweep 异常: ${(err as Error).message}`);
+    }
   }
 
   /** 单任务执行 / 父卡展开（契约 executeTask） */
@@ -272,7 +297,10 @@ export class ExecutionEngine extends EventEmitter {
         const executionId = self.findTaskById(taskId)?.currentExecutionId ?? null;
         const outcome = self.verifyGate.applyResult(boardId, taskId, {
           exitCode: result.exitCode,
-          summary: '',
+          // Q-020 失败可观测性：summary（provider 真实失败原因）透传——此前写死 ''，
+          // VerifyGate 失败路径拿不到真实原因，timeline/通知只有通用判定文案；
+          // 缺省 ''（failRunning 心跳超时注入等无 summary 路径 → VerifyGate 空串分支保持现状文案）
+          summary: result.summary ?? '',
           outputPath: executionLogPath(''),
           selfCheck: result.selfCheck ?? undefined,
         });
@@ -295,6 +323,12 @@ export class ExecutionEngine extends EventEmitter {
       failDeadlock: (parentId) => {
         self.setExecutionStatus(parentId, 'failed', '死锁', '依赖环检测（E16）');
         self.heartbeat.stop(parentId);
+      },
+      failQueuedTask: (taskId, reason, detail) => {
+        // Q-017：启动失败/重启重排缺 AC——任务没跑起来 ≠ succeeded → failed + system 事件
+        self.setExecutionStatus(taskId, 'failed', reason, detail);
+        self.clearExecutionId(taskId);
+        self.heartbeat.stop(taskId);
       },
       keepQueued: (taskId) => {
         self.system(taskId, '已重新排队', '壳重启收敛（Q-017）');

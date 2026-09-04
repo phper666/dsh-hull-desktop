@@ -4,6 +4,7 @@
  * 可控延迟（P2-B3-1）：delayMs 保证并行峰值 ≥2（L2 E13 用）
  */
 import { test } from 'node:test';
+import { tmpdir } from 'node:os';
 import { equal, ok } from 'node:assert/strict';
 
 import { MockProvider } from './MockProvider';
@@ -18,7 +19,7 @@ test('mock success（默认）：running→result→succeeded，selfCheck passed
   let result: ExecutionResult | undefined;
   const provider = new MockProvider();
   provider.execute(
-    { taskId: 't_1', title: 't' },
+    { taskId: 't_1', title: 't', cwd: tmpdir() },
     {
       onStatus: (s) => statuses.push(s),
       onEvent: () => {},
@@ -36,7 +37,7 @@ test('mock selfCheck passed=false：selfCheck 原样回传（passed=false 数据
   let result: ExecutionResult | undefined;
   const provider = new MockProvider({ outcome: { kind: 'success', selfCheck: { passed: false } } });
   provider.execute(
-    { taskId: 't_1', title: 't' },
+    { taskId: 't_1', title: 't', cwd: tmpdir() },
     { onStatus: (s) => statuses.push(s), onEvent: () => {}, onResult: (r) => (result = r) },
   );
   await sleep(5);
@@ -50,7 +51,7 @@ test('mock timeout：→failed（心跳超时语义，E20）', async () => {
   const statuses: string[] = [];
   const provider = new MockProvider({ outcome: { kind: 'timeout' } });
   provider.execute(
-    { taskId: 't_1', title: 't' },
+    { taskId: 't_1', title: 't', cwd: tmpdir() },
     { onStatus: (s) => statuses.push(s), onEvent: () => {}, onResult: () => {} },
   );
   await sleep(5);
@@ -61,7 +62,7 @@ test('mock 可控延迟：delayMs 后回执，delay 期间保持 running', async
   const statuses: string[] = [];
   const provider = new MockProvider({ outcome: { kind: 'success', selfCheck: { passed: true } }, delayMs: 40 });
   provider.execute(
-    { taskId: 't_1', title: 't' },
+    { taskId: 't_1', title: 't', cwd: tmpdir() },
     { onStatus: (s) => statuses.push(s), onEvent: () => {}, onResult: () => {} },
   );
   await sleep(10);
@@ -74,7 +75,7 @@ test('mock 流式：text_chunk 事件按序注入（活动心跳，E21）', asyn
   const events: string[] = [];
   const provider = new MockProvider({ outcome: { kind: 'stream', chunks: ['a', 'b', 'c'] }, streamIntervalMs: 2 });
   provider.execute(
-    { taskId: 't_1', title: 't' },
+    { taskId: 't_1', title: 't', cwd: tmpdir() },
     { onStatus: () => {}, onEvent: (e) => events.push(e.kind === 'text_chunk' ? e.text : ''), onResult: () => {} },
   );
   await sleep(30);
@@ -90,7 +91,7 @@ test('mock permission：注入 permission_request 事件', async () => {
     },
   });
   provider.execute(
-    { taskId: 't_1', title: 't' },
+    { taskId: 't_1', title: 't', cwd: tmpdir() },
     { onStatus: () => {}, onEvent: (e) => events.push(e), onResult: () => {} },
   );
   await sleep(5);
@@ -103,7 +104,7 @@ test('mock cancel：cancel 后结果丢弃，无 onResult（E4 语义）', async
   let resultCalled = false;
   const provider = new MockProvider({ outcome: { kind: 'success', selfCheck: { passed: true } }, delayMs: 30 });
   const handle = provider.execute(
-    { taskId: 't_1', title: 't' },
+    { taskId: 't_1', title: 't', cwd: tmpdir() },
     { onStatus: (s) => statuses.push(s), onEvent: () => {}, onResult: () => (resultCalled = true) },
   );
   await sleep(5);

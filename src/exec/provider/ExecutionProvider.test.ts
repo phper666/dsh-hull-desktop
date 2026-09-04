@@ -8,6 +8,7 @@
  */
 import { test } from 'node:test';
 import { equal, ok } from 'node:assert/strict';
+import { tmpdir } from 'node:os';
 import type { ExecutionEvent, ExecutionProvider, ExecutionResult, ProviderStatus } from './ExecutionProvider';
 
 /** 编译期断言：状态枚举穷举（缺一个会编译错） */
@@ -61,7 +62,7 @@ test('ExecutionProvider 接口：execute 返回 cancel 句柄（编译期签名�
       return { cancel: async () => {} };
     },
   };
-  const handle = provider.execute({ taskId: 't_1', title: 't' }, {
+  const handle = provider.execute({ taskId: 't_1', title: 't', cwd: tmpdir() }, {
     onEvent: () => {},
     onStatus: () => {},
     onResult: () => {},

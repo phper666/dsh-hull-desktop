@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import { equal, deepEqual, ok } from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -150,4 +150,39 @@ test('DSH_CLI_SIGNATURE：含三段签名，matchesDshSignature 校验', () => {
   ok(matchesDshSignature('node --expose-internals /dsh/lib/bin.js web --no-open --host 127.0.0.1 --port 0'));
   ok(!matchesDshSignature('node --expose-internals /dsh/lib/bin.js web --host 127.0.0.1 --port 0'), '缺 --no-open 不匹配');
   ok(!matchesDshSignature('node /other/web --host 127.0.0.1 --port 8080'));
+});
+
+/** pnpm 布局变体：可指定 .pnpm 目录名（模拟不同版本），bin 内容以目录名标记便于断言。
+ *  symlink 用相对 target（对齐真实 pnpm 行为）——rename 目录后相对链接不断。 */
+function writePnpmLayoutVer(overlay: string, pnpmDirName: string): void {
+  const realDir = join(overlay, 'node_modules', '.pnpm', pnpmDirName, 'node_modules', '@deepseek-ai', 'dsh');
+  mkdirSync(join(realDir, 'lib'), { recursive: true });
+  writeFileSync(join(realDir, 'package.json'), JSON.stringify({ bin: { dsh: 'lib/bin.js' } }), 'utf8');
+  writeFileSync(join(realDir, 'lib', 'bin.js'), `// entry ${pnpmDirName}\n`, 'utf8');
+  mkdirSync(join(overlay, 'node_modules', '@deepseek-ai'), { recursive: true });
+  symlinkSync(join('..', '.pnpm', pnpmDirName, 'node_modules', '@deepseek-ai', 'dsh'), join(overlay, 'node_modules', '@deepseek-ai', 'dsh'), 'dir');
+}
+
+test('Q-017-D：同进程 swap 后 dshEntryPath 不得返回旧版缓存路径', () => {
+  // 复刻 swapCore 时序：live 路径先承载 v1 → rename 到 previous → staging（v2）rename 回 live。
+  // 同一 overlayDir 字符串两次解析——createRequire 的 CJS 解析缓存（Module._pathCache）
+  // 以 parent 路径为键且不随文件系统变更失效，会返回 v1 旧 realpath（已被 rename 掉）
+  // → 升级验证启动 MODULE_NOT_FOUND → 回滚（prod 实测 2026-09-04 17:25）。
+  const home = makeOverlay();
+  const live = join(home, 'dsh');
+  const staging = join(home, 'dsh-staging');
+  const previous = join(home, 'dsh-previous');
+  writePnpmLayoutVer(live, 'dsh@1.0.0');
+  writePnpmLayoutVer(staging, 'dsh@2.0.0');
+
+  const first = dshEntryPath(live);
+  ok(first.includes('dsh@1.0.0'), `首次解析应命中 v1: ${first}`);
+
+  // 模拟 swapCore：①清 previous ②live → previous ③staging → live（同卷 rename）
+  rmSync(previous, { recursive: true, force: true });
+  renameSync(live, previous);
+  renameSync(staging, live);
+
+  const second = dshEntryPath(live);
+  ok(second.includes('dsh@2.0.0'), `swap 后必须解析到 v2: ${second}`);
 });

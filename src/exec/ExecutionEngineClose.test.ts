@@ -86,7 +86,7 @@ class FakeChild extends EventEmitter {
 
 const OLD_HOME = process.env.DSH_HOME;
 
-test('ACPProvider.respondPermission：发 session/request_permission 响应帧（B4 §4.2）', async () => {
+test('ACPProvider.respondPermission：回 session/request_permission response 帧（B4 §4.2 + Q-017-C 标准 ACP）', async () => {
   process.env.DSH_HOME = '/tmp/fake-home';
   try {
     const child = new FakeChild();
@@ -95,36 +95,44 @@ test('ACPProvider.respondPermission：发 session/request_permission 响应帧�
     });
     const events: string[] = [];
     const handle = provider.execute(
-      { taskId: 't1', title: 't' },
+      { taskId: 't1', title: 't', cwd: tmpdir() },
       {
         onEvent: (e) => events.push(e.kind),
         onStatus: () => {},
         onResult: () => {},
       },
     );
-    // newSession 响应
-    const ns = JSON.parse(child.stdin.lines[0]);
+    // 标准 ACP 两步握手：initialize → session/new
+    const init = JSON.parse(child.stdin.lines[0]);
+    equal(init.method, 'initialize');
+    child.stdout.emitData(JSON.stringify({ jsonrpc: '2.0', id: init.id, result: { protocolVersion: 1 } }) + '\n');
+    await sleep(5);
+    const ns = JSON.parse(child.stdin.lines[1]);
+    equal(ns.method, 'session/new');
     child.stdout.emitData(JSON.stringify({ jsonrpc: '2.0', id: ns.id, result: { sessionId: 's1' } }) + '\n');
     await sleep(5);
-    // 触发 permission_request 通知 → 事件
+    // 标准 ACP：permission 是 server→client REQUEST（带 id）→ permission_request 事件
     child.stdout.emitData(
-      JSON.stringify({ jsonrpc: '2.0', method: 'session/request_permission', params: { requestId: 'req_1', message: '允许?' } }) + '\n',
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 7,
+        method: 'session/request_permission',
+        params: { question: '允许?', options: [{ id: 'allow1', kind: 'allow_once' }, { id: 'reject1', kind: 'reject_once' }] },
+      }) + '\n',
     );
     await sleep(5);
     ok(events.includes('permission_request'), 'permission_request 事件');
-    // respondPermission → 发响应帧
-    (handle as { respondPermission?: (a: string, b: boolean, c?: string) => void }).respondPermission?.('req_1', true, '用户批准');
+    // respondPermission → 回 response 帧（selected outcome，非旧通知帧）
+    (handle as { respondPermission?: (a: string, b: boolean, c?: string) => void }).respondPermission?.('7', true, '用户批准');
     await sleep(5);
-    const resp = child.stdin.lines.find((l) => l.includes('session/request_permission') && l.includes('req_1'));
-    ok(resp, '发送 permission 响应帧');
-    const parsed = JSON.parse(resp!);
-    equal(parsed.params.requestId, 'req_1');
-    equal(parsed.params.approved, true);
-    equal(parsed.params.reason, '用户批准');
+    const resp = child.stdin.lines.map((l) => JSON.parse(l)).find((f) => f.id === 7 && f.method === undefined);
+    ok(resp, '发送 permission response 帧（id=7）');
+    equal(resp.result.outcome.outcome, 'selected');
+    equal(resp.result.outcome.optionId, 'allow1', 'approved=true 选 allow 选项');
     // 收尾：回 prompt 响应，结束 ACP 链路（防 30s sendRequest timer 悬挂）
-    const pt = child.stdin.lines.map((l) => JSON.parse(l)).find((m) => m.method === 'prompt');
+    const pt = child.stdin.lines.map((l) => JSON.parse(l)).find((m) => m.method === 'session/prompt');
     if (pt) {
-      child.stdout.emitData(JSON.stringify({ jsonrpc: '2.0', id: pt.id, result: { summary: 'done' } }) + '\n');
+      child.stdout.emitData(JSON.stringify({ jsonrpc: '2.0', id: pt.id, result: { stopReason: 'end_turn' } }) + '\n');
       await sleep(10);
     }
   } finally {
@@ -152,17 +160,33 @@ test('ExecutionEngine.respondApproval：转发到当前执行句柄（running �
     cleanup.push(() => engine.dispose());
     const t = store.createTask(board.id, { title: 't', acceptanceCriteria: { what: 'w', expected: 'e', verify: 'v' } });
     engine.executeTask(board.id, t.id);
-    const ns = JSON.parse(child.stdin.lines[0]);
+    // 标准 ACP 两步握手（Q-017-C）：initialize → session/new
+    const init = JSON.parse(child.stdin.lines[0]);
+    child.stdout.emitData(JSON.stringify({ jsonrpc: '2.0', id: init.id, result: { protocolVersion: 1 } }) + '\n');
+    await sleep(5);
+    const ns = JSON.parse(child.stdin.lines[1]);
     child.stdout.emitData(JSON.stringify({ jsonrpc: '2.0', id: ns.id, result: { sessionId: 's1' } }) + '\n');
     await waitFor(() => status(store, board.id, t.id) === 'running');
-    const okResp = engine.respondApproval(t.id, 'req_1', true, 'ok');
+    // Q-017-C：标准 ACP 下 respond 只能回在途请求——先模拟 dsh 发 permission 请求（id=7）
+    child.stdout.emitData(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 7,
+        method: 'session/request_permission',
+        params: { question: '允许?', options: [{ id: 'allow1', kind: 'allow_once' }] },
+      }) + '\n',
+    );
+    await sleep(5);
+    const okResp = engine.respondApproval(t.id, '7', true, 'ok');
     equal(okResp, true, 'running 任务可回审批');
-    const sent = child.stdin.lines.find((l) => l.includes('session/request_permission') && l.includes('req_1'));
-    ok(sent, 'engine 转发响应帧到 ACP');
+    // Q-017-C：response 帧形态（id=7 无 method，selected outcome）
+    const sent = child.stdin.lines.map((l) => JSON.parse(l)).find((f) => f.id === 7 && f.method === undefined);
+    ok(sent, 'engine 转发 response 帧到 ACP');
+    equal(sent.result.outcome.outcome, 'selected');
     // 收尾：回 prompt 响应，结束 ACP 会话链路（防 30s sendRequest timer 悬挂）
-    const pt = JSON.parse(child.stdin.lines[child.stdin.lines.length - 1]);
-    if (pt.method === 'prompt') {
-      child.stdout.emitData(JSON.stringify({ jsonrpc: '2.0', id: pt.id, result: { summary: 'done' } }) + '\n');
+    const pt = child.stdin.lines.map((l) => JSON.parse(l)).find((m) => m.method === 'session/prompt');
+    if (pt) {
+      child.stdout.emitData(JSON.stringify({ jsonrpc: '2.0', id: pt.id, result: { stopReason: 'end_turn' } }) + '\n');
       await waitFor(() => status(store, board.id, t.id) === 'succeeded');
     }
   } finally {

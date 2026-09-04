@@ -1,6 +1,5 @@
-import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 
 /**
  * dsh CLI 契约收敛点（设计 §3 / §4.1 / P2 §4.3）：
@@ -23,17 +22,21 @@ export function dshBinPath(overlayDir: string): string {
  */
 export function dshEntryPath(overlayDir: string): string {
   const fallback = join(overlayDir, 'lib', 'bin.js');
-  let pkgJsonPath: string;
+  // Q-017-D：不得用 createRequire.resolve——Node CJS 解析缓存（Module._pathCache）以
+  // parent 路径为键、进程内不随文件系统变更失效：swap 后同 base 的 resolve 返回
+  // 旧版 realpath（已被 rename 掉）→ 升级验证启动 MODULE_NOT_FOUND → 回滚
+  //（prod 实测 2026-09-04 17:25）。realpathSync 直击文件系统，无缓存；
+  // pnpm symlink 布局与 npm hoisted 真实目录布局通吃。
+  let pkgDir: string;
   try {
-    const req = createRequire(join(overlayDir, 'package.json'));
-    pkgJsonPath = req.resolve('@deepseek-ai/dsh/package.json');
+    // realpathSync 返回的就是包目录本身（resolve 旧实现返回 package.json 文件路径才需要 dirname）
+    pkgDir = realpathSync(join(overlayDir, 'node_modules', '@deepseek-ai', 'dsh'));
   } catch {
     return fallback; // 包未安装 → 最外层兜底
   }
-  const pkgDir = dirname(pkgJsonPath);
   let bin: unknown;
   try {
-    bin = (JSON.parse(readFileSync(pkgJsonPath, 'utf8')) as { bin?: unknown }).bin;
+    bin = (JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8')) as { bin?: unknown }).bin;
   } catch {
     return join(pkgDir, 'lib', 'bin.js'); // package.json 读/解析失败 → 包内兜底
   }
@@ -63,8 +66,10 @@ export function buildDshArgv(entryPath: string): string[] {
   return ['--expose-internals', entryPath, 'web', '--no-open', '--host', '127.0.0.1', '--port', '0'];
 }
 
-/** 就绪行正则（契约 §就绪行协议；匹配前须 strip ANSI CSI + trim） */
-export const READY_LINE_RE = /^dsh web: (http:\/\/127\.0\.0\.1:[0-9]+)/;
+/** 就绪行正则（契约 §就绪行协议；匹配前须 strip ANSI CSI + trim）。
+ *  ⚠️ dsh 0.1.2+：ready 行 URL 带 `?token=`（browser-trust fence，缺 token 全 401）——
+ *  必须捕获完整 query（\S*），否则探测/官方 view 拿裸 URL 被 401（实测升级回滚）。 */
+export const READY_LINE_RE = /^dsh web: (http:\/\/127\.0\.0\.1:[0-9]+\S*)/;
 
 /** ANSI CSI 序列（设计 D5：\x1b\[[0-9;]*[a-zA-Z]） */
 export const ANSI_CSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;

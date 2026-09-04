@@ -188,11 +188,13 @@ export class ReadinessProbe {
     while (this.now() < deadline) {
       try {
         const res = await this.httpGet(target);
-        if (res.status === 200) {
+        // 2xx/3xx 均判就绪：dsh 0.1.2+ 带 ?token 首访返回 303（发 session cookie 后重定向），
+        // 3xx = server 已就绪且鉴权通过；4xx（401 裸 URL）仍视为未就绪
+        if (res.status >= 200 && res.status < 400) {
           finish({ ok: true, url });
           return;
         }
-        // 非 200：服务仍在启动，继续重试
+        // 非 2xx/3xx：服务仍在启动，继续重试
       } catch {
         // ECONNREFUSED / ETIMEDOUT / ECONNRESET 等网络错误 → 继续重试至窗口耗尽
       }

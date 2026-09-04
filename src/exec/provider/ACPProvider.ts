@@ -21,7 +21,10 @@
  *             子进程意外退出 → onResult failed（exec-provider-unavailable，P2-B4-2）
  */
 import { spawn } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 import { NOOP_LOGGER, type RuntimeLogger } from '../../shared/types';
 import { dshBinPath } from '../../runtime/spawnArgs';
@@ -34,17 +37,138 @@ import type {
 } from './ExecutionProvider';
 import { JsonRpcClient } from './JsonRpcClient';
 
-/** ACP 请求/通知方法名（契约 §ACP JSON-RPC 帧契约，集中收敛 JsonRpcClient 单一修改点） */
+/**
+ * ACP 请求/通知方法名（标准 ACP = Zed Agent Client Protocol；Q-017-C：dsh 0.1.2-rc.1
+ * 的 acp profile 实现标准协议——真机重放实锤：自造 newSession/prompt → error -32601
+ * Method not found，正确序列 = initialize → session/new → session/prompt）
+ */
 export const ACP_METHODS = {
-  newSession: 'newSession',
-  prompt: 'prompt',
+  /** 握手第一步：协议版本 + 客户端能力协商 */
+  initialize: 'initialize',
+  /** 握手第二步：建会话（标准 ACP session/new，params 含 mcpServers） */
+  newSession: 'session/new',
+  /** 提交任务（标准 ACP session/prompt，params.prompt = 内容块数组） */
+  prompt: 'session/prompt',
   cancel: 'session/cancel',
+  /** 审批请求（server→client REQUEST，带 id 须回 response 帧） */
   requestPermission: 'session/request_permission',
-  /** dsh→壳 通知 */
-  messageChunk: 'agent_message_chunk',
-  /** dsh→壳 通知（审批请求） */
-  permissionRequest: 'session/request_permission',
+  /** dsh→壳 流式通知（sessionUpdate 变体字段分派：agent_message_chunk/tool_call/plan…） */
+  sessionUpdate: 'session/update',
+  /** Q-018 模型选择：按会话设置模型（configId='model'，value = configOptions 的 value JSON 串） */
+  setConfigOption: 'session/set_config_option',
 } as const;
+
+/** 握手单步超时（initialize + session/new 各 15s，合计覆盖原 30s 预算，Q-017-C） */
+const HANDSHAKE_STEP_TIMEOUT_MS = 15_000;
+
+/** Q-018 模型清单：configOptions[model].options 分组项（dsh 含自定义模型渠道，原样透传） */
+export interface ModelOptionItem {
+  value: string;
+  name: string;
+  description?: string;
+}
+export interface ModelOptionGroup {
+  group?: string;
+  name?: string;
+  options: ModelOptionItem[];
+}
+export type ModelOption = ModelOptionGroup;
+
+/** listModels 进程内缓存 TTL（5 分钟；overlayDir 为键） */
+const MODEL_CACHE_TTL_MS = 5 * 60_000;
+
+/** Q-018：默认 dsh 设置文件路径（~/.dsh/settings.yaml；不经 DSH_HOME env——壳红线零引用，homedir 先例同 token 扫描器） */
+function defaultDshSettingsPath(): string {
+  return join(homedir(), '.dsh', 'settings.yaml');
+}
+
+/** settings.yaml llm-pi-ai.providers 解析中间态（route → displayName/models） */
+interface SettingsProvider {
+  route: string;
+  displayName?: string;
+  models: Array<{ id: string; name?: string }>;
+}
+
+/** 去除 YAML 标量两侧引号（dsh 生成文件偶见引号包裹值） */
+function stripYamlQuotes(v: string): string {
+  const t = v.trim();
+  if (t.length >= 2 && ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'")))) {
+    return t.slice(1, -1);
+  }
+  return t;
+}
+
+/**
+ * Q-018：settings.yaml 顶层 `llm-pi-ai.providers` 段最小行级解析（壳零新增依赖；
+ * 只需本固定结构——route(4 缩进)/displayName,models(6)/model item(8 `- id:`)/name(10)）。
+ * 结构异常/字段缺失 → 尽力提取已识别部分，绝不抛错（调用方还有 try 兜底）。
+ */
+export function parseLlmPiAiProviders(content: string): SettingsProvider[] {
+  const out: SettingsProvider[] = [];
+  let section: 'none' | 'llm' | 'providers' = 'none';
+  let current: SettingsProvider | null = null;
+  let inModels = false;
+  for (const raw of content.split('\n')) {
+    if (!raw.trim() || raw.trim().startsWith('#')) continue;
+    const line = raw.replace(/\t/g, '  ');
+    const indent = line.length - line.trimStart().length;
+    const trimmed = line.trim();
+    if (indent === 0) {
+      // 顶层键：仅 llm-pi-ai: 进入目标段，其余全部退出
+      section = trimmed === 'llm-pi-ai:' ? 'llm' : 'none';
+      current = null;
+      inModels = false;
+      continue;
+    }
+    if (section === 'none') continue;
+    if (section === 'llm') {
+      if (indent >= 2 && trimmed === 'providers:') section = 'providers';
+      continue;
+    }
+    // providers 段：route 键固定 4 缩进；<2 缩进离开（回 llm 兄弟键）
+    if (indent <= 2) {
+      section = 'llm';
+      current = null;
+      inModels = false;
+      continue;
+    }
+    if (indent === 4) {
+      // route 键固定 4 缩进；无条件切换（即使上一 route 的 models 段未显式结束——
+      // 新 route 即边界，真机实锤：models 后直接跟下一 route 的 4 缩进键）
+      const m = trimmed.match(/^([^:#]+):\s*$/);
+      if (m) {
+        current = { route: stripYamlQuotes(m[1]), models: [] };
+        out.push(current);
+        inModels = false;
+      }
+      continue;
+    }
+    if (!current) continue;
+    if (indent === 6) {
+      // route 子键：models: 进入模型列表；displayName: 记录分组显示名；其余忽略
+      inModels = trimmed === 'models:';
+      if (!inModels && trimmed.startsWith('displayName:')) {
+        const v = stripYamlQuotes(trimmed.slice('displayName:'.length));
+        if (v) current.displayName = v;
+      }
+      continue;
+    }
+    if (inModels && indent >= 8) {
+      const idm = trimmed.match(/^-\s*id:\s*(.+)$/);
+      if (idm) {
+        const id = stripYamlQuotes(idm[1]);
+        if (id) current.models.push({ id });
+        continue;
+      }
+      const nm = trimmed.match(/^name:\s*(.+)$/);
+      if (nm && current.models.length > 0) {
+        const v = stripYamlQuotes(nm[1]);
+        if (v) current.models[current.models.length - 1].name = v;
+      }
+    }
+  }
+  return out;
+}
 
 export interface ACPProviderOptions {
   /** spawn 实现注入（测试 seam；默认 child_process.spawn） */
@@ -53,13 +177,15 @@ export interface ACPProviderOptions {
   logger?: RuntimeLogger;
   /** 时钟（测试 seam；权限超时 / 结果生成） */
   now?: () => Date;
-}
-
-/** ACP 完成帧（dsh→壳）：result 结构对齐契约 selfCheck 回传（Q-015） */
-interface AcpCompletion {
-  summary?: string;
-  outputPath?: string;
-  selfCheck?: { passed: boolean; evidence?: string };
+  /**
+   * Q-017-B：dsh overlay 目录显式注入（壳自管 dsh 在 <userData>/dsh，与 DSH_HOME/dsh
+   * 结构同构）。优先于 env.DSH_HOME——壳红线 DSH_HOME 零引用（main/index.ts），用户
+   * 环境通常未设，硬依赖 env 会导致每任务必然 settleFailure。缺省回退 env.DSH_HOME
+   * （测试/外部环境兼容）。
+   */
+  overlayDir?: string;
+  /** Q-018：settings.yaml 路径注入（测试 seam；缺省 ~/.dsh/settings.yaml，listModels 自定义渠道来源，只读） */
+  settingsPath?: string;
 }
 
 /** 权限请求上下文（ApprovalManager 消费；B2 非阻塞弹窗数据源） */
@@ -82,23 +208,24 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
   private readonly spawnFn: typeof spawn;
   private readonly logger: RuntimeLogger;
   private readonly now: () => Date;
+  private readonly overlayDir?: string;
+  /** Q-018：settings.yaml 路径注入（测试 seam；缺省 ~/.dsh/settings.yaml，只读 CON-R002） */
+  private readonly settingsPath?: string;
+  /** Q-018：listModels 进程内缓存（overlayDir → {at, groups}） */
+  private readonly modelsCache = new Map<string, { at: number; data: ModelOption[] }>();
 
   constructor(options: ACPProviderOptions = {}) {
     super();
     this.spawnFn = options.spawnFn ?? spawn;
     this.logger = options.logger ?? NOOP_LOGGER;
     this.now = options.now ?? (() => new Date());
+    this.overlayDir = options.overlayDir;
+    this.settingsPath = options.settingsPath;
   }
 
   execute(task: ExecutionTask, handlers: ExecutionHandlers): { cancel(): Promise<void> } {
     // 每 execute 一个执行状态容器（cancel/完成 恰好一次）
-    const state = {
-      cancelled: false,
-      settled: false,
-      sessionId: undefined as string | undefined,
-      client: undefined as JsonRpcClient | undefined,
-      child: undefined as ReturnType<typeof spawn> | undefined,
-    };
+    const state = this.newState();
     // 崩溃拒绝回调：先于任何 client 构造注册（同步可能失败）
     let rejectCrash: (err: Error) => void = () => {};
     // 取消竞争：handle.cancel 触发（connect 期间无会话 → 取消走失败路径）
@@ -147,20 +274,102 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
        * 经 JsonRpcClient 发通知帧到 dsh 子进程；通道已断/无会话 → 静默（超时兜底由 ApprovalManager deny）。
        */
       respondPermission: (requestId: string, approved: boolean, reason?: string) => {
+        void reason; // 标准 ACP 响应帧无 reason 字段（审批文案留在壳侧 ApprovalManager 记录）
         if (state.settled) return;
         const client = state.client;
-        if (!client || state.sessionId === undefined) return;
-        const params: Record<string, unknown> = { sessionId: state.sessionId, requestId, approved };
-        if (reason) params.reason = reason;
-        try {
-          client.sendNotification(ACP_METHODS.requestPermission, params);
-        } catch {
-          /* 通道已断 → 超时兜底 deny */
-        }
+        if (!client) return;
+        // Q-017-C：标准 ACP permission 是 server→client REQUEST——按业务 requestId
+        //（= JSON-RPC id 字符串）找在途请求，回 response 帧 selected outcome
+        const rec = state.pendingPermissions.get(requestId);
+        if (!rec) return;
+        state.pendingPermissions.delete(requestId);
+        client.sendResponse(rec.id, { outcome: { outcome: 'selected', optionId: pickOptionId(rec.options, approved) } });
       },
     };
     void run();
     return handle;
+  }
+
+  /**
+   * Q-018 模型清单：独立轻量会话拉取 configOptions[model].options（分组原样透传，
+   * 含 dsh 自定义模型渠道）。spawn acp 子进程 → initialize → session/new → 提取 → kill。
+   * 5 分钟进程内缓存（overlayDir 为键），避免渲染层每次打开选择器都起子进程。
+   */
+  async listModels(overlayDir?: string): Promise<ModelOption[]> {
+    const dir =
+      overlayDir ?? this.overlayDir ?? (process.env.DSH_HOME ? `${process.env.DSH_HOME}/dsh` : undefined);
+    if (!dir) throw new Error('无法定位 dsh ACP 子进程（DSH_HOME 未设置且未注入 overlayDir）');
+    const cached = this.modelsCache.get(dir);
+    if (cached && Date.now() - cached.at < MODEL_CACHE_TTL_MS) return cached.data;
+    // Q-018 收尾：清单 = acp configOptions 内置分组 ⊕ settings.yaml llm-pi-ai.providers 自定义分组
+    //（acp 会话 configOptions 实测不含自定义渠道，但 set_config_option 接受其 value——执行链路已通）
+    const acpGroups = await this.fetchModels(dir);
+    const data = this.mergeSettingsModelGroups(acpGroups);
+    this.modelsCache.set(dir, { at: Date.now(), data });
+    return data;
+  }
+
+  /** Q-018：读 settings.yaml（缺失/解析失败 → 静默跳过）并合并自定义渠道分组（acp 在前，value 去重） */
+  private mergeSettingsModelGroups(acpGroups: ModelOption[]): ModelOption[] {
+    const seen = new Set<string>();
+    for (const g of acpGroups) {
+      for (const o of g.options) seen.add(o.value);
+    }
+    const merged = [...acpGroups];
+    for (const provider of this.readSettingsProviders()) {
+      if (provider.models.length === 0) continue;
+      const options = provider.models
+        .map((m) => ({ value: JSON.stringify([provider.route, m.id]), name: m.name ?? m.id }))
+        .filter((o) => !seen.has(o.value));
+      if (options.length === 0) continue;
+      for (const o of options) seen.add(o.value);
+      merged.push({ group: provider.route, name: provider.displayName ?? provider.route, options });
+    }
+    return merged;
+  }
+
+  /** Q-018：读 settings.yaml 提取 llm-pi-ai.providers（CON-R002 只读；任何异常 → 空数组跳过该来源） */
+  private readSettingsProviders(): SettingsProvider[] {
+    let content: string;
+    try {
+      content = readFileSync(this.settingsPath ?? defaultDshSettingsPath(), 'utf8');
+    } catch {
+      return []; // 文件不存在/不可读 → 静默跳过
+    }
+    try {
+      return parseLlmPiAiProviders(content);
+    } catch {
+      return []; // 解析异常 → 静默跳过
+    }
+  }
+
+  /** 轻量会话：握手 + session/new 读 configOptions[model]（用完即弃，kill 子进程） */
+  private async fetchModels(dir: string): Promise<ModelOption[]> {
+    const bin = dshBinPath(dir);
+    const child = this.spawnFn('node', ['--expose-internals', bin, '--profile', 'acp'], {
+      cwd: dir,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const client = new JsonRpcClient({ stdin: child.stdin, stdout: child.stdout, logger: this.logger });
+    try {
+      await client.sendRequest<unknown>(ACP_METHODS.initialize, { protocolVersion: 1, clientCapabilities: {} }, HANDSHAKE_STEP_TIMEOUT_MS);
+      const ns = await client.sendRequest<{ configOptions?: Array<{ id?: string; options?: ModelOption[] }> }>(
+        ACP_METHODS.newSession,
+        { cwd: dir, mcpServers: [] },
+        HANDSHAKE_STEP_TIMEOUT_MS,
+      );
+      const model = (ns?.configOptions ?? []).find((c) => c.id === 'model');
+      return model?.options ?? [];
+    } finally {
+      client.dispose();
+      if (child.exitCode === null) {
+        try {
+          child.kill('SIGTERM');
+        } catch {
+          /* 已退出 */
+        }
+      }
+    }
   }
 
   /** spawn + newSession；返回 sessionId；失败/崩溃/取消 → 回 failed 结果 */
@@ -171,16 +380,25 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
     cancelPromise: Promise<never>,
     registerCrashReject: (reject: (err: Error) => void) => void,
   ): Promise<string | undefined> {
-    const overlayDir = process.env.DSH_HOME ? `${process.env.DSH_HOME}/dsh` : undefined;
+    // Q-017-B：注入 overlayDir 优先（壳自管 <userData>/dsh），回退 env.DSH_HOME（兼容保留）
+    const overlayDir = this.overlayDir ?? (process.env.DSH_HOME ? `${process.env.DSH_HOME}/dsh` : undefined);
     if (!overlayDir) {
-      this.settleFailure(task, handlers, state, 'DSH_HOME 未设置，无法定位 dsh ACP 子进程');
+      this.settleFailure(task, handlers, state, '无法定位 dsh ACP 子进程（DSH_HOME 未设置且未注入 overlayDir）');
+      return undefined;
+    }
+    // Q-019 工作目录防御：会话 cwd 必须 exists（agent 在指定目录干活 + 会话归组）；
+    // 不存在 → 直接失败不 spawn（错误信息带路径，UI 可引导修正）
+    if (!existsSync(task.cwd)) {
+      this.settleFailure(task, handlers, state, `工作目录不存在: ${task.cwd}`);
       return undefined;
     }
     const bin = dshBinPath(overlayDir);
     let child: ReturnType<typeof spawn>;
     try {
       // spawn 参数与 M1 web 子命令同构：node --expose-internals <bin> acp
-      child = this.spawnFn('node', ['--expose-internals', bin, 'acp'], {
+      // dsh CLI 契约（0.1.2 README「入口模式」）：ACP 是 profile 不是子命令——
+      // `dsh acp` 会被当成 profile args，缺 --profile 直接 exit 1（实测 0.1.1-rc.2/0.1.2-rc.1）
+      child = this.spawnFn('node', ['--expose-internals', bin, '--profile', 'acp'], {
         cwd: overlayDir,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
@@ -207,9 +425,9 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
       if (!state.settled) this.settleFailure(task, handlers, state, err.message);
     });
 
-    // newSession：超时（30s）→ failed
+    // newSession：两步握手（initialize → session/new）+ 超时（30s 总预算）→ failed
     const sessionPromise = new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('newSession 超时（30s 无响应）')), 30_000);
+      const timer = setTimeout(() => reject(new Error('ACP 握手超时（30s 无响应）')), 30_000);
       void crashTask.then(() => reject(new Error('dsh ACP 连接已断开')));
       if (!child.stdin || !child.stdout) {
         clearTimeout(timer);
@@ -222,43 +440,78 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
         logger: this.logger,
       });
       state.client = client;
-      // 通知订阅：agent_message_chunk → text_chunk；session/request_permission → permission_request
-      client.onNotification(ACP_METHODS.messageChunk, (params) => {
-        const p = params as { sessionId?: string; content?: string } | undefined;
-        if (!p || typeof p.content !== 'string') return;
-        if (!state.settled) handlers.onEvent({ kind: 'text_chunk', text: p.content });
+      // 通知订阅（Q-017-C 标准 ACP）：session/update 通知按 sessionUpdate 变体分派——
+      // agent_message_chunk → text_chunk（流式心跳，Q-026），tool_call/plan 等其他变体忽略
+      client.onNotification(ACP_METHODS.sessionUpdate, (params) => {
+        const p = params as { update?: { sessionUpdate?: string; content?: { text?: string } } } | undefined;
+        const u = p?.update;
+        if (!u || u.sessionUpdate !== 'agent_message_chunk') return;
+        const text = typeof u.content?.text === 'string' ? u.content.text : '';
+        if (!text) return;
+        state.summaryText += text; // 流式文本聚合（结算 summary 用）
+        if (!state.settled) handlers.onEvent({ kind: 'text_chunk', text });
       });
-      client.onNotification(ACP_METHODS.permissionRequest, (params) => {
-        const p = params as { requestId?: string; message?: string } | undefined;
-        if (!p || typeof p.requestId !== 'string') return;
+      // 审批请求（Q-017-C 标准 ACP）：session/request_permission 是 server→client REQUEST
+      //（带 id，须回 response 帧 {outcome:{outcome:'selected',optionId}}）——旧通知 +
+      // 业务 requestId 形态废弃，业务 requestId = JSON-RPC id 字符串
+      client.onRequest(ACP_METHODS.requestPermission, (params, id) => {
         if (state.settled) return;
-        const ctx: PermissionRequestContext = {
-          taskId: task.taskId,
-          title: task.title,
-          requestId: p.requestId,
-          message: typeof p.message === 'string' ? p.message : '',
-        };
-        handlers.onEvent({
-          kind: 'permission_request',
-          id: p.requestId,
-          message: ctx.message,
+        const p = params as { question?: string; options?: Array<{ id?: string; kind?: string }> } | undefined;
+        const requestId = String(id);
+        state.pendingPermissions.set(requestId, {
+          id,
+          options: Array.isArray(p?.options) ? p.options : [],
         });
+        const message = typeof p?.question === 'string' ? p.question : '';
+        handlers.onEvent({ kind: 'permission_request', id: requestId, message });
         // 审批链路收口（B4）：permission 事件 → main 装配 → ApprovalManager.handlePermission 入队
-        this.emit('permission', ctx);
+        this.emit('permission', { taskId: task.taskId, title: task.title, requestId, message } satisfies PermissionRequestContext);
       });
-      void client
-        .sendRequest<{ sessionId: string }>(ACP_METHODS.newSession, { cwd: overlayDir })
-        .then(
-          (r) => {
-            clearTimeout(timer);
-            if (r && typeof r.sessionId === 'string') resolve(r.sessionId);
-            else reject(new Error('newSession 响应缺少 sessionId'));
-          },
-          (err: Error) => {
-            clearTimeout(timer);
-            reject(err);
-          },
+      // 两步握手（Q-017-C）：先 initialize（协议版本协商）成功后再 session/new（建会话）；
+      // 共用上方 30s 总预算 timer，单步各 15s 兜底
+      const handshake = client
+        .sendRequest<unknown>(ACP_METHODS.initialize, { protocolVersion: 1, clientCapabilities: {} }, HANDSHAKE_STEP_TIMEOUT_MS)
+        .then(() =>
+          client.sendRequest<{ sessionId: string }>(
+            ACP_METHODS.newSession,
+            // Q-019：cwd = task.cwd（原为 overlayDir——会话全归「未分组」且 agent 无法在任务目录干活）
+            { cwd: task.cwd, mcpServers: [] },
+            HANDSHAKE_STEP_TIMEOUT_MS,
+          ),
         );
+      handshake.then(
+        (r) => {
+          clearTimeout(timer);
+          if (!r || typeof r.sessionId !== 'string') {
+            reject(new Error('session/new 响应缺少 sessionId'));
+            return;
+          }
+          // Q-018 模型选择：task 带模型 → session/new 后先 session/set_config_option
+          //（configId='model'，value = configOptions 的 value JSON 串），成功才进 prompt；
+          // 不带 → 跳过（dsh 默认）。error → 走既有失败路径（onStatus failed + onResult）
+          if (!task.model) {
+            resolve(r.sessionId);
+            return;
+          }
+          client
+            .sendRequest<unknown>(
+              ACP_METHODS.setConfigOption,
+              { sessionId: r.sessionId, configId: 'model', value: task.model },
+              HANDSHAKE_STEP_TIMEOUT_MS,
+            )
+            .then(
+              () => resolve(r.sessionId),
+              (err: Error) => {
+                clearTimeout(timer);
+                reject(new Error(`模型设置失败: ${err.message}`));
+              },
+            );
+        },
+        (err: Error) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+      );
     });
 
     // 三路竞争：newSession 完成 / 崩溃 / 取消
@@ -303,23 +556,30 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
     const client = state.client;
     if (!client) return;
     const text = buildPromptText(task);
-    void client.sendRequest<AcpCompletion>(ACP_METHODS.prompt, { sessionId: state.sessionId, text }).then(
-      (result) => {
-        if (state.settled || state.cancelled) return;
-        state.settled = true;
-        handlers.onStatus('succeeded');
-        const selfCheck = result?.selfCheck;
-        handlers.onResult({
-          exitCode: 0,
-          summary: (result?.summary ?? '').slice(0, 4096),
-          outputPath: result?.outputPath ?? '',
-          ...(selfCheck ? { selfCheck } : {}),
-        });
-      },
-      (err: Error) => {
-        this.settleFailure(task, handlers, state, `ACP prompt 失败: ${err.message}`);
-      },
-    );
+    // Q-017-C 标准 ACP：session/prompt，params.prompt = 内容块数组（[{type:'text',text}]）；
+    // 响应 {stopReason}——成功语义不变：收到响应 = 通道侧正常完成（exitCode 0，
+    // selfCheck 缺省 → 判定归 VerifyGate）；summary 用 session/update 聚合文本
+    void client
+      .sendRequest<{ stopReason?: string }>(
+        ACP_METHODS.prompt,
+        { sessionId: state.sessionId, prompt: [{ type: 'text', text }] },
+      )
+      .then(
+        (result) => {
+          if (state.settled || state.cancelled) return;
+          state.settled = true;
+          handlers.onStatus('succeeded');
+          handlers.onResult({
+            exitCode: 0,
+            summary: state.summaryText.slice(0, 4096),
+            outputPath: '',
+          });
+          void result; // stopReason 'end_turn' 等均为正常完成（不做分支，保持既有成功语义）
+        },
+        (err: Error) => {
+          this.settleFailure(task, handlers, state, `ACP prompt 失败: ${err.message}`);
+        },
+      );
   }
 
   private settleFailure(
@@ -348,6 +608,10 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
       sessionId: undefined as string | undefined,
       client: undefined as JsonRpcClient | undefined,
       child: undefined as ReturnType<typeof spawn> | undefined,
+      // Q-017-C：session/update 流式文本聚合（结算 summary 用）
+      summaryText: '',
+      // Q-017-C：在途审批请求（业务 requestId=String(jsonrpcId) → jsonrpc id + 选项表）
+      pendingPermissions: new Map<string, { id: number; options: Array<{ id?: string; kind?: string }> }>(),
     };
   }
 }
@@ -361,4 +625,14 @@ export function buildPromptText(task: ExecutionTask): string {
     if (ac.context) text += `\n- context: ${ac.context}`;
   }
   return text;
+}
+
+/**
+ * Q-017-C：按 approved 布尔从标准 ACP 权限选项表选 optionId（kind 匹配 allow/reject，
+ * 退而按 id 名匹配；无选项表时回退标准 kind 字面量）
+ */
+function pickOptionId(options: Array<{ id?: string; kind?: string }>, approved: boolean): string {
+  const want = approved ? /allow/ : /reject/;
+  const hit = options.find((o) => (typeof o.kind === 'string' && want.test(o.kind)) || (typeof o.id === 'string' && want.test(o.id)));
+  return hit?.id ?? (approved ? 'allow_once' : 'reject_once');
 }
