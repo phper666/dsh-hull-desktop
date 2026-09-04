@@ -50,7 +50,11 @@ export const KANBAN_B4_EXEC_IPC_CHANNELS = [
   'kanban:onPermissionSettled',
   'kanban:editAcceptanceCriteria',
   'kanban:getAgentProviders',
+  'kanban:listModels',
 ] as const;
+
+/** 壳级 dialog 1 channel（2026-09-05 看板工作目录原生目录选择器；桥挂 window.hull.pickDirectory） */
+export const DIALOG_IPC_CHANNELS = ['dialog:pickDirectory'] as const;
 
 /** S1 扫描 4 + S2 操作 7（feishu-s1/s2-skills-api-contract §接口清单）+ hull:showSkills 壳导航 */
 export const SKILLS_IPC_CHANNELS = [
@@ -70,12 +74,13 @@ export const SKILLS_IPC_CHANNELS = [
   'skills:getOperationLog',
 ] as const;
 
-/** 全部 channel 白名单（B1+B5+B3+B4+S1 共面） */
+/** 全部 channel 白名单（B1+B5+B3+B4+S1+dialog 共面） */
 export const ALL_IPC_CHANNELS = [
   ...KANBAN_IPC_CHANNELS,
   ...KANBAN_EXEC_IPC_CHANNELS,
   ...KANBAN_B4_EXEC_IPC_CHANNELS,
   ...SKILLS_IPC_CHANNELS,
+  ...DIALOG_IPC_CHANNELS,
 ] as const;
 
 export type KanbanIpcChannel = (typeof KANBAN_IPC_CHANNELS)[number];

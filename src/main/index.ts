@@ -117,7 +117,12 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   registerSkillsIpc(skillsScanner, skillsOps);
   // B3+B4：执行引擎门面（ExecutionEngine 组装 Scheduler/Heartbeat/Convergence/VerifyGate）+ ProviderManager
   // + ProviderRegistry（M2 注册 'dsh' ACP）+ ApprovalManager + AcEditor + 执行控制 IPC（B3 10 + B4 3）
-  const providerManager = new ProviderManager();
+  // Q-017-B：ACP overlay 显式注入壳自管 dsh（<userData>/dsh，与 DSH_HOME/dsh 结构同构，
+  // runtime spawnArgs 同源解析）——壳红线 DSH_HOME 零引用（本文件头注），用户环境通常未设，
+  // 此前 ACPProvider 硬依赖 env.DSH_HOME → 每任务必然 settleFailure（实测 15:21 卡死根因 B）
+  const providerManager = new ProviderManager({
+    acpFactory: () => new ACPProvider({ overlayDir: join(userDataPath, 'dsh'), logger }),
+  });
   // B4 收口：真实 ACP provider 显式实例化（供 ApprovalManager 审批链路接线 permission 事件；
   // 仅 HULL_EXEC_PROVIDER=mock 时回落 ProviderManager 的 MockProvider，不接 permission 事件）
   const acpProvider: ACPProvider | undefined =
@@ -126,6 +131,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     store: kanbanStore,
     providerManager,
     maxExecutionIdleMinutes: 30,
+    logger, // Q-017-C：重启 sweep/重排留痕 → hull.log
     // V2a §3.2：看板执行结算/级联 emit 进中心；error 级推系统通知（点击跳任务详情）
     emitNotif: (input) => {
       const row = notifService.emit(input);
@@ -254,7 +260,15 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     },
     timelineStore: { appendSystemEvent: appendSystem },
   });
-  registerExecIpc({ engine: execEngine, approval, registry, acEditor });
+  registerExecIpc({
+    engine: execEngine,
+    approval,
+    registry,
+    acEditor,
+    // Q-018 模型清单：ACPProvider 注入了 overlayDir（<userData>/dsh）→ provider 侧透传；
+    // mock 模式无 ACPProvider → 不接线（ExecIpc 未接线降级空数组）
+    listModels: acpProvider ? () => acpProvider.listModels() : undefined,
+  });
   // B5：导出/导入传输层（KanbanTransfer 默认装配 electron dialog + KanbanStore；2 IPC 已随 registerKanbanIpc 注册）
   // S2：overlay 管理栈（首装自动触发 / ensure 三态 / 取消）
   const runtime = new RuntimeManager({ userDataPath, logger });
@@ -491,6 +505,15 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   ipcMain.handle('hull:openLogs', async () => {
     const errMsg = await shell.openPath(join(userDataPath, 'logs'));
     return { ok: !errMsg, message: errMsg };
+  });
+
+  // B4-工作目录 UI（2026-09-05）：dialog:pickDirectory——看板工作目录原生目录选择器
+  // （取消 → { ok: true, path: null }；前端不校验目录存在性，执行时校验）
+  ipcMain.handle('dialog:pickDirectory', async () => {
+    const opts: Electron.OpenDialogOptions = { title: '选择工作目录', properties: ['openDirectory', 'createDirectory'] };
+    const win = winMgr.getWindow();
+    const r = await (win ? dialog.showOpenDialog(win, opts) : dialog.showOpenDialog(opts));
+    return { ok: true, path: r.canceled ? null : (r.filePaths[0] ?? null) };
   });
 
   // S2：首装/重装编排（自动触发 + 引导态重装共用同一入口）

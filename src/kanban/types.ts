@@ -42,6 +42,8 @@ export interface AgentSpec {
   model: string | null;
   /** 默认 'auto' */
   subagentPolicy: SubagentPolicy;
+  /** Q-019 工作目录：ticket 级执行 cwd（绝对路径或 ~ 形态；null → 回落 board.defaultCwd/homedir） */
+  cwd?: string | null;
 }
 
 export interface AcceptanceCriteria {
@@ -132,6 +134,10 @@ export interface Board {
   columns: Column[];
   tasks: Task[];
   order: number;
+  /** Q-018 模型选择：看板默认模型（session/set_config_option 的 value JSON 串，如 '["provider","model"]'）；缺省走 dsh 默认 */
+  defaultModel?: string;
+  /** Q-019 工作目录：看板默认执行 cwd（ticket 未设 agentSpec.cwd 时回落）；缺省 homedir */
+  defaultCwd?: string;
   createdAt: string;
   updatedAt: string;
 }

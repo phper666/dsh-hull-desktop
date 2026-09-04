@@ -48,7 +48,33 @@ const BOARDS_FILE = 'boards.json';
 /** 变更防抖写盘延迟（共识 §9：500ms） */
 const DEBOUNCE_MS = 500;
 
-/** 任务创建入参（B1 契约 createTask + T2 增量 startDate） */
+/** Q-018 模型值超长防御：value JSON 串来自 UI 下拉白名单，仍兜底拒绝超长脏值（>512 拒绝不截断，截断会产生非法 JSON） */
+const AGENT_MODEL_MAX_LEN = 512;
+
+/**
+ * Q-018：agentSpec.model 入参归一化——null/undefined/'' → null（清除回看板默认）；
+ * 非空任意字符串合法（值是 ["provider","model"] JSON 串，来自 UI 下拉，不加格式白名单）；
+ * 超长 >512 → validation 拒绝。
+ */
+function normalizeAgentModel(model: string | null | undefined): string | null {
+  if (model === null || model === undefined || model === '') return null;
+  if (model.length > AGENT_MODEL_MAX_LEN) {
+    throw new HullError(ERR.validation, `agentSpec.model 超长（≤${AGENT_MODEL_MAX_LEN}）`);
+  }
+  return model;
+}
+
+/**
+ * Q-019：agentSpec.cwd 入参归一化——null/undefined/'' → null（清除回落 board.defaultCwd/homedir）；
+ * 非空 trim 存储；不校验存在性（执行链 ACPProvider 有 existsSync 防御，错误信息带路径可引导修正）。
+ */
+function normalizeAgentCwd(cwd: string | null | undefined): string | null {
+  if (cwd === null || cwd === undefined) return null;
+  const t = cwd.trim();
+  return t === '' ? null : t;
+}
+
+/** 任务创建入参（B1 契约 createTask + T2 增量 startDate + Q-018 增量 agentSpec.model） */
 export interface CreateTaskInput {
   title: string;
   columnId?: string;
@@ -62,6 +88,8 @@ export interface CreateTaskInput {
   startDate?: string | null;
   labels?: string[];
   description?: string | null;
+  /** Q-018 模型选择 + Q-019 工作目录：只收 model/cwd（provider/agent/subagentPolicy 保持默认不开放） */
+  agentSpec?: { model?: string | null; cwd?: string | null };
 }
 
 /** 任务部分更新字段（updateTask 白名单；系统管理字段不在内） */
@@ -76,6 +104,8 @@ export interface UpdateTaskPatch {
   acceptanceCriteria?: AcceptanceCriteria | null;
   executionMode?: ExecutionMode;
   dependencies?: string[];
+  /** Q-018 模型选择 + Q-019 工作目录：merge 语义——非空更新 / 显式 null|'' 清除（回看板默认）/ 不提供不动 */
+  agentSpec?: { model?: string | null; cwd?: string | null };
 }
 /** 评论/附件入参（addComment） */
 export interface AddCommentInput {
@@ -309,7 +339,7 @@ export class KanbanStore {
     return structuredClone(board);
   }
 
-  updateBoard(boardId: string, patch: { name?: string; order?: number }): Board {
+  updateBoard(boardId: string, patch: { name?: string; order?: number; defaultModel?: string | null; defaultCwd?: string | null }): Board {
     const board = this.findBoard(boardId);
     if (patch.name !== undefined) {
       if (!patch.name.trim()) throw new HullError(ERR.validation, '看板名不能为空');
@@ -317,6 +347,17 @@ export class KanbanStore {
       board.name = patch.name;
     }
     if (patch.order !== undefined) board.order = patch.order;
+    // Q-018 模型选择：defaultModel = session/set_config_option 的 value JSON 串；
+    // null/空串清除（回 dsh 默认）；可选字段，旧数据无此字段 → undefined（不 bump schema version）
+    if (patch.defaultModel !== undefined) {
+      if (patch.defaultModel === null || patch.defaultModel === '') delete board.defaultModel;
+      else board.defaultModel = patch.defaultModel;
+    }
+    // Q-019 工作目录：board.defaultCwd（ticket 未设 agentSpec.cwd 时回落；null/'' 清除回 homedir）
+    if (patch.defaultCwd !== undefined) {
+      if (patch.defaultCwd === null || patch.defaultCwd === '') delete board.defaultCwd;
+      else board.defaultCwd = patch.defaultCwd;
+    }
     board.updatedAt = nowIso();
     this.scheduleFlush();
     return structuredClone(board);
@@ -368,7 +409,14 @@ export class KanbanStore {
       executionStatus: 'idle',
       currentExecutionId: null,
       acceptanceCriteria: input.acceptanceCriteria ?? null,
-      agentSpec: { provider: 'dsh', agent: null, model: null, subagentPolicy: 'auto' as SubagentPolicy },
+      // Q-018：ticket 级模型 merge 到默认 agentSpec（只收 model；provider/agent/subagentPolicy 保持默认）
+      agentSpec: {
+        provider: 'dsh',
+        agent: null,
+        model: normalizeAgentModel(input.agentSpec?.model),
+        cwd: normalizeAgentCwd(input.agentSpec?.cwd),
+        subagentPolicy: 'auto' as SubagentPolicy,
+      },
       dependencies,
       description: input.description ?? null,
       labels: input.labels ?? [],
@@ -408,6 +456,11 @@ export class KanbanStore {
       task.executionMode = patch.executionMode;
     }
     if (patch.acceptanceCriteria !== undefined) task.acceptanceCriteria = patch.acceptanceCriteria;
+    // Q-018 模型选择 merge 语义：agentSpec 提供 → 非空更新 / 显式 null|'' 清除；不提供 → 不动
+    if (patch.agentSpec !== undefined) {
+      task.agentSpec.model = normalizeAgentModel(patch.agentSpec.model);
+      task.agentSpec.cwd = normalizeAgentCwd(patch.agentSpec.cwd);
+    }
     if (patch.dependencies !== undefined) {
       task.dependencies = this.validateDependencies(board, task.parentId, patch.dependencies);
     }

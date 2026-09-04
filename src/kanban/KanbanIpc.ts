@@ -56,7 +56,7 @@ export function registerKanbanIpcWithTransfer(store: KanbanStore, transfer?: Kan
   const t = transfer ?? new KanbanTransfer({ userDataPath: store.getDataDir(), store });
   ipcMain.handle('kanban:getBoards', () => toResult(() => store.getBoards()));
   ipcMain.handle('kanban:createBoard', (_e, name: string) => toResult(() => store.createBoard(name)));
-  ipcMain.handle('kanban:updateBoard', (_e, boardId: string, patch: { name?: string; order?: number }) =>
+  ipcMain.handle('kanban:updateBoard', (_e, boardId: string, patch: { name?: string; order?: number; defaultModel?: string | null }) =>
     toResult(() => store.updateBoard(boardId, patch))
   );
   ipcMain.handle('kanban:deleteBoard', (_e, boardId: string) => toResult(() => store.deleteBoard(boardId)));
