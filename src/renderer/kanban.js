@@ -91,6 +91,47 @@
   }
   const destroyEditor = (editor) => { try { editor?.destroy(); } catch {} };
 
+  // ── 模型选择（window.exec.listModels/setBoardDefaultModel 桥由执行链 lane 提供）──
+  // 桥缺失/报错 → 隐藏选择器，不阻塞表单；模块级缓存 5 分钟（listModels 起子进程可能慢）
+  const MODELS_TTL_MS = 5 * 60 * 1000;
+  let modelsCache = null; // { at, groups|null }（null=失败，同 TTL 内不重试）
+  const MODEL_PRIORITY_HINT = '优先级：本卡片所选模型 → 看板默认模型 → dsh 默认';
+  async function loadModelGroups() {
+    if (modelsCache && Date.now() - modelsCache.at < MODELS_TTL_MS) return modelsCache.groups;
+    let groups = null;
+    try {
+      const r = await window.exec?.listModels?.();
+      if (r && Array.isArray(r.data)) groups = r.data; // Result 包装 { ok, data }
+      else if (Array.isArray(r)) groups = r; // 兜底：直接返回数组
+    } catch { groups = null; }
+    modelsCache = { at: Date.now(), groups };
+    return groups;
+  }
+  // name/description 来自 dsh 配置，仍按不可信文本 esc() 转义
+  const modelOptionsHtml = (groups, emptyLabel) =>
+    `<option value="">${esc(emptyLabel)}</option>` + groups.map((g) =>
+      `<optgroup label="${esc(g.name)}">${(g.options || []).map((o) =>
+        `<option value="${esc(o.value)}" ${o.description ? `title="${esc(o.description)}"` : ''}>${esc(o.name)}</option>`).join('')}</optgroup>`).join('');
+  /** 异步填充模型 select（初始渲染「加载模型中…」占位）；失败 → 隐藏（wrapSel 给定时隐藏整行，否则隐藏 select 自身） */
+  async function fillModelSelect(sel, selected, emptyLabel, wrapSel) {
+    const groups = await loadModelGroups();
+    if (!sel.isConnected) return;
+    if (!groups) { (wrapSel ? sel.closest(wrapSel) : sel).style.display = 'none'; return; }
+    sel.innerHTML = modelOptionsHtml(groups, emptyLabel);
+    sel.value = selected || '';
+  }
+
+  // ── 原生目录选择器（hull:pickDirectory 桥，dialog:pickDirectory 通道）──
+  // 桥不存在/报错 → alert 提示，不影响手输；取消（path null）→ 不改动 input
+  async function pickDirectory() {
+    try {
+      const r = await window.hull?.pickDirectory?.();
+      if (r && r.ok) return r.path || null;
+      alert('无法打开目录选择器：' + (r && r.message ? r.message : '桥不可用'));
+    } catch { alert('无法打开目录选择器'); }
+    return null;
+  }
+
   // ── 主渲染 ──
   function render() {
     if (!currentBoard) { renderEmpty(); return; }
@@ -111,7 +152,7 @@
     return `<div class="kb-toolbar">
       <div class="kb-boards"><select id="kb-board-select">${boards.map((b) => `<option value="${b.id}" ${b.id === currentBoard.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select><button class="kb-btn" id="kb-newboard">＋ 新建</button></div>
       <div class="kb-views">${Object.entries(viewNames).map(([k, n]) => `<button class="kb-view ${view === k ? 'active' : ''}" data-view="${k}">${n}</button>`).join('')}</div>
-      <div class="kb-filters"><select id="kb-col-filter"><option value="all">全部列</option>${cols.map((c) => `<option value="${c.id}" ${filterCol === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select><input id="kb-q" placeholder="筛选关键词…" value="${esc(filterQ)}" /></div>
+      <div class="kb-filters"><select id="kb-col-filter"><option value="all">全部列</option>${cols.map((c) => `<option value="${c.id}" ${filterCol === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select><input id="kb-q" placeholder="筛选关键词…" value="${esc(filterQ)}" /><select id="kb-board-model" class="kb-input" title="看板默认模型。${MODEL_PRIORITY_HINT}"><option value="">加载模型中…</option></select><input id="kb-board-cwd" class="kb-input" placeholder="${esc(currentBoard?.defaultCwd || '~')}" title="看板默认工作目录：ticket 所选 → 看板默认 → ~（主目录）" value="${esc(currentBoard?.defaultCwd || '')}" /><button class="kb-btn" id="kb-board-cwd-browse">浏览…</button></div>
     </div>`;
   }
 
@@ -312,6 +353,30 @@
     $('#kb-col-filter')?.addEventListener('change', (e) => { filterCol = e.target.value; render(); });
     $('#kb-q')?.addEventListener('input', (e) => { filterQ = e.target.value; render(); });
 
+    // 看板默认模型（桥由执行链 lane 提供；缺失/报错 → 隐藏 select，不阻塞看板）
+    const bmSel = $('#kb-board-model');
+    if (bmSel) {
+      bmSel.addEventListener('change', (e) => { try { window.exec?.setBoardDefaultModel?.(currentBoard.id, e.target.value); } catch { /* 桥不可用：忽略 */ } });
+      fillModelSelect(bmSel, currentBoard?.defaultModel, '默认（dsh 默认）', null); // currentBoard.defaultModel 由执行链 lane 透传，无则回退空
+    }
+    // 看板默认工作目录：失焦或回车提交（空值传 null 清除；通道 kanban:updateBoard，defaultCwd patch 由执行链 lane 支持）
+    const bcwd = $('#kb-board-cwd');
+    if (bcwd) {
+      const saveCwd = async () => {
+        const v = bcwd.value.trim() || null;
+        if (v === (currentBoard?.defaultCwd || null)) return;
+        const r = await kanban.updateBoard(currentBoard.id, { defaultCwd: v });
+        if (!r.ok) alert('保存看板工作目录失败：' + (r.message || r.code));
+        else currentBoard = { ...currentBoard, defaultCwd: v };
+      };
+      bcwd.addEventListener('change', saveCwd);
+      bcwd.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveCwd(); } });
+      $('#kb-board-cwd-browse')?.addEventListener('click', async () => {
+        const p = await pickDirectory();
+        if (p) { bcwd.value = p; await saveCwd(); } // 选完即走工具栏保存链路（本地去重 + currentBoard 同步在 saveCwd 内）
+      });
+    }
+
     // 拖拽（CON-R020 人工拖拽最高优先级）
     document.querySelectorAll('.kb-card').forEach((card) => {
       card.addEventListener('dragstart', (e) => { dragTaskId = card.dataset.id; e.dataTransfer.effectAllowed = 'move'; card.classList.add('kb-dragging'); });
@@ -456,17 +521,24 @@
     modal('新建卡片', `
       <div class="kb-f"><label>标题</label><input id="kb-tt" class="kb-input" /></div>
       <div class="kb-f"><label>模式</label><select id="kb-mode" class="kb-input"><option value="manual">手动</option><option value="auto">自动（需 AC）</option></select></div>
+      <div class="kb-f" id="kb-model-wrap"><label>模型</label><select id="kb-model" class="kb-input" title="${MODEL_PRIORITY_HINT}"><option value="">加载模型中…</option></select></div>
+      <div class="kb-f"><label>工作目录</label><input id="kb-cwd" class="kb-input" placeholder="默认 ~（主目录）" title="ticket 所选 → 看板默认 → ~（主目录）" /><button class="kb-btn" id="kb-cwd-browse">浏览…</button></div>
       <div class="kb-f" id="kb-ac-wrap" style="display:none"><label>AC·what</label><input id="kb-ac-what" class="kb-input" /><label>AC·expected</label><input id="kb-ac-exp" class="kb-input" /><label>AC·verify</label><input id="kb-ac-ver" class="kb-input" /></div>
       <div class="kb-f"><label>优先级</label><select id="kb-pri" class="kb-input"><option>P0</option><option>P1</option><option selected>P2</option><option>无</option></select></div>
       <div class="kb-f"><label>描述</label><textarea id="kb-desc" class="kb-input"></textarea></div>
       <div class="kb-modal-ops"><button class="kb-btn kb-primary" data-ok>创建</button><button class="kb-btn" data-close>取消</button></div>`, (w, close) => {
       $('#kb-mode', w).addEventListener('change', (e) => { $('#kb-ac-wrap', w).style.display = e.target.value === 'auto' ? '' : 'none'; });
+      $('#kb-cwd-browse', w)?.addEventListener('click', async () => {
+        const p = await pickDirectory();
+        if (p) $('#kb-cwd', w).value = p; // 对话框仅填值（DOM 属性赋值，无 HTML 注入面），随保存提交
+      });
+      fillModelSelect($('#kb-model', w), '', '默认（跟随看板）', '#kb-model-wrap');
       // E1：描述 textarea → EasyMDE（Q-041 新实例；关闭随 kbOnClose destroy）
       const descEditor = createEditor($('#kb-desc', w));
       w.kbOnClose.push(() => destroyEditor(descEditor));
       descEditor?.codemirror.focus(); // Q-046：初始化后编辑器获得焦点
       const ok = async () => {
-        const input = { title: $('#kb-tt', w).value.trim(), columnId: colId, priority: $('#kb-pri', w).value, description: (descEditor ? descEditor.value() : $('#kb-desc', w).value).trim() || null, executionMode: $('#kb-mode', w).value };
+        const input = { title: $('#kb-tt', w).value.trim(), columnId: colId, priority: $('#kb-pri', w).value, description: (descEditor ? descEditor.value() : $('#kb-desc', w).value).trim() || null, executionMode: $('#kb-mode', w).value, agentSpec: { model: $('#kb-model', w)?.value || null, cwd: $('#kb-cwd', w)?.value.trim() || null } }; // agentSpec.model/cwd：执行链 lane 补 store/IPC 透传
         if (!input.title) return;
         if (input.executionMode === 'auto') {
           input.acceptanceCriteria = { what: $('#kb-ac-what', w).value.trim(), expected: $('#kb-ac-exp', w).value.trim(), verify: $('#kb-ac-ver', w).value.trim() };
@@ -571,15 +643,22 @@
       <div class="kb-f"><label>标题</label><input id="kb-tt" class="kb-input" value="${esc(t.title)}" /></div>
       <div class="kb-f"><label>描述</label><textarea id="kb-desc" class="kb-input">${esc(t.description || '')}</textarea></div>
       <div class="kb-f"><label>优先级</label><select id="kb-pri" class="kb-input">${['P0', 'P1', 'P2', '无'].map((p) => `<option ${t.priority === p ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
+      <div class="kb-f" id="kb-model-wrap"><label>模型</label><select id="kb-model" class="kb-input" title="${MODEL_PRIORITY_HINT}"><option value="">加载模型中…</option></select></div>
+      <div class="kb-f"><label>工作目录</label><input id="kb-cwd" class="kb-input" placeholder="默认 ~（主目录）" title="ticket 所选 → 看板默认 → ~（主目录）" value="${esc(t.agentSpec?.cwd || '')}" /><button class="kb-btn" id="kb-cwd-browse">浏览…</button></div>
       ${t.parentId ? `<div class="kb-f"><label>前置依赖</label><div class="kb-deps" id="kb-deps">${siblings.length ? siblings.map((s) => `<label class="kb-dep"><input type="checkbox" value="${esc(s.id)}" ${(t.dependencies || []).includes(s.id) ? 'checked' : ''} /> ${esc(s.title)}</label>`).join('') : '<span class="kb-muted">无同父兄弟任务</span>'}</div></div>` : ''}
       <div class="kb-modal-ops"><button class="kb-btn kb-primary" data-ok>保存</button><button class="kb-btn" data-close>取消</button></div>`, (w, close) => {
       // E1：预填现值（FE-1 editor.value(t.description ?? '')）；旧纯文本 = 合法 Markdown（E10 兼容）
       const descEditor = createEditor($('#kb-desc', w), t.description ?? '');
       w.kbOnClose.push(() => destroyEditor(descEditor));
       descEditor?.codemirror.focus(); // Q-046/E19：编辑弹窗初始 focus 在编辑器
+      fillModelSelect($('#kb-model', w), t.agentSpec?.model, '默认（跟随看板）', '#kb-model-wrap'); // 回显 task.agentSpec.model
+      $('#kb-cwd-browse', w)?.addEventListener('click', async () => {
+        const p = await pickDirectory();
+        if (p) $('#kb-cwd', w).value = p; // 对话框仅填值（DOM 属性赋值，无 HTML 注入面），随保存提交
+      });
       $('[data-ok]', w).addEventListener('click', async () => {
         // U3：子任务保存附带 dependencies（同父兄弟勾选；顶层任务不可声明，store 校验兜底）
-        const patch = { title: $('#kb-tt', w).value.trim(), description: (descEditor ? descEditor.value() : $('#kb-desc', w).value).trim() || null, priority: $('#kb-pri', w).value };
+        const patch = { title: $('#kb-tt', w).value.trim(), description: (descEditor ? descEditor.value() : $('#kb-desc', w).value).trim() || null, priority: $('#kb-pri', w).value, agentSpec: { model: $('#kb-model', w)?.value || null, cwd: $('#kb-cwd', w)?.value.trim() || null } }; // agentSpec.model/cwd：执行链 lane 补 store/IPC 透传
         if (t.parentId) patch.dependencies = [...w.querySelectorAll('#kb-deps input:checked')].map((c) => c.value);
         const r = await kanban.updateTask(currentBoard.id, t.id, patch);
         if (r.ok) { close(); await loadBoard(currentBoard.id); } else alert('保存失败：' + (r.message || r.code));
