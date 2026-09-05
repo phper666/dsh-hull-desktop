@@ -2,7 +2,7 @@ import { app, clipboard, dialog, ipcMain, nativeTheme, safeStorage, shell } from
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
 
 import { acquireSingleInstanceLock } from '../runtime/SingleInstance';
 import { RuntimeManager, type CrashInfo } from '../runtime/RuntimeManager';
@@ -132,6 +132,8 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     providerManager,
     maxExecutionIdleMinutes: 30,
     logger, // Q-017-C：重启 sweep/重排留痕 → hull.log
+    // Q-回复落盘（2026-09-05）：流式输出日志目录 <userData>/kanban/executions（getExecutionLog 消费）
+    executionsDir: join(kanbanStore.getDataDir(), 'executions'),
     // V2a §3.2：看板执行结算/级联 emit 进中心；error 级推系统通知（点击跳任务详情）
     emitNotif: (input) => {
       const row = notifService.emit(input);
@@ -514,6 +516,18 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     const win = winMgr.getWindow();
     const r = await (win ? dialog.showOpenDialog(win, opts) : dialog.showOpenDialog(opts));
     return { ok: true, path: r.canceled ? null : (r.filePaths[0] ?? null) };
+  });
+
+  // 需求 2（2026-09-05）：hull:openPath——执行输出内文件路径点击 → 系统默认应用打开。
+  // 防注入：仅绝对路径（isAbsolute 拒绝相对路径/协议串）；shell.openPath 返回 '' = 成功，非空 = 错误信息
+  ipcMain.handle('hull:openPath', async (_e, p: unknown) => {
+    if (typeof p !== 'string' || !isAbsolute(p)) return { ok: false, message: '仅支持打开绝对路径' };
+    try {
+      const errMsg = await shell.openPath(p);
+      return errMsg ? { ok: false, message: errMsg } : { ok: true };
+    } catch (err) {
+      return { ok: false, message: (err as Error).message };
+    }
   });
 
   // S2：首装/重装编排（自动触发 + 引导态重装共用同一入口）
