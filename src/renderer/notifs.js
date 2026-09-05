@@ -86,6 +86,7 @@
     const gotoLabel = n.link.kind === 'task' ? '查看任务 →' : '查看工作流 →';
     return `<div class="nt-detail-inner">
       <div class="nt-meta-line">${metaLine}</div>
+      ${n.body ? `<div class="nt-body">${esc(n.body)}</div>` : ''}
       ${steps ? `<div class="nt-steps">${steps}</div>` : ''}
       <div class="nt-detail-ops"><button class="nt-goto" data-goto="${esc(n.id)}">${gotoLabel}</button></div>
     </div>`;
@@ -135,6 +136,7 @@
     );
     root.querySelector('#nt-mark').addEventListener('click', () => { markRead(); });
     root.querySelector('#nt-rows').addEventListener('click', (e) => {
+      // 需求 1（2026-09-05）：消息改为常显全文（CSS white-space normal），点击展开 toggle 移除
       const goto = e.target.closest('.nt-goto');
       if (goto) {
         e.stopPropagation();
