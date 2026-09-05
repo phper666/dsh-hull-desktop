@@ -21,9 +21,9 @@
  *             子进程意外退出 → onResult failed（exec-provider-unavailable，P2-B4-2）
  */
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { NOOP_LOGGER, type RuntimeLogger } from '../../shared/types';
@@ -56,6 +56,8 @@ export const ACP_METHODS = {
   sessionUpdate: 'session/update',
   /** Q-018 模型选择：按会话设置模型（configId='model'，value = configOptions 的 value JSON 串） */
   setConfigOption: 'session/set_config_option',
+  /** Q-022 会话复用：恢复既有会话（dsh acp 扩展方法，非标准 ACP load；cwd 必须与会话原 cwd 一致） */
+  resume: 'session/resume',
 } as const;
 
 /** 握手单步超时（initialize + session/new 各 15s，合计覆盖原 30s 预算，Q-017-C） */
@@ -186,6 +188,8 @@ export interface ACPProviderOptions {
   overlayDir?: string;
   /** Q-018：settings.yaml 路径注入（测试 seam；缺省 ~/.dsh/settings.yaml，listModels 自定义渠道来源，只读） */
   settingsPath?: string;
+  /** Q-023：listModels 整体硬超时（缺省 45s；测试 seam 注入短超时）——渲染层 await 不永久挂起 */
+  listModelsTimeoutMs?: number;
 }
 
 /** 权限请求上下文（ApprovalManager 消费；B2 非阻塞弹窗数据源） */
@@ -211,6 +215,8 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
   private readonly overlayDir?: string;
   /** Q-018：settings.yaml 路径注入（测试 seam；缺省 ~/.dsh/settings.yaml，只读 CON-R002） */
   private readonly settingsPath?: string;
+  /** Q-023：listModels 整体硬超时（缺省 45s） */
+  private readonly listModelsTimeoutMs: number;
   /** Q-018：listModels 进程内缓存（overlayDir → {at, groups}） */
   private readonly modelsCache = new Map<string, { at: number; data: ModelOption[] }>();
 
@@ -221,6 +227,7 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
     this.now = options.now ?? (() => new Date());
     this.overlayDir = options.overlayDir;
     this.settingsPath = options.settingsPath;
+    this.listModelsTimeoutMs = options.listModelsTimeoutMs ?? 45_000;
   }
 
   execute(task: ExecutionTask, handlers: ExecutionHandlers): { cancel(): Promise<void> } {
@@ -259,8 +266,11 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
             /* 通道已断 → kill 兜底 */
           }
         }
-        // 进程 kill 兜底（O-11 无会话 / 通道异常）
-        if (state.child && state.child.exitCode === null && state.child.pid !== undefined) {
+        // Q-027：有会话 → 优雅关停（cancel 是 dsh 正常流程，杀太急截断会话尾部落盘 → resume corrupt）；
+        // 无会话（握手期取消）→ 立即 kill（O-11：无会话无落盘风险，进程必须终止）
+        if (client && sessionId !== undefined) {
+          this.shutdownGraceful(state);
+        } else if (state.child && state.child.exitCode === null && state.child.pid !== undefined) {
           try {
             state.child.kill('SIGTERM');
           } catch {
@@ -301,12 +311,18 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
     if (!dir) throw new Error('无法定位 dsh ACP 子进程（DSH_HOME 未设置且未注入 overlayDir）');
     const cached = this.modelsCache.get(dir);
     if (cached && Date.now() - cached.at < MODEL_CACHE_TTL_MS) return cached.data;
-    // Q-018 收尾：清单 = acp configOptions 内置分组 ⊕ settings.yaml llm-pi-ai.providers 自定义分组
-    //（acp 会话 configOptions 实测不含自定义渠道，但 set_config_option 接受其 value——执行链路已通）
-    const acpGroups = await this.fetchModels(dir);
-    const data = this.mergeSettingsModelGroups(acpGroups);
-    this.modelsCache.set(dir, { at: Date.now(), data });
-    return data;
+    // Q-023 探测子进程隔离：DSH_HOME 指向临时 home——探测会话落临时 sessions，不污染真实 ~/.dsh/sessions
+    const tmpHome = mkdtempSync(join(tmpdir(), 'hull-probe-'));
+    try {
+      // Q-018 收尾：清单 = acp configOptions 内置分组 ⊕ settings.yaml llm-pi-ai.providers 自定义分组
+      //（acp 会话 configOptions 实测不含自定义渠道，但 set_config_option 接受其 value——执行链路已通）
+      const acpGroups = await this.fetchModels(dir, tmpHome);
+      const data = this.mergeSettingsModelGroups(acpGroups);
+      this.modelsCache.set(dir, { at: Date.now(), data });
+      return data;
+    } finally {
+      rmSync(tmpHome, { recursive: true, force: true }); // 探测结束清理（返回/超时/异常三路径）
+    }
   }
 
   /** Q-018：读 settings.yaml（缺失/解析失败 → 静默跳过）并合并自定义渠道分组（acp 在前，value 去重） */
@@ -344,23 +360,47 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
   }
 
   /** 轻量会话：握手 + session/new 读 configOptions[model]（用完即弃，kill 子进程） */
-  private async fetchModels(dir: string): Promise<ModelOption[]> {
+  private async fetchModels(dir: string, tmpHome: string): Promise<ModelOption[]> {
     const bin = dshBinPath(dir);
+    // Q-023：DSH_HOME=临时 home（会话落临时 sessions）；bin 仍 overlayDir——内置分组来自 dsh 安装本身，
+    // 不受隔离影响，清单完整性不变；自定义渠道本来走 settings.yaml 合并
     const child = this.spawnFn('node', ['--expose-internals', bin, '--profile', 'acp'], {
       cwd: dir,
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, DSH_HOME: tmpHome },
     });
+    this.logger.info(`[Q-023] 模型清单探测子进程已启动 pid=${child.pid ?? '?'}`);
     const client = new JsonRpcClient({ stdin: child.stdin, stdout: child.stdout, logger: this.logger });
+    // Q-023 整体硬超时兜底：spawn→initialize→session/new 任一环节挂起 → reject「模型清单获取超时」
+    // → IPC {ok:false} → 渲染层隐藏降级，不再永久卡「加载模型中…」；
+    // 兜底在 child 可达的 finally 内——超时/异常路径同样 kill 子进程不残留
+    let hardTimer: NodeJS.Timeout | undefined;
+    const hardTimeout = new Promise<never>((_, reject) => {
+      hardTimer = setTimeout(() => reject(new Error('模型清单获取超时')), this.listModelsTimeoutMs);
+      hardTimer.unref?.();
+    });
     try {
-      await client.sendRequest<unknown>(ACP_METHODS.initialize, { protocolVersion: 1, clientCapabilities: {} }, HANDSHAKE_STEP_TIMEOUT_MS);
-      const ns = await client.sendRequest<{ configOptions?: Array<{ id?: string; options?: ModelOption[] }> }>(
-        ACP_METHODS.newSession,
-        { cwd: dir, mcpServers: [] },
-        HANDSHAKE_STEP_TIMEOUT_MS,
-      );
-      const model = (ns?.configOptions ?? []).find((c) => c.id === 'model');
-      return model?.options ?? [];
+      const groups = await Promise.race([
+        (async (): Promise<ModelOption[]> => {
+          await client.sendRequest<unknown>(ACP_METHODS.initialize, { protocolVersion: 1, clientCapabilities: {} }, HANDSHAKE_STEP_TIMEOUT_MS);
+          this.logger.info('[Q-023] 探测 initialize ok');
+          const ns = await client.sendRequest<{ configOptions?: Array<{ id?: string; options?: ModelOption[] }> }>(
+            ACP_METHODS.newSession,
+            { cwd: dir, mcpServers: [] },
+            HANDSHAKE_STEP_TIMEOUT_MS,
+          );
+          this.logger.info('[Q-023] 探测 session/new ok');
+          const model = (ns?.configOptions ?? []).find((c) => c.id === 'model');
+          const result = model?.options ?? [];
+          this.logger.info(`[Q-023] 模型清单返回分组数=${result.length}`);
+          return result;
+        })(),
+        hardTimeout,
+      ]);
+      return groups;
     } finally {
+      if (hardTimer) clearTimeout(hardTimer);
+      client.dispose();
       client.dispose();
       if (child.exitCode === null) {
         try {
@@ -456,7 +496,7 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
       // 业务 requestId 形态废弃，业务 requestId = JSON-RPC id 字符串
       client.onRequest(ACP_METHODS.requestPermission, (params, id) => {
         if (state.settled) return;
-        const p = params as { question?: string; options?: Array<{ id?: string; kind?: string }> } | undefined;
+        const p = params as { question?: string; options?: Array<{ optionId?: string; id?: string; kind?: string; name?: string }> } | undefined;
         const requestId = String(id);
         state.pendingPermissions.set(requestId, {
           id,
@@ -469,16 +509,44 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
       });
       // 两步握手（Q-017-C）：先 initialize（协议版本协商）成功后再 session/new（建会话）；
       // 共用上方 30s 总预算 timer，单步各 15s 兜底
+      const newSession = (): Promise<{ sessionId: string }> =>
+        client.sendRequest<{ sessionId: string }>(
+          ACP_METHODS.newSession,
+          // Q-019：cwd = task.cwd（原为 overlayDir——会话全归「未分组」且 agent 无法在任务目录干活）
+          { cwd: task.cwd, mcpServers: [] },
+          HANDSHAKE_STEP_TIMEOUT_MS,
+        );
+      // Q-022 会话复用：task 带 resumeSessionId → 先 session/resume 续用（cwd 必须一致）；
+      // 任一错误（cwd mismatch / not resumable / 会话丢失）→ 优雅降级 session/new（一次重试，
+      // 用户无感；降级原因 log 一行）。无 resumeSessionId → 直接 session/new
       const handshake = client
         .sendRequest<unknown>(ACP_METHODS.initialize, { protocolVersion: 1, clientCapabilities: {} }, HANDSHAKE_STEP_TIMEOUT_MS)
-        .then(() =>
-          client.sendRequest<{ sessionId: string }>(
-            ACP_METHODS.newSession,
-            // Q-019：cwd = task.cwd（原为 overlayDir——会话全归「未分组」且 agent 无法在任务目录干活）
-            { cwd: task.cwd, mcpServers: [] },
-            HANDSHAKE_STEP_TIMEOUT_MS,
-          ),
-        );
+        .then(() => {
+          if (!task.resumeSessionId) return newSession();
+          return client
+            .sendRequest<unknown>(
+              ACP_METHODS.resume,
+              { sessionId: task.resumeSessionId, cwd: task.cwd, mcpServers: [] },
+              HANDSHAKE_STEP_TIMEOUT_MS,
+            )
+            .then(
+              // Q-022 真机实测：resume 成功响应可能不带 sessionId 字段——会话 id 已知（task.resumeSessionId），
+              // 兜底使用之（否则误判失败触发多余降级）
+              (r) => ({ sessionId: r && typeof (r as { sessionId?: string }).sessionId === 'string' ? (r as { sessionId: string }).sessionId : task.resumeSessionId! }),
+              (err: Error) => {
+                // Q-025：resume 失败 → 降级 newSession；损坏会话日志（-32603 corrupt session log，
+                // 真机实锤「seq gap in committed region」）单列 warn——旧引用已废，结算侧清空
+                // task.acpSessionId，下次执行不再白试坏 id；其余失败（cwd mismatch 等）info 降级
+                state.resumeFailed = true;
+                if (err.message.includes('corrupt session log') || err.message.includes('-32603')) {
+                  this.logger.warn(`[Q-025] resume 失败（损坏会话日志），已降级新建并清除会话引用: ${err.message}`);
+                } else {
+                  this.logger.info(`[Q-022] 会话恢复失败，降级新建会话: ${err.message}`);
+                }
+                return newSession();
+              },
+            );
+        });
       handshake.then(
         (r) => {
           clearTimeout(timer);
@@ -486,26 +554,33 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
             reject(new Error('session/new 响应缺少 sessionId'));
             return;
           }
-          // Q-018 模型选择：task 带模型 → session/new 后先 session/set_config_option
-          //（configId='model'，value = configOptions 的 value JSON 串），成功才进 prompt；
-          // 不带 → 跳过（dsh 默认）。error → 走既有失败路径（onStatus failed + onResult）
-          if (!task.model) {
-            resolve(r.sessionId);
-            return;
-          }
-          client
-            .sendRequest<unknown>(
-              ACP_METHODS.setConfigOption,
-              { sessionId: r.sessionId, configId: 'model', value: task.model },
-              HANDSHAKE_STEP_TIMEOUT_MS,
-            )
-            .then(
-              () => resolve(r.sessionId),
-              (err: Error) => {
-                clearTimeout(timer);
-                reject(new Error(`模型设置失败: ${err.message}`));
-              },
-            );
+          // Q-018/Q-021 会话配置：task 带模型/推理力度 → session/new 后逐项 session/set_config_option
+          //（顺序：model 先 effort 后），全部成功才进 prompt；不带 → 跳过（dsh 默认）。
+          // error → 走既有失败路径（onStatus failed + onResult，错误信息带「XX设置失败」）
+          const configure = (configId: string, value: string, label: string): Promise<void> =>
+            client
+              .sendRequest<unknown>(
+                ACP_METHODS.setConfigOption,
+                { sessionId: r.sessionId, configId, value },
+                HANDSHAKE_STEP_TIMEOUT_MS,
+              )
+              .then(
+                () => undefined,
+                (err: Error) => {
+                  clearTimeout(timer);
+                  throw new Error(`${label}设置失败: ${err.message}`);
+                },
+              );
+          let configureChain: Promise<void> = Promise.resolve();
+          if (task.model) configureChain = configureChain.then(() => configure('model', task.model!, '模型'));
+          if (task.reasoningEffort) configureChain = configureChain.then(() => configure('reasoning_effort', task.reasoningEffort!, '推理力度'));
+          configureChain.then(
+            () => {
+              state.sessionId = r.sessionId; // Q-022：会话建立成功，供 onResult 回传
+              resolve(r.sessionId);
+            },
+            (err: Error) => reject(err),
+          );
         },
         (err: Error) => {
           clearTimeout(timer);
@@ -536,15 +611,36 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
         selfCheck: { passed: false, evidence: errMsg },
       });
     }
-    state.client?.dispose(result.err);
-    if (state.child && state.child.exitCode === null) {
-      try {
-        state.child.kill('SIGTERM');
-      } catch {
-        /* 已退出 */
-      }
-    }
+    // Q-027：失败结算（超时/崩溃/取消）同样优雅关停——子进程可能正在 flush 会话尾部
+    this.shutdownGraceful(state);
     return undefined;
+  }
+
+  /**
+   * Q-027 acp 子进程优雅关停（根因：dsh 会话持久化是异步写，settle/cancel 后立即 SIGTERM
+   * 打断回合尾部落盘 → seq 回退/空洞 → 下次 resume corrupt（真机会话 085d7e4b 实证）。
+   * 序列：dispose 关闭 stdin → dsh 正常 flush 会话并自然退出 → grace 1500ms 轮询 exitCode →
+   * 窗口内未退出才 SIGTERM 兜底。fire-and-forget：结算已 resolve，关停后台进行，不阻塞 IPC 返回。
+   */
+  private shutdownGraceful(state: ReturnType<typeof this.newState>): void {
+    state.client?.dispose();
+    const child = state.child;
+    if (!child || child.exitCode !== null) return; // 无子进程/已退出 → 无事可做
+    const GRACE_MS = 1500;
+    const poll = setInterval(() => {
+      if (child.exitCode !== null) clearInterval(poll); // 自然退出 ✓（轮询只读，不写 exitCode）
+    }, 100);
+    setTimeout(() => {
+      clearInterval(poll);
+      if (child.exitCode === null) {
+        try {
+          child.kill('SIGTERM');
+          this.logger.info('[Q-027] 优雅关停窗口超时，SIGTERM 兜底');
+        } catch {
+          /* 已退出 */
+        }
+      }
+    }, GRACE_MS);
   }
 
   /** prompt 提交 + 完成帧回执（onResult 恰好一次；崩溃经 connect 的 crashPromise 处理） */
@@ -563,6 +659,10 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
       .sendRequest<{ stopReason?: string }>(
         ACP_METHODS.prompt,
         { sessionId: state.sessionId, prompt: [{ type: 'text', text }] },
+        // Q-024：session/prompt 无超时——真实回合（工具调用 + 审批等待 + 多轮 LLM）远超 30s，
+        // 超时即 settleFailure 杀子进程（工具调用半途 → resume 后报 tool call interrupted）。
+        // 取消走 session/cancel + cancel 句柄；壳退出/子进程退出自然终止
+        0,
       )
       .then(
         (result) => {
@@ -573,7 +673,14 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
             exitCode: 0,
             summary: state.summaryText.slice(0, 4096),
             outputPath: '',
+            // Q-022：会话已建立 → 结算回写 task.acpSessionId（重跑 resume 续用）
+            ...(state.sessionId ? { sessionId: state.sessionId } : {}),
+            // Q-025：resume 失败降级标记（新 id 覆盖 / new 也失败时清空引用）
+            ...(state.resumeFailed ? { resumeFailed: true } : {}),
           });
+          // Q-027：结算已 resolve → 后台优雅关停（dsh flush 会话尾部后自然退出；
+          // 立即 SIGTERM 打断异步落盘 → seq 回退/空洞 → resume corrupt，真机实证）
+          this.shutdownGraceful(state);
           void result; // stopReason 'end_turn' 等均为正常完成（不做分支，保持既有成功语义）
         },
         (err: Error) => {
@@ -598,7 +705,13 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
       summary,
       outputPath: '',
       selfCheck: { passed: false, evidence: summary },
+      // Q-022：失败但会话已建立（resume/new 成功后 prompt 阶段失败）→ 也回写，重跑续用
+      ...(state.sessionId ? { sessionId: state.sessionId } : {}),
+      // Q-025：resume 失败降级标记（含降级 new 也失败的无 sessionId 形态 → 结算清空引用）
+      ...(state.resumeFailed ? { resumeFailed: true } : {}),
     });
+    // Q-027：失败结算同样优雅关停（prompt 失败时子进程可能仍在 flush；崩溃已退出 → no-op）
+    this.shutdownGraceful(state);
   }
 
   private newState() {
@@ -611,15 +724,19 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
       // Q-017-C：session/update 流式文本聚合（结算 summary 用）
       summaryText: '',
       // Q-017-C：在途审批请求（业务 requestId=String(jsonrpcId) → jsonrpc id + 选项表）
-      pendingPermissions: new Map<string, { id: number; options: Array<{ id?: string; kind?: string }> }>(),
+      pendingPermissions: new Map<string, { id: number; options: Array<{ optionId?: string; id?: string; kind?: string; name?: string }> }>(),
+      // Q-025：resume 失败已降级（结算侧据此清/覆盖 task.acpSessionId，损坏 id 不留）
+      resumeFailed: false,
     };
   }
 }
 
-/** prompt 文本（text 携带 taskId+AC，契约 §帧契约 prompt 参数） */
+/** prompt 文本（text 携带 taskId+描述+AC，契约 §帧契约 prompt 参数） */
 export function buildPromptText(task: ExecutionTask): string {
   const ac = task.ac;
   let text = `任务 ${task.taskId}：${task.title}`;
+  // Q-026：描述必须进 prompt——否则 agent 只看到标题，会话自动标题也变成「任务 <id>：标题」
+  if (task.description) text += `\n任务描述：${task.description}`;
   if (ac) {
     text += `\n验收标准（AC）:\n- what: ${ac.what}\n- expected: ${ac.expected}\n- verify: ${ac.verify}`;
     if (ac.context) text += `\n- context: ${ac.context}`;
@@ -628,11 +745,16 @@ export function buildPromptText(task: ExecutionTask): string {
 }
 
 /**
- * Q-017-C：按 approved 布尔从标准 ACP 权限选项表选 optionId（kind 匹配 allow/reject，
- * 退而按 id 名匹配；无选项表时回退标准 kind 字面量）
+ * Q-024/Bug-B：按 approved 布尔从权限选项表选 optionId。
+ * 对齐 dsh-acp 真实形态（源码实锤）：options 字段名是 **optionId**（非 id），kind 取值
+ * 'allow_once'/'reject_once'，硬编码 optionId 'allow-once'/'reject-once'——此前取 hit.id
+ * 恒为 undefined → dsh 按 `outcome.optionId === "allow-once" ? allowed : rejected`
+ * 把批准一律当拒绝（用户实测「批准无效」根因）。兼容 id 字段名（标准 ACP 文档形态）。
  */
-function pickOptionId(options: Array<{ id?: string; kind?: string }>, approved: boolean): string {
-  const want = approved ? /allow/ : /reject/;
-  const hit = options.find((o) => (typeof o.kind === 'string' && want.test(o.kind)) || (typeof o.id === 'string' && want.test(o.id)));
-  return hit?.id ?? (approved ? 'allow_once' : 'reject_once');
+function pickOptionId(options: Array<{ optionId?: string; id?: string; kind?: string; name?: string }>, approved: boolean): string {
+  const want = approved ? /allow/i : /reject/i;
+  const hit = options.find(
+    (o) => (typeof o.kind === 'string' && want.test(o.kind)) || (typeof o.name === 'string' && want.test(o.name)),
+  );
+  return hit?.optionId ?? hit?.id ?? (approved ? 'allow-once' : 'reject-once');
 }

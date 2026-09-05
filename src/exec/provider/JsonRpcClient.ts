@@ -27,7 +27,8 @@ export interface JsonRpcClientOptions {
 interface PendingRequest {
   resolve: (value: unknown) => void;
   reject: (err: Error) => void;
-  timer: NodeJS.Timeout;
+  /** 超时 timer（Q-024：timeoutMs=0 表示无超时——session/prompt 回合时长由 agent 决定） */
+  timer?: NodeJS.Timeout;
 }
 
 type NotificationHandler = (params: unknown) => void;
@@ -55,17 +56,25 @@ export class JsonRpcClient {
     this.stdin.on('error', (err: Error) => this.onDisconnect(err));
   }
 
-  /** 发送请求（id 匹配响应；超时 reject） */
+  /**
+   * 发送请求（id 匹配响应；超时 reject）。
+   * Q-024 按方法超时：timeoutMs=0 → 无超时（session/prompt 真实回合含工具调用/审批等待，
+   * 时长由 agent 决定；取消走 session/cancel + cancel 句柄，壳退出/子进程退出自然终止）；
+   * 快操作（initialize/new/set_config_option）保持 15-30s 预算。
+   */
   sendRequest<T = unknown>(method: string, params?: unknown, timeoutMs = 30_000): Promise<T> {
     if (this.disposed) return Promise.reject(new Error('JsonRpcClient 已释放'));
     const id = this.nextId++;
     const payload = JSON.stringify({ jsonrpc: '2.0', id, method, params });
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`JSON-RPC 请求超时: ${method}`));
-      }, timeoutMs);
-      timer.unref?.(); // 超时 timer 不阻塞进程退出（响应到达即 clearTimeout）
+      let timer: NodeJS.Timeout | undefined;
+      if (timeoutMs > 0) {
+        timer = setTimeout(() => {
+          this.pending.delete(id);
+          reject(new Error(`JSON-RPC 请求超时: ${method}`));
+        }, timeoutMs);
+        timer.unref?.(); // 超时 timer 不阻塞进程退出（响应到达即 clearTimeout）
+      }
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
       this.write(payload);
     });
@@ -120,7 +129,7 @@ export class JsonRpcClient {
     this.stdin.removeAllListeners('error');
     const reason = err ?? new Error('JsonRpcClient 已释放');
     for (const [, p] of this.pending) {
-      clearTimeout(p.timer);
+      if (p.timer) clearTimeout(p.timer); // Q-024：无超时请求（prompt）timer 为空
       p.reject(reason);
     }
     this.pending.clear();
@@ -168,7 +177,7 @@ export class JsonRpcClient {
       const pending = this.pending.get(m.id);
       if (!pending) return; // 未知 id（超时后迟到）忽略
       this.pending.delete(m.id);
-      clearTimeout(pending.timer);
+      if (pending.timer) clearTimeout(pending.timer); // Q-024：无超时请求 timer 为空
       if (m.error !== undefined) pending.reject(this.makeError(m.error));
       else pending.resolve(m.result);
     }

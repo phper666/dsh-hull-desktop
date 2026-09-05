@@ -140,3 +140,26 @@ test('请求超时：timeoutMs 后 reject', async () => {
   const { client, stdout } = makeClient();
   await rejects(client.sendRequest('newSession', undefined, 20), /超时/);
 });
+
+// ─────────────────── Q-024 按方法超时（session/prompt 无超时——回合时长由 agent 决定） ───────────────────
+
+test('Q-024 timeoutMs=0 → 无超时（真实 agent 回合远超 30s，超时即杀回合）', async () => {
+  const { mock } = await import('node:test');
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const { client, stdout } = makeClient();
+    let settled = false;
+    const p = client.sendRequest('session/prompt', { sessionId: 's' }, 0).then(() => { settled = true; }, () => { settled = true; });
+    // 推进 10 分钟（远超旧默认 30s）→ 无超时 reject，promise 仍 pending
+    mock.timers.tick(10 * 60 * 1000);
+    equal(settled, false, 'prompt 请求不被超时杀死');
+    // 响应到达 → 正常结算
+    stdout.emitData(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { stopReason: 'end_turn' } }) + '\n');
+    mock.timers.tick(1);
+    await p;
+    equal(settled, true);
+  } finally {
+    mock.timers.reset();
+  }
+});
+

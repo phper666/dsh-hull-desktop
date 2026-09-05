@@ -161,14 +161,23 @@ test('selfCheck passed=false + exitCode!=0（超时/通道异常）→ failed（
   ok(calls[0].arg3!.startsWith('selfCheck.passed=false（Q-015）'), '保留 Q-015 前缀');
 });
 
-test('manual（无 selfCheck）→ 结果评论回填 + 执行态 succeeded + 列不自动推进（CON-R029，E27；🟡-1 结算 succeeded）', () => {
+test('acp 执行成功（无 selfCheck）→ 结果评论回填 + 列→verify 自动流转（2026-09-05 体验改进；复用 CON-R029 自动流转机制）', () => {
   const { gate, calls } = make([makeTask({ id: 't_1', executionStatus: 'running', columnId: 'c_in_progress' })]);
-  const out = gate.applyResult(B_ID, 't_1', { exitCode: 0, summary: 'manual ok', outputPath: '' });
-  deepEqual(out, { taskId: 't_1', executionStatus: 'succeeded', columnId: 'c_in_progress' }, '结算 succeeded，列不变（不自动推进）');
+  const out = gate.applyResult(B_ID, 't_1', { exitCode: 0, summary: 'acp ok', outputPath: '' });
+  deepEqual(out, { taskId: 't_1', executionStatus: 'succeeded', columnId: C_VERIFY }, '结算 succeeded + 自动推进 verify 列');
   deepEqual(calls, [
-    { method: 'fillManualResult', taskId: 't_1', arg2: 'manual ok' },
-    { method: 'markSucceeded', taskId: 't_1', arg2: '执行完成', arg3: 'manual 结果回填（CON-R029 列不自动推进）' },
+    { method: 'fillManualResult', taskId: 't_1', arg2: 'acp ok' },
+    { method: 'markSucceeded', taskId: 't_1', arg2: '执行完成', arg3: 'acp 执行成功（自动流转 verify）' },
+    { method: 'moveToColumn', taskId: 't_1', arg2: C_VERIFY },
   ]);
+});
+
+test('acp 执行失败（selfCheck passed=false）→ failed，列不推进（现状保持）', () => {
+  const { gate, calls } = make([makeTask({ id: 't_1', executionStatus: 'running', columnId: 'c_in_progress' })]);
+  const out = gate.applyResult(B_ID, 't_1', { exitCode: 0, summary: '没过', outputPath: '', selfCheck: { passed: false } });
+  equal(out.executionStatus, 'failed', '失败结算');
+  equal(out.columnId, 'c_in_progress', '失败列不推进');
+  ok(!calls.some((c) => c.method === 'moveToColumn'), '无列流转 mutation');
 });
 
 test('任务不存在 → validation-error（exec-not-found 语义在 L3 引擎层拦截）', () => {

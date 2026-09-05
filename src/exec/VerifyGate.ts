@@ -8,7 +8,7 @@
  *   CON-R028 不绕过）；非 interrupted/failed → ExecNotCompletableError（exec-not-completable）。
  * - applyResult / applySelfCheck（§4.7 Q-015）：auto 判定——passed=true → succeeded + 列→verify
  *   （自动流转 CON-R029）；passed=false / 超时 / 异常 → failed（回写 failed 记录）。
- *   manual（无 selfCheck）→ 结果以评论回填 + 列流转手动（不自动推进，调用侧注入回填）。
+ *   acp 无 selfCheck 成功 → 评论回填 + 列→verify 自动流转（2026-09-05 体验改进，同款机制）。
  *
  * 约束（P2-1 + 任务约束）：store 只读消费；写经注入的 mutation 回调落库（B3 直调 B1 store
  * 系统管理字段写 + moveTask 语义，属 L3 引擎层）。
@@ -117,20 +117,26 @@ export class VerifyGate {
 
   /**
    * selfCheck 判定（§4.7 Q-015）：auto——passed=true → succeeded + 列→verify（自动流转）；
-   * passed=false / 超时 / 异常 → failed。manual（无 selfCheck）→ 结果评论回填 +
-   * 执行态置 succeeded（列不自动推进，CON-R029 结果手动放入，E15 不级联失败）。
+   * passed=false / 超时 / 异常 → failed（列不推进）。
+   * 无 selfCheck（acp 通道，2026-09-05 体验改进）→ 结果评论回填 + 执行态 succeeded +
+   * 列→verify 自动流转（复用 passed=true 同款机制；人工放置链路不经此处，CON-R029 不受影响）。
    */
   applyResult(boardId: string, taskId: string, result: VerifyGateResult): VerifyGateOutcome {
     const board = this.store.getBoard(boardId);
     const task = board.tasks.find((t) => t.id === taskId);
     if (!task) throw new ExecValidationError('任务不存在（已删除）', 'taskId');
 
-    // manual（无 selfCheck）：结果以评论回填 + 执行态 succeeded + 列不自动推进（CON-R029）
-    // 🟡-1：结算为 succeeded（通道正常完成，非失败），依赖方按 succeeded 解锁、不触发 E15 级联。
+    // acp 执行成功（selfCheck 无——ACP 通道不回 selfCheck；2026-09-05 体验改进）：
+    // 结果以评论回填（保留「执行结果」comment）+ 执行态 succeeded + 列→verify 自动流转，
+    // 复用 selfCheck.passed=true 同款流转机制（columnIdOf 按 type 查找，不硬编码 id）。
+    // CON-R029 语义对齐：人工放置链路（manualComplete/confirmVerify）不经此路径，不受影响。
+    // 🟡-1：结算 succeeded（通道正常完成），依赖方按 succeeded 解锁、不触发 E15 级联（不变）。
     if (result.selfCheck === undefined) {
+      const verifyId = this.columnIdOf(board, VERIFY_COLUMN_TYPE);
       this.mutations.fillManualResult(taskId, result.summary);
-      this.mutations.markSucceeded(taskId, '执行完成', 'manual 结果回填（CON-R029 列不自动推进）');
-      return { taskId, executionStatus: 'succeeded', columnId: task.columnId };
+      this.mutations.markSucceeded(taskId, '执行完成', 'acp 执行成功（自动流转 verify）');
+      if (verifyId) this.mutations.moveToColumn(taskId, verifyId);
+      return { taskId, executionStatus: 'succeeded', columnId: verifyId };
     }
 
     if (result.selfCheck.passed === true) {

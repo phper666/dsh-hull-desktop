@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { KanbanStore } from '../kanban/KanbanStore';
 import { DEFAULT_COLUMNS } from '../kanban/types';
 import { MockProvider, type MockOutcome } from './provider/MockProvider';
-import type { ExecutionProvider, ExecutionTask, ExecutionHandlers } from './provider/ExecutionProvider';
+import type { ExecutionProvider, ExecutionTask, ExecutionHandlers, ExecutionResult } from './provider/ExecutionProvider';
 import { ProviderManager } from './provider/ProviderManager';
 import { ExecutionEngine } from './ExecutionEngine';
 import type { NotifInput } from '../notifications/types';
@@ -36,19 +36,20 @@ after(() => {
   for (const fn of cleanup) fn();
 });
 
-function makeEnv(outcome?: MockOutcome, delayMs = 0, emitNotif?: (input: NotifInput) => void) {
+function makeEnv(outcome?: MockOutcome, delayMs = 0, emitNotif?: (input: NotifInput) => void, useExecLog?: boolean, providerOverride?: ExecutionProvider) {
   const dir = mkdtempSync(join(tmpdir(), 'hull-engine-'));
   cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
   const store = new KanbanStore({ userDataPath: dir });
   cleanup.push(() => store.dispose());
   const board = store.createBoard('看板', DEFAULT_COLUMNS.map((c) => ({ ...c })));
-  const provider = new MockProvider(outcome ? { outcome, delayMs } : { delayMs });
+  const provider = providerOverride ?? new MockProvider(outcome ? { outcome, delayMs } : { delayMs });
   const engine = new ExecutionEngine({
     store,
     providerManager: new ProviderManager({ env: { HULL_EXEC_PROVIDER: 'mock' } }),
     provider,
     maxParallelTasks: 3,
     emitNotif,
+    executionsDir: useExecLog ? join(dir, 'kanban', 'executions') : undefined, // Q-回复落盘（2026-09-05）：流式输出日志目录（缺省不写）
   });
   cleanup.push(() => engine.dispose());
   return { store, board, engine };
@@ -346,6 +347,21 @@ test('🟡-1 依赖 manual 的下游任务正确解锁（不级联失败）', as
   equal(status(store, board.id, downstream.id), 'succeeded', 'manual 结算 succeeded → 下游依赖解锁（不触发 E15 级联 failed）');
 });
 
+// ─────────────────── 2026-09-05 体验改进：acp 执行成功 → 自动挪验收列 ───────────────────
+
+test('acp 执行成功（无 selfCheck）→ 列自动流转 verify + 结果评论保留', async () => {
+  const { store, board, engine } = makeManualEnv(); // NoSelfCheckProvider：acp 通道不回 selfCheck 的真实形态
+  const t = makeTask(store, board.id, { title: 'acp 卡' });
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'succeeded');
+  const verifyColId = board.columns.find((c) => c.type === 'verify')!.id;
+  equal(column(store, board.id, t.id), verifyColId, '成功自动进 verify 列（按列 type 查找，不硬编码 id）');
+  ok(
+    store.getBoard(board.id).tasks.find((x) => x.id === t.id)!.timeline.some((x) => x.type === 'comment' && x.content.includes('执行结果')),
+    '「执行结果」comment 保留（需求 2 展示依据）',
+  );
+});
+
 // ─────────────────── 🟡-3 引擎 execution-update 事件 ───────────────────
 
 test('🟡-3 ExecutionEngine 发出 execution-update 事件（状态变更推送）', async () => {
@@ -537,4 +553,192 @@ test('Q-017 重启重排：auto 缺 AC 的残留 queued → failed（不抛错�
   engine.start();
   equal(status(store, board.id, a.id), 'failed', '缺 AC 的残留 queued 转 failed（E2 语义）');
   ok(rawTask.timeline.some((x) => x.type === 'system' && x.content.includes('验收标准')), 'timeline 有缺 AC 失败 system 事件');
+});
+
+// ─────────────────── Q-022 会话复用：结算回写 task.acpSessionId ───────────────────
+
+/** Q-022：onResult 带 sessionId 的 provider（复现 ACPProvider 会话建立后回传形态） */
+class SessionProvider implements ExecutionProvider {
+  constructor(
+    private readonly sessionId: string,
+    private readonly selfCheck: { passed: boolean } | undefined,
+  ) {}
+  execute(task: ExecutionTask, handlers: ExecutionHandlers): { cancel(): Promise<void> } {
+    if (this.selfCheck) handlers.onStatus('failed');
+    else handlers.onStatus('succeeded');
+    handlers.onResult(
+      this.selfCheck
+        ? { exitCode: 1, summary: '失败但会话已建立', outputPath: '', selfCheck: this.selfCheck, sessionId: this.sessionId }
+        : { exitCode: 0, summary: '', outputPath: '', sessionId: this.sessionId },
+    );
+    return { cancel: async () => {} };
+  }
+}
+
+test('Q-022 成功结算 → task.acpSessionId 回写（重跑续用会话）', async () => {
+  const { store, board, engine } = makeEnv(undefined, 5);
+  const t = makeTask(store, board.id);
+  const engine2 = new ExecutionEngine({
+    store,
+    providerManager: new ProviderManager({ env: { HULL_EXEC_PROVIDER: 'mock' } }),
+    provider: new SessionProvider('sess-success-1', undefined),
+  });
+  cleanup.push(() => engine2.dispose());
+  engine2.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'succeeded');
+  const rec = store.getBoard(board.id).tasks.find((x) => x.id === t.id)!;
+  equal(rec.acpSessionId, 'sess-success-1', '成功结算回写 acpSessionId');
+});
+
+test('Q-022 失败结算也回写 acpSessionId（重跑续用，agent 看得到上次失败上下文）', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-engine-'));
+  cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+  const store = new KanbanStore({ userDataPath: dir });
+  cleanup.push(() => store.dispose());
+  const board = store.createBoard('b', DEFAULT_COLUMNS.map((c) => ({ ...c })));
+  const t = makeTask(store, board.id);
+  const engine = new ExecutionEngine({
+    store,
+    providerManager: new ProviderManager({ env: { HULL_EXEC_PROVIDER: 'mock' } }),
+    provider: new SessionProvider('sess-fail-1', { passed: false }),
+  });
+  cleanup.push(() => engine.dispose());
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'failed');
+  const rec = store.getBoard(board.id).tasks.find((x) => x.id === t.id)!;
+  equal(rec.acpSessionId, 'sess-fail-1', '失败结算同样回写 acpSessionId');
+});
+
+test('Q-022 onResult 不带 sessionId → acpSessionId 不写（保持 undefined）', async () => {
+  const { store, board, engine } = makeEnv(undefined, 5);
+  const t = makeTask(store, board.id);
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'succeeded');
+  const rec = store.getBoard(board.id).tasks.find((x) => x.id === t.id)!;
+  equal(rec.acpSessionId, undefined, '无 sessionId 不写');
+});
+
+// ── Q-回复落盘（2026-09-05）：流式回复持久化 kanban/executions/e_<id>.log ──
+
+test('Q-回复落盘：text_chunk 流写入执行日志（executionsDir 注入）', async () => {
+  const { store, board, engine } = makeEnv({ kind: 'stream', chunks: ['你好', '，世界'] }, 5, undefined, true);
+  const t = makeTask(store, board.id);
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'succeeded');
+  const rec = store.getBoard(board.id).tasks.find((x) => x.id === t.id)!;
+  const execItem = rec.timeline.find((x) => x.type === 'execution' && x.execution?.outputPath);
+  ok(execItem, '有 execution 记录（含 outputPath）');
+  // outputPath 相对 userData 根（getDataDir() 返回 <userData>/kanban 层，故回退一级）
+  const logPath = join(store.getDataDir(), '..', execItem!.execution!.outputPath!);
+  const content = readFileSync(logPath, 'utf8');
+  ok(content.includes('你好') && content.includes('，世界'), '流文本完整落盘');
+});
+
+test('Q-回复落盘：失败执行日志尾部含 provider 错误 summary', async () => {
+  const { store, board, engine } = makeEnv(undefined, 0, undefined, true, new FailSummaryProvider());
+  const t = makeTask(store, board.id);
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'failed');
+  const rec = store.getBoard(board.id).tasks.find((x) => x.id === t.id)!;
+  const execItem = rec.timeline.find((x) => x.type === 'execution' && x.execution?.outputPath);
+  ok(execItem, '失败同样有 execution 记录');
+  // outputPath 相对 userData 根（getDataDir() 返回 <userData>/kanban 层，故回退一级）
+  const content = readFileSync(join(store.getDataDir(), '..', execItem!.execution!.outputPath!), 'utf8');
+  ok(content.includes('部分流式输出'), '失败前流文本已落盘');
+  ok(content.includes('[失败]') && content.includes('模型 400'), '错误 summary 追加日志尾部');
+});
+
+/** Q-回复落盘测试桩：先流式输出，再以 selfCheck=false + summary 失败结算（引擎不改动 provider 侧） */
+class FailSummaryProvider implements ExecutionProvider {
+  execute(task: ExecutionTask, handlers: ExecutionHandlers): { cancel(): Promise<void> } {
+    handlers.onStatus('running');
+    setTimeout(() => {
+      handlers.onEvent({ kind: 'text_chunk', text: '部分流式输出' });
+      handlers.onResult({ exitCode: 1, summary: '模型 400：off 不支持', outputPath: '', selfCheck: { passed: false } });
+      handlers.onStatus('failed');
+    }, 5);
+    return { cancel: async () => {} };
+  }
+}
+// ─────────────────── Q-025 resume 失败：损坏会话引用清理 ───────────────────
+
+/** Q-025：可配置 onResult 载荷的 provider（resume 失败场景驱动） */
+class ResumeFailProvider implements ExecutionProvider {
+  constructor(private readonly payload: ExecutionResult) {}
+  execute(task: ExecutionTask, handlers: ExecutionHandlers): { cancel(): Promise<void> } {
+    handlers.onStatus('succeeded');
+    handlers.onResult(this.payload);
+    return { cancel: async () => {} };
+  }
+}
+
+test('Q-025 resumeFailed + 新 sessionId → 覆盖损坏引用（正常降级路径）', async () => {
+  const { store, board } = makeEnv(undefined, 5);
+  const t = makeTask(store, board.id);
+  const raw = (store as unknown as { data: { boards: Array<{ id: string; tasks: Array<{ id: string; acpSessionId?: string }> }> } }).data.boards.find((b) => b.id === board.id)!;
+  raw.tasks.find((x) => x.id === t.id)!.acpSessionId = 'sess-corrupt';
+  const engine = new ExecutionEngine({
+    store,
+    providerManager: new ProviderManager({ env: { HULL_EXEC_PROVIDER: 'mock' } }),
+    provider: new ResumeFailProvider({ exitCode: 0, summary: '', outputPath: '', sessionId: 'sess-fresh', resumeFailed: true }),
+  });
+  cleanup.push(() => engine.dispose());
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'succeeded');
+  equal(raw.tasks.find((x) => x.id === t.id)!.acpSessionId, 'sess-fresh', '损坏 id 被新 id 覆盖');
+});
+
+test('Q-025 resumeFailed + 无 sessionId（降级 new 也失败）→ acpSessionId 清空（下次不再白试坏 id）', async () => {
+  const { store, board } = makeEnv(undefined, 5);
+  const t = makeTask(store, board.id);
+  const raw = (store as unknown as { data: { boards: Array<{ id: string; tasks: Array<{ id: string; acpSessionId?: string }> }> } }).data.boards.find((b) => b.id === board.id)!;
+  raw.tasks.find((x) => x.id === t.id)!.acpSessionId = 'sess-corrupt';
+  const engine = new ExecutionEngine({
+    store,
+    providerManager: new ProviderManager({ env: { HULL_EXEC_PROVIDER: 'mock' } }),
+    provider: new ResumeFailProvider({ exitCode: 1, summary: 'dsh ACP 通道异常', outputPath: '', selfCheck: { passed: false }, resumeFailed: true }),
+  });
+  cleanup.push(() => engine.dispose());
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'failed');
+  equal(raw.tasks.find((x) => x.id === t.id)!.acpSessionId, undefined, '损坏引用被清空（下次执行走 session/new）');
+});
+
+test('Q-025 无 resumeFailed + 无 sessionId → acpSessionId 不动（cwd mismatch 等保留语义）', async () => {
+  const { store, board } = makeEnv(undefined, 5);
+  const t = makeTask(store, board.id);
+  const raw = (store as unknown as { data: { boards: Array<{ id: string; tasks: Array<{ id: string; acpSessionId?: string }> }> } }).data.boards.find((b) => b.id === board.id)!;
+  raw.tasks.find((x) => x.id === t.id)!.acpSessionId = 'sess-prev';
+  const engine = new ExecutionEngine({
+    store,
+    providerManager: new ProviderManager({ env: { HULL_EXEC_PROVIDER: 'mock' } }),
+    provider: new ResumeFailProvider({ exitCode: 1, summary: '通道异常', outputPath: '', selfCheck: { passed: false } }),
+  });
+  cleanup.push(() => engine.dispose());
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'failed');
+  equal(raw.tasks.find((x) => x.id === t.id)!.acpSessionId, 'sess-prev', '引用保留（mismatch 场景下次仍可尝试）');
+});
+
+// ─────────────────── Q-026 agent 执行结果 comment 标记（source.type='agent'） ───────────────────
+
+test('Q-026 manual 执行结果回填 comment → source.type=agent（不可经 user 评论通道改删）', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-engine-'));
+  cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+  const store = new KanbanStore({ userDataPath: dir });
+  cleanup.push(() => store.dispose());
+  const board = store.createBoard('b', DEFAULT_COLUMNS.map((c) => ({ ...c })));
+  const t = makeTask(store, board.id);
+  const engine = new ExecutionEngine({
+    store,
+    providerManager: new ProviderManager({ env: { HULL_EXEC_PROVIDER: 'mock' } }),
+    provider: new NoSelfCheckProvider(),
+  });
+  cleanup.push(() => engine.dispose());
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'succeeded');
+  const rec = store.getBoard(board.id).tasks.find((x) => x.id === t.id)!;
+  const resultComment = rec.timeline.filter((x) => x.type === 'comment' && x.content.startsWith('执行结果：')).pop();
+  ok(resultComment, '有执行结果回填 comment');
+  equal(resultComment!.source.type, 'agent', 'source.type=agent（此前 user 与用户评论无法区分）');
 });

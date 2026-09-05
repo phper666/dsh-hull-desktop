@@ -18,9 +18,9 @@
  * - DSH_HOME 未设置 → failed（A16 spawn 前置）
  */
 import { test } from 'node:test';
-import { deepEqual, equal, ok } from 'node:assert/strict';
+import { deepEqual, equal, ok, rejects } from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -516,7 +516,7 @@ test('Q-018 listModels displayName：settings displayName → 分组 name（对�
   deepEqual(result, [{ group: 'huoshan-yongyou', name: '火山（永友）', options: [{ value: '["huoshan-yongyou","glm-5.3-flash"]', name: 'glm-5.3-flash' }] }]);
 });
 
-test('cancel：session/cancel 通知 + kill 兜底 + 结果丢弃（幂等）', async () => {
+test('cancel：session/cancel 通知 + 优雅关停（Q-027）+ 结果丢弃（幂等）', async () => {
   const { provider, h } = setup();
   const handle = provider.execute(TASK, h.handlers);
   await handshake(h);
@@ -525,7 +525,9 @@ test('cancel：session/cancel 通知 + kill 兜底 + 结果丢弃（幂等）', 
   ok(cancelMsg, '发送 session/cancel 通知');
   const parsed = JSON.parse(cancelMsg!);
   equal(parsed.params.sessionId, 's_1');
-  ok(h.child!.killed.length >= 1, 'kill 兜底');
+  // Q-027：优雅关停——grace 1500ms 未自然退出才 SIGTERM 兜底（O-11 保证终止）
+  await sleep(1800);
+  ok(h.child!.killed.includes('SIGTERM'), 'grace 窗口后 SIGTERM 兜底（不立即杀，保落盘完整）');
   await handle.cancel();
   ok(true, 'cancel 幂等不抛');
 });
@@ -615,6 +617,13 @@ test('buildPromptText：含 context', () => {
   ok(text.includes('context: 背景'));
 });
 
+test('buildPromptText：Q-026 描述进 prompt，缺失不输出描述行', () => {
+  const withDesc = buildPromptText({ taskId: 't_4', title: '调研', cwd: tmpdir(), description: '调研一下 salesforce 平台' });
+  ok(withDesc.includes('任务描述：调研一下 salesforce 平台'));
+  const noDesc = buildPromptText({ taskId: 't_5', title: '无描述', cwd: tmpdir() });
+  ok(!noDesc.includes('任务描述：'), '无描述时不输出描述行');
+});
+
 test('无 AC：prompt 文本仅 taskId+title', () => {
   const text = buildPromptText({ taskId: 't_2', title: '无 AC 任务', cwd: tmpdir() });
   ok(text.includes('t_2'));
@@ -632,4 +641,335 @@ test('Q-019 防御校验：task.cwd 目录不存在 → failed 含「工作目�
   equal(h.resultCount, 1);
   ok(h.results[0].summary.includes('工作目录不存在'), '失败信息含「工作目录不存在」');
   ok(h.results[0].summary.includes('/nonexistent-hull-dir-xyz/nested'), '失败信息带路径');
+});
+
+// ─────────────────── Q-021 推理力度（session/set_config_option reasoning_effort） ───────────────────
+
+test('Q-021 task 带 reasoningEffort（无 model）→ session/new 后发 reasoning_effort 设置帧，成功才进 prompt', async () => {
+  const { provider, h } = setup();
+  provider.execute({ ...TASK, reasoningEffort: 'low' }, h.handlers);
+  const init = sentRequest(h, 0);
+  respond(h.child!, init.id!, { protocolVersion: 1 });
+  await sleep(5);
+  const ns = sentRequest(h, 1);
+  respond(h.child!, ns.id!, { sessionId: 's_1' });
+  await sleep(5);
+  const sc = sentRequest(h, 2);
+  equal(sc.method, 'session/set_config_option');
+  equal((sc.params as { configId: string }).configId, 'reasoning_effort');
+  equal((sc.params as { value: string }).value, 'low');
+  respond(h.child!, sc.id!, { ok: true });
+  await sleep(5);
+  const pt = sentRequest(h, 3);
+  equal(pt.method, 'session/prompt', 'effort 设置成功后才提交 prompt');
+  respond(h.child!, pt.id!, { stopReason: 'end_turn' });
+  await sleep(5);
+  equal(h.resultCount, 1);
+});
+
+test('Q-021 model 与 reasoningEffort 都带 → 两帧顺序 model 先 effort 后', async () => {
+  const { provider, h } = setup();
+  provider.execute({ ...TASK, model: '["p","m"]', reasoningEffort: 'low' }, h.handlers);
+  const init = sentRequest(h, 0);
+  respond(h.child!, init.id!, { protocolVersion: 1 });
+  await sleep(5);
+  const ns = sentRequest(h, 1);
+  respond(h.child!, ns.id!, { sessionId: 's_1' });
+  await sleep(5);
+  const m = sentRequest(h, 2);
+  equal((m.params as { configId: string }).configId, 'model', 'model 先');
+  respond(h.child!, m.id!, { ok: true });
+  await sleep(5);
+  const e = sentRequest(h, 3);
+  equal((e.params as { configId: string }).configId, 'reasoning_effort', 'effort 后');
+  equal((e.params as { value: string }).value, 'low');
+  respond(h.child!, e.id!, { ok: true });
+  await sleep(5);
+  const pt = sentRequest(h, 4);
+  equal(pt.method, 'session/prompt');
+  respond(h.child!, pt.id!, { stopReason: 'end_turn' });
+  await sleep(5);
+  equal(h.resultCount, 1);
+});
+
+test('Q-021 reasoning_effort 设置 error → failed 含「推理力度设置失败」', async () => {
+  const { provider, h } = setup();
+  provider.execute({ ...TASK, reasoningEffort: 'low' }, h.handlers);
+  const init = sentRequest(h, 0);
+  respond(h.child!, init.id!, { protocolVersion: 1 });
+  await sleep(5);
+  const ns = sentRequest(h, 1);
+  respond(h.child!, ns.id!, { sessionId: 's_1' });
+  await sleep(5);
+  const sc = sentRequest(h, 2);
+  h.child!.stdout.emitData(JSON.stringify({ jsonrpc: '2.0', id: sc.id!, error: { code: -32602, message: 'Invalid params' } }) + '\n');
+  await sleep(5);
+  equal(h.statuses.includes('failed'), true);
+  equal(h.resultCount, 1);
+  ok(h.results[0].summary.includes('推理力度设置失败'), '错误信息带「推理力度设置失败」');
+});
+
+// ─────────────────── Q-022 会话复用（session/resume + 优雅降级 + sessionId 回传） ───────────────────
+
+test('Q-022 resumeSessionId 存在 → 先发 session/resume 帧（非 session/new），成功后续用', async () => {
+  const { provider, h } = setup();
+  provider.execute({ ...TASK, resumeSessionId: 'sess-prev-1' }, h.handlers);
+  const init = sentRequest(h, 0);
+  respond(h.child!, init.id!, { protocolVersion: 1 });
+  await sleep(5);
+  const rs = sentRequest(h, 1);
+  equal(rs.method, 'session/resume');
+  equal((rs.params as { sessionId: string }).sessionId, 'sess-prev-1');
+  equal((rs.params as { cwd: string }).cwd, TASK_CWD, 'resume cwd 必须与会话原 cwd 一致（mismatch → invalidParams）');
+  deepEqual((rs.params as { mcpServers: unknown[] }).mcpServers, []);
+  respond(h.child!, rs.id!, { sessionId: 'sess-prev-1' });
+  await sleep(5);
+  const pt = sentRequest(h, 2);
+  equal(pt.method, 'session/prompt');
+  ok(!h.child!.stdin.lines.some((l) => l.includes('session/new')), 'resume 成功不发 session/new');
+  respond(h.child!, pt.id!, { stopReason: 'end_turn' });
+  await sleep(5);
+  equal(h.resultCount, 1);
+  equal(h.results[0].sessionId, 'sess-prev-1', 'onResult 带 sessionId（回写 acpSessionId 用）');
+});
+
+test('Q-022 resume 错误 → 优雅降级发 session/new（一次重试不失败）+ onResult 带新 sessionId', async () => {
+  const { provider, h } = setup();
+  provider.execute({ ...TASK, resumeSessionId: 'sess-gone' }, h.handlers);
+  const init = sentRequest(h, 0);
+  respond(h.child!, init.id!, { protocolVersion: 1 });
+  await sleep(5);
+  const rs = sentRequest(h, 1);
+  equal(rs.method, 'session/resume');
+  // cwd mismatch / not resumable → error
+  h.child!.stdout.emitData(JSON.stringify({ jsonrpc: '2.0', id: rs.id!, error: { code: -32602, message: 'session cwd does not match' } }) + '\n');
+  await sleep(5);
+  const ns = sentRequest(h, 2);
+  equal(ns.method, 'session/new', '降级新建会话');
+  equal((ns.params as { cwd: string }).cwd, TASK_CWD);
+  respond(h.child!, ns.id!, { sessionId: 'sess-new-1' });
+  await sleep(5);
+  const pt = sentRequest(h, 3);
+  equal(pt.method, 'session/prompt', '降级后照常进 prompt（用户无感）');
+  respond(h.child!, pt.id!, { stopReason: 'end_turn' });
+  await sleep(5);
+  equal(h.resultCount, 1);
+  equal(h.statuses.includes('failed'), false, '降级不失败');
+  equal(h.results[0].sessionId, 'sess-new-1', '回写新 sessionId');
+});
+
+test('Q-022 session/new 路径 onResult 也带 sessionId（新会话建立即回写）', async () => {
+  const { provider, h } = setup();
+  provider.execute(TASK, h.handlers);
+  const pt = await handshake(h);
+  respond(h.child!, pt.id!, { stopReason: 'end_turn' });
+  await sleep(5);
+  equal(h.results[0].sessionId, 's_1', '新会话 sessionId 回传');
+});
+
+test('Q-022 resume 响应缺 sessionId 字段（真机实测形态）→ 以 resumeSessionId 续用（不误降级）', async () => {
+  const { provider, h } = setup();
+  provider.execute({ ...TASK, resumeSessionId: 'sess-prev-1' }, h.handlers);
+  const init = sentRequest(h, 0);
+  respond(h.child!, init.id!, { protocolVersion: 1 });
+  await sleep(5);
+  const rs = sentRequest(h, 1);
+  respond(h.child!, rs.id!, {}); // 真机实测：resume 成功响应无 sessionId 字段
+  await sleep(5);
+  const pt = sentRequest(h, 2);
+  equal(pt.method, 'session/prompt', 'resume 成功（不降级 session/new）');
+  respond(h.child!, pt.id!, { stopReason: 'end_turn' });
+  await sleep(5);
+  equal(h.resultCount, 1);
+  equal(h.results[0].sessionId, 'sess-prev-1', 'onResult 回传 resumeSessionId（回写不变）');
+});
+
+// ─────────────────── Q-023 listModels 壳内挂起/污染修复（探测隔离 + 硬超时） ───────────────────
+
+test('Q-023 探测子进程隔离：spawn env.DSH_HOME 指向临时目录（不污染真实 ~/.dsh/sessions）+ 探测结束清理', async () => {
+  const h = new Harness();
+  const spawnOpts: Array<{ cmd: string; args: string[]; opts: { env?: Record<string, string> } }> = [];
+  const provider = new ACPProvider({
+    settingsPath: join(tmpdir(), 'hull-no-settings.yaml'),
+    spawnFn: ((cmd: string, args: string[], opts: never) => {
+      spawnOpts.push({ cmd, args, opts: opts as { env?: Record<string, string> } });
+      h.child = new FakeChild();
+      return h.child;
+    }) as never,
+  });
+  const groups = [{ group: 'g', name: 'g', options: [{ value: '["p","m"]', name: 'm' }] }];
+  const p = driveListModels(provider, h, [{ id: 'model', options: groups }]);
+  const tmpHome = spawnOpts[0]?.opts?.env?.DSH_HOME;
+  ok(tmpHome, 'spawn env.DSH_HOME 指向临时目录');
+  ok(existsSync(tmpHome!), '探测期间临时 home 存在');
+  const init = sentRequest(h, 0);
+  respond(h.child!, init.id!, { protocolVersion: 1 });
+  await sleep(5);
+  const ns = sentRequest(h, 1);
+  respond(h.child!, ns.id!, { sessionId: 's', configOptions: [{ id: 'model', options: groups }] });
+  const result = (await p) as typeof groups;
+  deepEqual(result, groups);
+  equal(existsSync(tmpHome!), false, '探测结束临时 home 已清理（返回路径）');
+});
+
+test('Q-023 硬超时兜底：fake spawn 挂起（不回帧）→ 注入短超时 → reject「模型清单获取超时」+ 临时目录清理', async () => {
+  const h = new Harness();
+  let tmpHome = '';
+  const provider = new ACPProvider({
+    settingsPath: join(tmpdir(), 'hull-no-settings.yaml'),
+    listModelsTimeoutMs: 60, // 注入短超时
+    spawnFn: ((cmd: string, args: string[], opts: never) => {
+      tmpHome = (opts as { env?: Record<string, string> }).env?.DSH_HOME ?? '';
+      h.child = new FakeChild(); // 挂起：不回 initialize 响应
+      return h.child;
+    }) as never,
+  });
+  await rejects(
+    () => provider.listModels(),
+    /模型清单获取超时/,
+    '45s 硬超时兜底（注入 60ms 验证）',
+  );
+  ok(tmpHome && !existsSync(tmpHome), '超时路径临时 home 已清理');
+  ok(h.child!.killed.length >= 1, '挂起子进程被 kill（不残留）');
+});
+
+// ─────────────────── Q-024/Bug-B 权限响应对齐 dsh-acp 真实形态 ───────────────────
+
+test('Q-024 dsh 真实 permission 请求形态（optionId 字段名）→ 批准回 allow-once（修复批准被当拒绝）', async () => {
+  const { provider, h } = setup();
+  const handle = provider.execute(TASK, h.handlers);
+  await handshake(h);
+  // dsh-acp 源码实锤形态：{ sessionId, toolCall:{toolCallId}, options:[{optionId,name,kind}] }——无 question 字段
+  serverRequest(h.child!, 7, 'session/request_permission', {
+    sessionId: 's_1',
+    toolCall: { toolCallId: 'call_1' },
+    options: [
+      { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
+      { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
+    ],
+  });
+  await sleep(5);
+  equal(h.events[0].kind, 'permission_request');
+  (handle as { respondPermission?: (a: string, b: boolean, c?: string) => void }).respondPermission?.('7', true, '用户批准');
+  const resp = h.child!.stdin.lines.map((l) => JSON.parse(l)).find((f) => f.id === 7 && f.method === undefined);
+  ok(resp, '有 response 帧');
+  equal(resp.result.outcome.outcome, 'selected');
+  equal(resp.result.outcome.optionId, 'allow-once', '批准 → allow-once（此前 hit.id=undefined 被 dsh 当 rejected）');
+  // 收尾
+  const pt = sentRequest(h, 2);
+  if (pt.method === 'session/prompt') respond(h.child!, pt.id!, { stopReason: 'end_turn' });
+  await sleep(5);
+});
+
+test('Q-024 dsh 真实形态拒绝 → reject-once；无 options 表 → 字面量兜底', async () => {
+  const { provider, h } = setup();
+  const handle = provider.execute(TASK, h.handlers);
+  await handshake(h);
+  serverRequest(h.child!, 7, 'session/request_permission', {
+    sessionId: 's_1',
+    options: [
+      { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
+      { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
+    ],
+  });
+  await sleep(5);
+  (handle as { respondPermission?: (a: string, b: boolean) => void }).respondPermission?.('7', false);
+  const resp = h.child!.stdin.lines.map((l) => JSON.parse(l)).find((f) => f.id === 7 && f.method === undefined);
+  equal(resp.result.outcome.optionId, 'reject-once', '拒绝 → reject-once');
+  // 无 options（异常形态）→ 字面量兜底（dsh 认得自己的硬编码 id）
+  serverRequest(h.child!, 8, 'session/request_permission', { sessionId: 's_1', toolCall: { toolCallId: 'c2' } });
+  await sleep(5);
+  (handle as { respondPermission?: (a: string, b: boolean) => void }).respondPermission?.('8', true);
+  const resp2 = h.child!.stdin.lines.map((l) => JSON.parse(l)).find((f) => f.id === 8 && f.method === undefined);
+  equal(resp2.result.outcome.optionId, 'allow-once', '无选项表 → allow-once 字面量兜底');
+  // 收尾
+  const pt = sentRequest(h, 2);
+  if (pt.method === 'session/prompt') respond(h.child!, pt.id!, { stopReason: 'end_turn' });
+  await sleep(5);
+});
+
+// ─────────────────── Q-025 resume 失败处理（损坏日志清引用 / cwd mismatch 保留） ───────────────────
+
+test('Q-025 resume corrupt log 错误 → 降级结算 onResult 带 resumeFailed 标记（Engine 清损坏引用用）', async () => {
+  const { provider, h } = setup();
+  provider.execute({ ...TASK, resumeSessionId: 'sess-corrupt' }, h.handlers);
+  const init = sentRequest(h, 0);
+  respond(h.child!, init.id!, { protocolVersion: 1 });
+  await sleep(5);
+  const rs = sentRequest(h, 1);
+  equal(rs.method, 'session/resume');
+  // 真机实锤：损坏会话日志 → -32603 corrupt session log
+  h.child!.stdout.emitData(JSON.stringify({
+    jsonrpc: '2.0', id: rs.id!,
+    error: { code: -32603, message: 'Internal error', data: { details: 'corrupt session log: seq gap in committed region at line 38 (expected 127, got 123)' } },
+  }) + '\n');
+  await sleep(5);
+  const ns = sentRequest(h, 2);
+  equal(ns.method, 'session/new', '降级新建');
+  respond(h.child!, ns.id!, { sessionId: 'sess-fresh' });
+  await sleep(5);
+  const pt = sentRequest(h, 3);
+  equal(pt.method, 'session/prompt');
+  respond(h.child!, pt.id!, { stopReason: 'end_turn' });
+  await sleep(5);
+  equal(h.resultCount, 1);
+  equal(h.results[0].sessionId, 'sess-fresh', '新 id 回写覆盖损坏 id');
+  equal(h.results[0].resumeFailed, true, '带降级标记（new 也失败时 Engine 清空引用用）');
+});
+
+test('Q-025 正常执行（无 resume）→ 不带 resumeFailed 标记', async () => {
+  const { provider, h } = setup();
+  provider.execute(TASK, h.handlers);
+  const pt = await handshake(h);
+  respond(h.child!, pt.id!, { stopReason: 'end_turn' });
+  await sleep(5);
+  equal(h.results[0].resumeFailed, undefined);
+});
+
+// ─────────────────── Q-027 acp 子进程优雅关停（防会话日志损坏） ───────────────────
+// 根因：dsh 会话持久化异步写，settle/cancel 后立即 SIGTERM 打断回合尾部落盘 → seq 回退/空洞 →
+// 下次 resume corrupt。修复：dispose 关 stdin → 等 dsh 自然退出（grace 1500ms）→ 未退出才 SIGTERM。
+
+test('Q-027 优雅关停：子进程自然退出（grace 窗口内）→ 不发 SIGTERM', async () => {
+  const { provider, h } = setup();
+  provider.execute(TASK, h.handlers);
+  const pt = await handshake(h);
+  respond(h.child!, pt.id!, { stopReason: 'end_turn' });
+  await sleep(5);
+  equal(h.resultCount, 1, '结算已 resolve（不等待关停）');
+  // 模拟 dsh 自然退出（flush 完成后 exitCode 置位）
+  setTimeout(() => { h.child!.exitCode = 0; }, 300);
+  await sleep(800);
+  equal(h.child!.killed.length, 0, '自然退出 → 无 SIGTERM（回合尾部落盘完整）');
+});
+
+test('Q-027 优雅关停：grace 窗口未退出 → SIGTERM 兜底', async () => {
+  const { provider, h } = setup();
+  provider.execute(TASK, h.handlers);
+  const pt = await handshake(h);
+  respond(h.child!, pt.id!, { stopReason: 'end_turn' });
+  await sleep(5);
+  equal(h.child!.killed.length, 0, '结算即返回（关停后台 fire-and-forget）');
+  await sleep(1800); // grace 1500ms + 轮询余量
+  ok(h.child!.killed.includes('SIGTERM'), 'grace 窗口未退出 → SIGTERM 兜底');
+});
+
+test('Q-027 cancel 路径：session/cancel 后子进程自然退出 → 无 SIGTERM（取消不截断写入）', async () => {
+  const { provider, h } = setup();
+  const handle = provider.execute(TASK, h.handlers);
+  await handshake(h);
+  await handle.cancel();
+  ok(h.child!.stdin.lines.some((l) => l.includes('session/cancel')), '先发 session/cancel');
+  setTimeout(() => { h.child!.exitCode = 0; }, 300);
+  await sleep(800);
+  equal(h.child!.killed.length, 0, 'cancel 后自然退出 → 无立即 SIGTERM');
+});
+
+test('Q-027 cancel 兜底：cancel 后未退出 → grace 窗口后 SIGTERM（O-11 保证进程终止）', async () => {
+  const { provider, h } = setup();
+  const handle = provider.execute(TASK, h.handlers);
+  await handshake(h);
+  await handle.cancel();
+  await sleep(1800);
+  ok(h.child!.killed.includes('SIGTERM'), 'cancel 未退出 → SIGTERM 兜底（O-11）');
 });

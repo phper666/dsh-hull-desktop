@@ -27,18 +27,31 @@ export interface ExecutionResult {
   outputPath: string;
   /** Q-015 自验判定信号 */
   selfCheck?: { passed: boolean; evidence?: string };
+  /** Q-022 会话复用：本次执行建立的 acp 会话 id（结算回写 task.acpSessionId，重跑 resume 续用） */
+  sessionId?: string;
+  /**
+   * Q-025：resume 失败已降级新建——有 sessionId 时新 id 覆盖旧引用；无 sessionId（降级 new
+   * 也失败）时结算清空 task.acpSessionId（损坏 id 不留，下次执行不再白试）
+   */
+  resumeFailed?: boolean;
 }
 
 /** execute() 入参任务（契约 §ExecutionProvider 字段） */
 export interface ExecutionTask {
   taskId: string;
   title: string;
+  /** Q-026 任务描述：prompt 内容（task.description；缺失则不拼） */
+  description?: string;
   /** auto 模式 AC（四字段） */
   ac?: { what: string; expected: string; verify: string; context?: string };
   /** Q-018 模型选择：session/set_config_option 的 value JSON 串（task.agentSpec.model ?? board.defaultModel）；缺省走 dsh 默认 */
   model?: string;
   /** Q-019 工作目录：session/new cwd（task.agentSpec.cwd ?? board.defaultCwd ?? homedir；Scheduler 已展开 ~） */
   cwd: string;
+  /** Q-021 推理力度：session/set_config_option reasoning_effort（task.agentSpec.reasoningEffort ?? board.defaultReasoningEffort ?? 'low' 终端兜底） */
+  reasoningEffort?: string;
+  /** Q-022 会话复用：上次执行的 acp 会话 id（存在则先 session/resume 续用，失败优雅降级 session/new） */
+  resumeSessionId?: string;
   agentSpec?: {
     /** 默认 'dsh'（CON-R030 预留多平台） */
     provider?: string;

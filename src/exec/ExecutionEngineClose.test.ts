@@ -166,6 +166,13 @@ test('ExecutionEngine.respondApproval：转发到当前执行句柄（running �
     await sleep(5);
     const ns = JSON.parse(child.stdin.lines[1]);
     child.stdout.emitData(JSON.stringify({ jsonrpc: '2.0', id: ns.id, result: { sessionId: 's1' } }) + '\n');
+    await sleep(5);
+    // Q-021 修订：Scheduler 终端兜底 reasoningEffort='low' → 会话建立后先回 effort 设置帧
+    const eff = JSON.parse(child.stdin.lines[2]);
+    equal(eff.method, 'session/set_config_option');
+    equal(eff.params.configId, 'reasoning_effort');
+    equal(eff.params.value, 'low');
+    child.stdout.emitData(JSON.stringify({ jsonrpc: '2.0', id: eff.id, result: { ok: true } }) + '\n');
     await waitFor(() => status(store, board.id, t.id) === 'running');
     // Q-017-C：标准 ACP 下 respond 只能回在途请求——先模拟 dsh 发 permission 请求（id=7）
     child.stdout.emitData(
