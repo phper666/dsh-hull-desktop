@@ -29,9 +29,26 @@
 ## 已知事项（下一批）
 
 1. **用户动作**：ticket 执行需在卡片上选择模型（当前 test 票 agentSpec.model=null，回落官方路由无 key）——或 web Models 页补 DEEPSEEK_API_KEY
-2. **会话归组验证**：工作目录已填但会话归组待复验（session/new cwd 已改，疑似 dsh 按子进程 cwd 归组，待证据）
+2. **会话归组复验**：工作目录已填但会话归组待复验（session/new cwd 已改，疑似 dsh 按子进程 cwd 归组，待证据）
 3. **下一批**：模型/工作目录选择器加提示文案；dsh settings.yaml 自定义渠道在 acp 会话清单中的瞬态消失现象（一次出现过未复现，已用 settings 直读根治清单来源）
 4. **中断恢复缺口**：dsh 升级中途退壳 → staging 孤儿 + 升级静默作废（CON-R005 原子性「中断恢复」缺口，独立改进项）
+
+## 待办（后续批次）
+
+- **会话深链**：dsh web 无 URL/事件会话深链机制（前端无 URLSearchParams/路由/openSession；实测 /sessions/<id> 404、?session= 仅 SPA 兜底）——壳当前用「在 web 打开」落到会话列表；若 dsh 上游支持会话深链（?session= 或 API），壳零成本接入。持续跟进。
+- **时间线视图信息密度**：用户反馈一眼看不出「是什么执行的数据」——执行事件虽已从 `execute t_x` 改为「状态·退出码」摘要，但仍需优化：执行行应直接带任务标题/模型/耗时/结果摘要等关键信息，时间戳+类型徽标+标题+摘要分层清晰。后续批次做。
+
+
+
+- **会话归组 ✓**：ticket 会话正确落在 `--Users-liyuzhao-AI--`（session/new cwd 生效，「未分组」根因 = 调试探测会话污染，见下）
+- **推理力度 ✓**：真机实验 reasoning_effort=low → glm-5.3-flash 经火山网关流式回复 end_turn（off → thinking disabled → 400 根因链闭合）；终端兜底改 low（Q-021 修订）
+- **会话复用 ✓**：`session/resume` 真实会话 ACCEPT（注意方法名是 resume 不是标准 ACP 的 load）；同 ticket 续会话已实现（Q-022）
+
+## 事故与规范：真机 smoke 污染 ~/.dsh/sessions
+
+排查期间协议探测与真机 smoke 直接使用真实 `~/.dsh`（未隔离 DSH_HOME），在 sessions/ 下留下 7 个垃圾工作区目录（opt-mismatch-dir/tmp/acp-probe 等），用户在 dsh web 看到大量「未分组」会话。已清理（保留用户真实数据）。
+
+**规范（强制）**：真机 smoke / 协议探测**必须**用隔离环境——`DSH_HOME=$(mktemp -d)` 传入子进程，绝不落真实 `~/.dsh`；涉及真实环境的验证前先声明副作用。
 
 ## Code Review / Semgrep
 
