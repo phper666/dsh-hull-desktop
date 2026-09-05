@@ -750,3 +750,75 @@ test('Q-019 updateBoard：defaultCwd 设置/清除 + 落盘持久化', () => {
   const cleared = store.updateBoard(board.id, { defaultCwd: null });
   equal((cleared as { defaultCwd?: string }).defaultCwd, undefined, 'null 清除');
 });
+
+/** Q-021 推理力度：agentSpec.reasoningEffort 白名单枚举（off|low|medium|high|max）+ merge 语义 */
+test('Q-021 createTask/updateTask：reasoningEffort 存住/清除/非法值拒绝', () => {
+  const { store } = makeStore();
+  const board = store.getBoards()[0];
+  const t = store.createTask(board.id, { title: 't', agentSpec: { reasoningEffort: 'low' } });
+  equal(t.agentSpec.reasoningEffort, 'low', 'create 存住');
+  const t2 = store.createTask(board.id, { title: 't2' });
+  equal(t2.agentSpec.reasoningEffort, null, 'create 不带 → null');
+  // update 非空更新 / 显式 null 清除 / 空串清除 / 不带不动
+  equal(store.updateTask(board.id, t2.id, { agentSpec: { reasoningEffort: 'high' } }).agentSpec.reasoningEffort, 'high', 'update 非空更新');
+  equal(store.updateTask(board.id, t2.id, { agentSpec: { reasoningEffort: null } }).agentSpec.reasoningEffort, null, 'update null 清除');
+  const t3 = store.createTask(board.id, { title: 't3', agentSpec: { reasoningEffort: 'low' } });
+  equal(store.updateTask(board.id, t3.id, { agentSpec: { reasoningEffort: '' } }).agentSpec.reasoningEffort, null, 'update 空串清除');
+  equal(store.updateTask(board.id, t3.id, { title: '改名' }).agentSpec.reasoningEffort, null, '不带 agentSpec 不动（原为已清除态）');
+  // 非法值拒绝（create + update 同规）
+  throws(() => store.createTask(board.id, { title: 't4', agentSpec: { reasoningEffort: 'turbo' } }), /推理力度|validation/);
+  const t5 = store.createTask(board.id, { title: 't5', agentSpec: { reasoningEffort: 'low' } });
+  throws(() => store.updateTask(board.id, t5.id, { agentSpec: { reasoningEffort: 'turbo' } }), /推理力度|validation/);
+  // 合法全枚举
+  for (const v of ['off', 'low', 'medium', 'high', 'max']) {
+    const tv = store.createTask(board.id, { title: `e-${v}`, agentSpec: { reasoningEffort: v } });
+    equal(tv.agentSpec.reasoningEffort, v, `合法枚举 ${v}`);
+  }
+});
+
+/** Q-021 board.defaultReasoningEffort：updateBoard 设置/清除/非法拒绝 */
+test('Q-021 updateBoard：defaultReasoningEffort 设置/清除/非法拒绝', () => {
+  const { store } = makeStore();
+  const board = store.getBoards()[0];
+  equal(store.updateBoard(board.id, { defaultReasoningEffort: 'low' }).defaultReasoningEffort, 'low', '设置生效');
+  equal(store.updateBoard(board.id, { defaultReasoningEffort: null }).defaultReasoningEffort, undefined, 'null 清除');
+  equal(store.updateBoard(board.id, { defaultReasoningEffort: '' }).defaultReasoningEffort, undefined, '空串清除');
+  throws(() => store.updateBoard(board.id, { defaultReasoningEffort: 'turbo' }), /推理力度|validation/);
+});
+
+/** Q-026 评论更新：updateComment（仅 user 评论可编辑，对齐 deleteComment 守卫）+ agent 来源标记 */
+test('Q-026 updateComment：user 评论更新 content + updatedAt；agent/system 来源拒绝', () => {
+  const { store } = makeStore();
+  const board = store.getBoards()[0];
+  const t = store.createTask(board.id, { title: 't' });
+  const c = store.addComment({ boardId: board.id, taskId: t.id, content: '旧内容' });
+  const item = c.timeline.find((x) => x.id !== '任务创建' && x.type === 'comment')!;
+  const before = c.updatedAt;
+  const updated = store.updateComment(board.id, t.id, item.id, '新内容');
+  const uItem = updated.timeline.find((x) => x.id === item.id)!;
+  equal(uItem.content, '新内容', 'content 已更新');
+  ok(new Date(updated.updatedAt) >= new Date(before), 'task.updatedAt 刷新');
+  // agent 来源评论拒绝编辑（Q-026：agent 执行结果标记为 agent，不可改）
+  const agent = store.addComment({ boardId: board.id, taskId: t.id, content: '执行结果：xxx', source: { type: 'agent', provider: 'dsh' } });
+  const agentItem = agent.timeline.filter((x) => x.type === 'comment').pop()!;
+  equal(agentItem.source.type, 'agent', 'agent 来源标记生效');
+  throws(() => store.updateComment(board.id, t.id, agentItem.id, '改 agent 输出'), /不可编辑/);
+  // system 条目拒绝
+  const sysItem = updated.timeline.find((x) => x.type === 'system')!;
+  throws(() => store.updateComment(board.id, t.id, sysItem.id, '改 system'), /不可编辑/);
+  // 删除守卫同样拒 agent（对齐）
+  throws(() => store.deleteComment(board.id, t.id, agentItem.id), /只读|不可删除/);
+});
+
+test('Q-026 updateComment：空内容/纯空白拒绝；comment/task 不存在 → notFound', () => {
+  const { store } = makeStore();
+  const board = store.getBoards()[0];
+  const t = store.createTask(board.id, { title: 't' });
+  const c = store.addComment({ boardId: board.id, taskId: t.id, content: 'x' });
+  const item = c.timeline.filter((x) => x.type === 'comment').pop()!;
+  throws(() => store.updateComment(board.id, t.id, item.id, ''), /不能为空/);
+  throws(() => store.updateComment(board.id, t.id, item.id, '   '), /不能为空/);
+  throws(() => store.updateComment(board.id, t.id, 'tl_missing', 'x'), /不存在/);
+  throws(() => store.updateComment(board.id, 't_missing', item.id, 'x'), /不存在/);
+  // 超长防御（对齐 addComment 无显式上限？至少不崩）——更新成功路径已覆盖
+});

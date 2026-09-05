@@ -44,6 +44,8 @@ export interface AgentSpec {
   subagentPolicy: SubagentPolicy;
   /** Q-019 工作目录：ticket 级执行 cwd（绝对路径或 ~ 形态；null → 回落 board.defaultCwd/homedir） */
   cwd?: string | null;
+  /** Q-021 推理力度：枚举 off|low|medium|high|max（null → 回落 board.defaultReasoningEffort/dsh 默认） */
+  reasoningEffort?: string | null;
 }
 
 export interface AcceptanceCriteria {
@@ -114,6 +116,8 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   timeline: TimelineItem[];
+  /** Q-022 会话复用：最近一次执行的 acp 会话 id（运行时状态非用户意图配置，与 agentSpec 分离；结算回写，重跑 resume 续用） */
+  acpSessionId?: string;
 }
 
 export interface Column {
@@ -138,6 +142,8 @@ export interface Board {
   defaultModel?: string;
   /** Q-019 工作目录：看板默认执行 cwd（ticket 未设 agentSpec.cwd 时回落）；缺省 homedir */
   defaultCwd?: string;
+  /** Q-021 推理力度：看板默认推理力度（ticket 未设 agentSpec.reasoningEffort 时回落）；缺省 dsh 默认 */
+  defaultReasoningEffort?: string;
   createdAt: string;
   updatedAt: string;
 }

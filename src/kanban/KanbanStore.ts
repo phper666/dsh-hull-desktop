@@ -74,6 +74,24 @@ function normalizeAgentCwd(cwd: string | null | undefined): string | null {
   return t === '' ? null : t;
 }
 
+/** Q-021 推理力度合法枚举（对齐 dsh reasoningEfforts：off/low/medium/high/max） */
+const REASONING_EFFORTS = ['off', 'low', 'medium', 'high', 'max'] as const;
+
+/**
+ * Q-021：reasoningEffort 入参归一化——null/undefined/'' → null（清除回落 dsh 默认）；
+ * 白名单枚举校验（effort 是枚举非自由串，与 cwd 的「任意路径」不同）；
+ * trim（容错 ' low '）；非法值 → validation 拒绝（create/update/updateBoard 同规）。
+ */
+function normalizeReasoningEffort(effort: string | null | undefined): string | null {
+  if (effort === null || effort === undefined) return null;
+  const t = effort.trim();
+  if (t === '') return null;
+  if (!(REASONING_EFFORTS as readonly string[]).includes(t)) {
+    throw new HullError(ERR.validation, `推理力度非法（合法值：${REASONING_EFFORTS.join('|')}）`);
+  }
+  return t;
+}
+
 /** 任务创建入参（B1 契约 createTask + T2 增量 startDate + Q-018 增量 agentSpec.model） */
 export interface CreateTaskInput {
   title: string;
@@ -88,8 +106,8 @@ export interface CreateTaskInput {
   startDate?: string | null;
   labels?: string[];
   description?: string | null;
-  /** Q-018 模型选择 + Q-019 工作目录：只收 model/cwd（provider/agent/subagentPolicy 保持默认不开放） */
-  agentSpec?: { model?: string | null; cwd?: string | null };
+  /** Q-018 模型选择 + Q-019 工作目录 + Q-021 推理力度：只收 model/cwd/reasoningEffort（provider/agent/subagentPolicy 保持默认不开放） */
+  agentSpec?: { model?: string | null; cwd?: string | null; reasoningEffort?: string | null };
 }
 
 /** 任务部分更新字段（updateTask 白名单；系统管理字段不在内） */
@@ -104,8 +122,8 @@ export interface UpdateTaskPatch {
   acceptanceCriteria?: AcceptanceCriteria | null;
   executionMode?: ExecutionMode;
   dependencies?: string[];
-  /** Q-018 模型选择 + Q-019 工作目录：merge 语义——非空更新 / 显式 null|'' 清除（回看板默认）/ 不提供不动 */
-  agentSpec?: { model?: string | null; cwd?: string | null };
+  /** Q-018 模型选择 + Q-019 工作目录 + Q-021 推理力度：merge 语义——非空更新 / 显式 null|'' 清除（回看板默认）/ 不提供不动 */
+  agentSpec?: { model?: string | null; cwd?: string | null; reasoningEffort?: string | null };
 }
 /** 评论/附件入参（addComment） */
 export interface AddCommentInput {
@@ -113,6 +131,11 @@ export interface AddCommentInput {
   taskId: string;
   content: string;
   attachments?: Attachment[];
+  /**
+   * Q-026：评论来源（缺省 user）——引擎回填「执行结果」传 agent（source.type='agent'，
+   * 与用户评论区分：agent 条目按 Q-028 守卫不可编辑/删除）。UI 通道不开放该字段。
+   */
+  source?: { type: 'user' | 'agent'; provider?: string };
 }
 
 export interface KanbanStoreOptions {
@@ -339,7 +362,7 @@ export class KanbanStore {
     return structuredClone(board);
   }
 
-  updateBoard(boardId: string, patch: { name?: string; order?: number; defaultModel?: string | null; defaultCwd?: string | null }): Board {
+  updateBoard(boardId: string, patch: { name?: string; order?: number; defaultModel?: string | null; defaultCwd?: string | null; defaultReasoningEffort?: string | null }): Board {
     const board = this.findBoard(boardId);
     if (patch.name !== undefined) {
       if (!patch.name.trim()) throw new HullError(ERR.validation, '看板名不能为空');
@@ -357,6 +380,12 @@ export class KanbanStore {
     if (patch.defaultCwd !== undefined) {
       if (patch.defaultCwd === null || patch.defaultCwd === '') delete board.defaultCwd;
       else board.defaultCwd = patch.defaultCwd;
+    }
+    // Q-021 推理力度：board.defaultReasoningEffort（ticket 未设时回落；null/'' 清除回 dsh 默认；白名单同规）
+    if (patch.defaultReasoningEffort !== undefined) {
+      const v = normalizeReasoningEffort(patch.defaultReasoningEffort);
+      if (v === null) delete board.defaultReasoningEffort;
+      else board.defaultReasoningEffort = v;
     }
     board.updatedAt = nowIso();
     this.scheduleFlush();
@@ -415,6 +444,7 @@ export class KanbanStore {
         agent: null,
         model: normalizeAgentModel(input.agentSpec?.model),
         cwd: normalizeAgentCwd(input.agentSpec?.cwd),
+        reasoningEffort: normalizeReasoningEffort(input.agentSpec?.reasoningEffort),
         subagentPolicy: 'auto' as SubagentPolicy,
       },
       dependencies,
@@ -460,6 +490,7 @@ export class KanbanStore {
     if (patch.agentSpec !== undefined) {
       task.agentSpec.model = normalizeAgentModel(patch.agentSpec.model);
       task.agentSpec.cwd = normalizeAgentCwd(patch.agentSpec.cwd);
+      task.agentSpec.reasoningEffort = normalizeReasoningEffort(patch.agentSpec.reasoningEffort);
     }
     if (patch.dependencies !== undefined) {
       task.dependencies = this.validateDependencies(board, task.parentId, patch.dependencies);
@@ -562,10 +593,31 @@ export class KanbanStore {
       attachments: input.attachments ?? [],
       createdAt: nowIso(),
       author: 'user',
-      source: { type: 'user', provider: 'dsh' },
+      // Q-026：来源可注入（引擎执行结果回填传 agent；UI 通道缺省 user）
+      source: input.source ?? { type: 'user', provider: 'dsh' },
       execution: null,
     };
     task.timeline.push(item);
+    task.updatedAt = nowIso();
+    this.scheduleFlush();
+    return structuredClone(task);
+  }
+
+  /**
+   * Q-026 评论更新（与 deleteComment 同守卫）：仅 type='comment' 且 source.type='user' 可编辑——
+   * agent 执行结果/system 条目只读。content trim 非空；更新后 task.updatedAt 刷新。
+   */
+  updateComment(boardId: string, taskId: string, commentId: string, content: string): Task {
+    const board = this.findBoard(boardId);
+    const task = this.findTask(board, taskId);
+    const item = task.timeline.find((t) => t.id === commentId);
+    if (!item) throw new HullError(ERR.notFound, '评论不存在（已删除）');
+    if (item.type !== 'comment' || item.source.type !== 'user') {
+      throw new HullError(ERR.validation, 'agent/system 条目只读，不可编辑');
+    }
+    const trimmed = content.trim();
+    if (!trimmed) throw new HullError(ERR.validation, '评论内容不能为空');
+    item.content = trimmed;
     task.updatedAt = nowIso();
     this.scheduleFlush();
     return structuredClone(task);
