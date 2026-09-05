@@ -13,20 +13,20 @@ import {
   SKILLS_IPC_CHANNELS,
 } from './ipc-channels';
 
-test('白名单计数：B1 16 + createColumn + B5 2 = 19，B3 10，B4 5，S1+S2 12，dialog 1，共面 47', () => {
-  equal(KANBAN_IPC_CHANNELS.length, 19, 'B1 16 数据原语 + createColumn（BUG-1 修复）+ B5 2 导出/导入');
+test('白名单计数：B1 21（含 getExecutionLog + updateComment），B3 10，B4 5，S1+S2 12，dialog/shell 2，共面 50', () => {
+  equal(KANBAN_IPC_CHANNELS.length, 21, 'B1 16 数据原语 + createColumn（BUG-1 修复）+ B5 2 导出/导入 + getExecutionLog（Q-回复落盘）+ Q-026 updateComment');
   equal(KANBAN_EXEC_IPC_CHANNELS.length, 10, 'B3 10 执行控制');
   equal(SKILLS_IPC_CHANNELS.length, 12, 'S1 4 skills:* + S2 7 操作 + hull:showSkills 导航');
-  equal(ALL_IPC_CHANNELS.length, 47);
+  equal(ALL_IPC_CHANNELS.length, 50);
 });
 
 test('唯一性：全部 channel 无重复', () => {
   equal(new Set(ALL_IPC_CHANNELS).size, ALL_IPC_CHANNELS.length);
 });
 
-test('前缀规约：kanban: | skills: | hull:showSkills（S1 导航复用 hull 域）| dialog:（壳级目录选择器）', () => {
+test('前缀规约：kanban: | skills: | hull:showSkills | hull:openPath（壳级）| dialog:（壳级目录选择器）', () => {
   for (const c of ALL_IPC_CHANNELS) {
-    ok(c.startsWith('kanban:') || c.startsWith('skills:') || c === 'hull:showSkills' || c.startsWith('dialog:'), `前缀 ${c}`);
+    ok(c.startsWith('kanban:') || c.startsWith('skills:') || c === 'hull:showSkills' || c === 'hull:openPath' || c.startsWith('dialog:'), `前缀 ${c}`);
   }
 });
 
@@ -87,4 +87,9 @@ test('B1/B3 交集为空（数据原语与执行控制不重叠）', () => {
   for (const c of KANBAN_EXEC_IPC_CHANNELS) {
     ok(!b1.includes(c), `${c} 不在 B1 集`);
   }
+});
+
+test('Q-026 kanban:updateComment 通道入白名单（B1 → 21）', () => {
+  ok(KANBAN_IPC_CHANNELS.includes('kanban:updateComment' as never), '通道存在');
+  equal(ALL_IPC_CHANNELS.length, 50);
 });

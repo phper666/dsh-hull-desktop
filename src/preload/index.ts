@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld('hull', {
   openLogs: () => ipcRenderer.invoke('hull:openLogs'),
   /** B4-工作目录 UI（2026-09-05）：原生目录选择器（取消 → { ok, path: null }）；dialog 是壳级能力，挂 hull 域 */
   pickDirectory: () => invoke<{ ok: boolean; path: string | null }>('dialog:pickDirectory'),
+  /** 需求 2（2026-09-05）：执行输出文件路径点击 → 系统默认应用打开（main 侧仅绝对路径放行） */
+  openPath: (path: string) => invoke<{ ok: boolean; message?: string }>('hull:openPath', path),
   /** 触发首装/重装（引导态安装按钮） */
   install: () => ipcRenderer.invoke('hull:install'),
   /** 取消安装（进度视图取消按钮） */
@@ -183,6 +185,9 @@ contextBridge.exposeInMainWorld('kanban', {
   deleteTask: (boardId: string, taskId: string) => invoke('kanban:deleteTask', boardId, taskId),
   addComment: (input: unknown) => invoke('kanban:addComment', input),
   deleteComment: (boardId: string, taskId: string, commentId: string) => invoke('kanban:deleteComment', boardId, taskId, commentId),
+  /** Q-026 评论更新：仅 user 评论可编辑（agent 执行结果/system 条目拒绝 → {ok:false}） */
+  updateComment: (boardId: string, taskId: string, commentId: string, content: string) =>
+    invoke('kanban:updateComment', boardId, taskId, commentId, content),
   /** 新建自定义列（BUG-1 修复：此前 UI 误走 updateColumn(null) 必失败） */
   createColumn: (boardId: string, name: string) => invoke('kanban:createColumn', boardId, name),
   updateColumn: (boardId: string, columnId: string, patch: unknown) => invoke('kanban:updateColumn', boardId, columnId, patch),
@@ -194,6 +199,8 @@ contextBridge.exposeInMainWorld('kanban', {
   exportBoard: (boardId?: string) => invoke('kanban:exportBoard', boardId),
   /** B5 导入（合并/替换；校验失败零改动） */
   importBoard: (filePath: string, mode: 'merge' | 'replace') => invoke('kanban:importBoard', filePath, mode),
+  /** Q-回复落盘（2026-09-05）：最近一次执行流式输出日志全文（无 → data: null） */
+  getExecutionLog: (boardId: string, taskId: string) => invoke<{ ok: boolean; data: string | null }>('kanban:getExecutionLog', boardId, taskId),
 });
 
 // ─────────────────────────── B3 执行控制桥（M2） ───────────────────────────

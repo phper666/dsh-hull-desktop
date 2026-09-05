@@ -19,6 +19,7 @@ export const KANBAN_IPC_CHANNELS = [
   'kanban:deleteTask',
   'kanban:addComment',
   'kanban:deleteComment',
+  'kanban:updateComment',
   'kanban:createColumn',
   'kanban:updateColumn',
   'kanban:deleteColumn',
@@ -27,6 +28,7 @@ export const KANBAN_IPC_CHANNELS = [
   'kanban:purgeTask',
   'kanban:exportBoard',
   'kanban:importBoard',
+  'kanban:getExecutionLog', // Q-回复落盘（2026-09-05）：读最近一次执行流式日志
 ] as const;
 
 /** B3 执行控制 10 channel（feishu-b3-m2 契约 §接口清单：9 invoke + 1 event） */
@@ -53,8 +55,8 @@ export const KANBAN_B4_EXEC_IPC_CHANNELS = [
   'kanban:listModels',
 ] as const;
 
-/** 壳级 dialog 1 channel（2026-09-05 看板工作目录原生目录选择器；桥挂 window.hull.pickDirectory） */
-export const DIALOG_IPC_CHANNELS = ['dialog:pickDirectory'] as const;
+/** 壳级 dialog/shell 2 channel（2026-09-05 看板工作目录目录选择器 + 执行输出路径打开；桥挂 window.hull） */
+export const DIALOG_IPC_CHANNELS = ['dialog:pickDirectory', 'hull:openPath'] as const;
 
 /** S1 扫描 4 + S2 操作 7（feishu-s1/s2-skills-api-contract §接口清单）+ hull:showSkills 壳导航 */
 export const SKILLS_IPC_CHANNELS = [

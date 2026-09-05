@@ -54,8 +54,14 @@
 .nt-row:hover { background: var(--hull-hover); }
 .nt-row.unread { box-shadow: inset 3px 0 0 var(--hull-danger); background: var(--hull-accent-faint, transparent); }
 .nt-row .wf { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 需求 1（2026-09-05 用户纠正）：行内恢复单行截断；点击通知展开的详情面板里常显全文（nt-body） */
 .nt-row .msg { color: var(--hull-text-muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nt-row .msg.err { color: var(--hull-danger); }
+.nt-body {
+  margin-top: 8px; padding: 8px 12px; font-size: 12px; color: var(--hull-text);
+  background: var(--hull-hover); border-radius: var(--radius-sm);
+  white-space: pre-wrap; word-break: break-word;
+}
 .nt-row .dur, .nt-row .tm { color: var(--hull-text-sub); font-size: 11px; font-family: var(--font-mono); }
 .nt-empty { padding: 40px 20px; text-align: center; color: var(--hull-text-muted); }
 

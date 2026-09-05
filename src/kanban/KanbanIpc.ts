@@ -6,9 +6,13 @@
  * renderer 经 preload 桥（src/preload/kanban.ts）消费。
  */
 import { ipcMain } from 'electron';
+import { join } from 'node:path';
+
 import { HullError } from '../shared/errors';
 import { KanbanStore, type AddCommentInput, type CreateTaskInput, type UpdateTaskPatch } from './KanbanStore';
 import { KanbanTransfer } from './KanbanTransfer';
+import { readLatestExecutionLog } from './executionLog';
+import { KANBAN_STORE_ERRORS } from './types';
 
 /** 16 个 IPC channel 白名单（B1 契约）+ 2 个 B5 导出/导入 channel */
 export const KANBAN_IPC_CHANNELS = [
@@ -31,6 +35,7 @@ export const KANBAN_IPC_CHANNELS = [
   'kanban:purgeTask',
   'kanban:exportBoard',
   'kanban:importBoard',
+  'kanban:getExecutionLog', // Q-回复落盘（2026-09-05）：读最近一次执行流式日志（详情弹框「执行输出」）
 ] as const;
 
 export type KanbanIpcChannel = (typeof KANBAN_IPC_CHANNELS)[number];
@@ -77,6 +82,10 @@ export function registerKanbanIpcWithTransfer(store: KanbanStore, transfer?: Kan
   ipcMain.handle('kanban:deleteComment', (_e, boardId: string, taskId: string, commentId: string) =>
     toResult(() => store.deleteComment(boardId, taskId, commentId))
   );
+  // Q-026 评论更新：仅 user 评论可编辑（守卫同 deleteComment；agent/system 条目拒绝）
+  ipcMain.handle('kanban:updateComment', (_e, boardId: string, taskId: string, commentId: string, content: string) =>
+    toResult(() => store.updateComment(boardId, taskId, commentId, content))
+  );
   ipcMain.handle('kanban:createColumn', (_e, boardId: string, name: string) => toResult(() => store.createColumn(boardId, name)));
   ipcMain.handle('kanban:updateColumn', (_e, boardId: string, columnId: string, patch: { name?: string; order?: number; color?: string; hidden?: boolean }) =>
     toResult(() => store.updateColumn(boardId, columnId, patch))
@@ -97,5 +106,13 @@ export function registerKanbanIpcWithTransfer(store: KanbanStore, transfer?: Kan
   ipcMain.handle('kanban:exportBoard', (_e, boardId?: string) => toResult(() => t.exportBoard(boardId)));
   ipcMain.handle('kanban:importBoard', (_e, filePath: string, mode: string) =>
     toResult(() => t.importBoard(filePath, mode as never))
+  );
+  // Q-回复落盘（2026-09-05）：最近一次执行的流式输出日志（无记录/文件缺失 → data: null，UI 区块隐藏）
+  ipcMain.handle('kanban:getExecutionLog', (_e, boardId: string, taskId: string) =>
+    toResult(() => {
+      const task = store.getBoard(boardId).tasks.find((x) => x.id === taskId);
+      if (!task) throw new HullError(KANBAN_STORE_ERRORS.notFound, '任务不存在');
+      return readLatestExecutionLog(join(store.getDataDir(), '..'), task);
+    })
   );
 }

@@ -74,7 +74,7 @@ async function openBoard() {
 test.describe('T1 五视图接入与持久化', () => {
   test('五视图按钮呈现；timeline/calendar 切换渲染且 <300ms（FR-5/CON-R-timeline-006）', async () => {
     const { tmp, app, shell } = await openBoard();
-    await expect(shell.locator('#board-root .kb-view')).toHaveCount(5);
+    await expect(shell.locator('#board-root .kb-view')).toHaveCount(6);
     // 切时间线 → 条目渲染
     await shell.locator('[data-view="timeline"]').click();
     await expect(shell.locator('.kb-tl-row').first()).toBeVisible();

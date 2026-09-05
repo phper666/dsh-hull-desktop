@@ -22,6 +22,10 @@ export interface SchedulerSettledResult {
   exitCode: number;
   /** Q-020 失败可观测性：provider 真实失败原因（结算透传到 VerifyGate 失败 detail → timeline/通知） */
   summary?: string;
+  /** Q-022 会话复用：本次执行建立的 acp 会话 id（结算回写 task.acpSessionId） */
+  sessionId?: string;
+  /** Q-025：resume 失败已降级（结算侧损坏 id 清空/覆盖判定） */
+  resumeFailed?: boolean;
   selfCheck: { passed: boolean; evidence?: string } | null;
 }
 
@@ -272,10 +276,13 @@ export class Scheduler extends EventEmitter {
       // 注入条目已建但无 summary——此处合并真实失败原因（终态仍 failed，只补文案不覆盖结算意图）
       const pending = this.pendingResults.get(taskId);
       if (pending && !pending.summary && result.summary) pending.summary = result.summary;
+      // Q-022：同步顺序（onStatus('failed') 先建条目）迟到 onResult 补 sessionId/resumeFailed
+      if (pending && !pending.sessionId && result.sessionId) pending.sessionId = result.sessionId;
+      if (pending && result.resumeFailed) pending.resumeFailed = true;
       return;
     }
-    // Q-020：summary（真实失败原因）透传结算——此前在 pendingResults 处即被丢
-    this.pendingResults.set(taskId, { exitCode: result.exitCode, summary: result.summary, selfCheck: result.selfCheck ?? null });
+    // Q-020：summary + Q-022：sessionId + Q-025：resumeFailed 透传结算
+    this.pendingResults.set(taskId, { exitCode: result.exitCode, summary: result.summary, sessionId: result.sessionId, resumeFailed: result.resumeFailed, selfCheck: result.selfCheck ?? null });
     this.pendingSettlements.push(taskId);
     this.wakeSoon();
     this.kick();
@@ -548,11 +555,19 @@ export class Scheduler extends EventEmitter {
     const model = task.agentSpec.model ?? board?.defaultModel ?? undefined;
     // Q-019 工作目录：task.agentSpec.cwd > board.defaultCwd > os.homedir()（会话归组正确 + agent 在指定目录干活）
     const cwd = expandTilde(task.agentSpec.cwd ?? board?.defaultCwd ?? homedir());
+    // Q-021 推理力度：task.agentSpec.reasoningEffort > board.defaultReasoningEffort > 终端兜底 'low'
+    //（Q-021 修订：去掉「dsh 决定」选项——dsh 默认 off 对 glm 系渠道 400）
+    const reasoningEffort = task.agentSpec.reasoningEffort ?? board?.defaultReasoningEffort ?? 'low';
     return {
       taskId: task.id,
       title: task.title,
+      // Q-026 任务描述透传（prompt 内容；描述缺失不拼）
+      ...(task.description ? { description: task.description } : {}),
       cwd,
+      ...(reasoningEffort ? { reasoningEffort } : {}),
       ...(model ? { model } : {}),
+      // Q-022 会话复用：上次执行建立的 acp 会话 id → provider 先 session/resume 续用
+      ...(task.acpSessionId ? { resumeSessionId: task.acpSessionId } : {}),
       ac: task.acceptanceCriteria ?? undefined,
       agentSpec: task.agentSpec
         ? {

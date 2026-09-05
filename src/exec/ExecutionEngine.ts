@@ -14,6 +14,8 @@
  * - 壳重启收敛：Convergence.run() 在引擎启动时执行（IPC 就绪前）
  */
 import { EventEmitter } from 'node:events';
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import type { Board, Task } from '../kanban/types';
 import type { KanbanStore } from '../kanban/KanbanStore';
@@ -60,6 +62,8 @@ export interface ExecutionEngineOptions {
   emitNotif?: (input: NotifInput) => void;
   /** Q-017-C 观测：重启 sweep 异常/重排留痕（缺省 NOOP；main 传 logger） */
   logger?: RuntimeLogger;
+  /** Q-回复落盘（2026-09-05）：流式输出日志目录（<userData>/kanban/executions；缺省不写日志，测试不依赖 fs） */
+  executionsDir?: string;
 }
 
 /** 执行态变更事件负载（onExecutionUpdate 推送） */
@@ -86,6 +90,8 @@ export class ExecutionEngine extends EventEmitter {
   private readonly verifyGate: VerifyGate;
   private readonly provider: ExecutionProvider;
   private readonly logger: RuntimeLogger;
+  /** Q-回复落盘（2026-09-05）：流式输出日志落点目录（undefined = 不写） */
+  private readonly executionsDir?: string;
   private readonly mutations: SchedulerMutations & VerifyGateMutations & ConvergenceMutations;
 
   constructor(options: ExecutionEngineOptions) {
@@ -94,6 +100,7 @@ export class ExecutionEngine extends EventEmitter {
     this.provider = options.provider ?? options.providerManager.getProvider();
     this.emitNotif = options.emitNotif;
     this.logger = options.logger ?? NOOP_LOGGER;
+    this.executionsDir = options.executionsDir;
     this.heartbeat = new HeartbeatMonitor({ maxExecutionIdleMinutes: options.maxExecutionIdleMinutes ?? 30 });
 
     // 写面：落到 KanbanStore（system 事件 + 执行态 + 列流转）
@@ -227,6 +234,42 @@ export class ExecutionEngine extends EventEmitter {
     this.heartbeat.clearAll();
   }
 
+  // ─────────────────────────── Q-回复落盘：流式输出日志（2026-09-05） ───────────────────────────
+
+  /** 日志绝对路径（executionsDir 未配置 / executionId 空 → null = 不写） */
+  private execLogFilePath(executionId: string): string | null {
+    if (!this.executionsDir || !executionId) return null;
+    return join(this.executionsDir, `${executionId}.log`);
+  }
+
+  /** 执行开始：确保目录存在并清空建文件（幂等；失败仅留痕不阻断执行） */
+  private ensureExecLog(executionId: string): void {
+    const p = this.execLogFilePath(executionId);
+    if (!p) return;
+    try {
+      mkdirSync(this.executionsDir!, { recursive: true });
+      writeFileSync(p, '', 'utf8');
+    } catch (err) {
+      this.logger.warn(`[exec-log] 日志初始化失败 ${p}: ${(err as Error).message}`);
+    }
+  }
+
+  /** 流文本/错误 summary 追加（同步 append；ENOENT 时兜底建目录重试一次） */
+  private appendExecLog(executionId: string, text: string): void {
+    const p = this.execLogFilePath(executionId);
+    if (!p) return;
+    try {
+      appendFileSync(p, text, 'utf8');
+    } catch {
+      try {
+        mkdirSync(this.executionsDir!, { recursive: true });
+        appendFileSync(p, text, 'utf8');
+      } catch (err) {
+        this.logger.warn(`[exec-log] 追加失败 ${p}: ${(err as Error).message}`);
+      }
+    }
+  }
+
   // ─────────────────────────── 内部：mutation 写面 ───────────────────────────
 
   /**
@@ -282,13 +325,14 @@ export class ExecutionEngine extends EventEmitter {
         const task = self.findTaskById(taskId);
         if (task && task.executionStatus === 'running') return;
         self.setExecutionRecord(taskId, 'running', executionId);
+        self.ensureExecLog(executionId); // Q-回复落盘：执行开始建/清空日志文件（同 executionId 重跑幂等清空）
         self.heartbeat.reset(taskId);
         self.system(taskId, '执行开始', `startedAt=${startedAt}`);
       },
       settleTask: (taskId, result) => {
         // selfCheck 判定（Q-015）：passed=true → succeeded + 列→verify；false/异常 → failed。
-        // manual 任务（无 selfCheck）→ 结算为 succeeded（不级联失败传播 E15；CON-R029 结果手动放入，
-        // 列不自动推进）——applyResult 返回 outcome.executionStatus='succeeded'。
+        // acp 无 selfCheck 成功 → 结算 succeeded（不级联失败传播 E15）+ 列→verify 自动流转
+        // （2026-09-05 体验改进；VerifyGate 单点改动，settleTask 侧零改动）。
         const boardId = self.findBoardIdOf(taskId);
         if (boardId === null) return 'failed';
         self.heartbeat.stop(taskId);
@@ -305,6 +349,27 @@ export class ExecutionEngine extends EventEmitter {
           selfCheck: result.selfCheck ?? undefined,
         });
         self.writeExecutionRecord(taskId, result, outcome.executionStatus, executionId);
+        // Q-回复落盘：失败执行把 provider 真实原因追加日志尾部（成功路径 summary 已有「执行结果」comment）
+        if (outcome.executionStatus !== 'succeeded' && result.summary && executionId) {
+          self.appendExecLog(executionId, `\n[失败] ${result.summary}\n`);
+        }
+        // Q-022 会话复用：结算回写 task.acpSessionId（成功/失败都写——会话已建立，重跑 resume
+        // 续用，agent 看得到上次上下文）；写在 writeExecutionRecord 之后的 flush 会带上。
+        // onResult 不带 sessionId（会话未建立，如 cwd 防御失败）→ 不写保持 undefined
+        if (result.sessionId) {
+          const settled = self.findTaskById(taskId);
+          if (settled) settled.acpSessionId = result.sessionId;
+          self.flushStore();
+        } else if (result.resumeFailed) {
+          // Q-025：resume 失败（如损坏会话日志 -32603）且降级 newSession 也失败 → 清空引用——
+          // 损坏 id 不留（下次执行不再白试 resume 坏 id + 白降级一次）；cwd mismatch 降级成功
+          // 走上面新 id 覆盖分支，旧引用正常被替换
+          const settled = self.findTaskById(taskId);
+          if (settled && settled.acpSessionId) {
+            settled.acpSessionId = undefined;
+            self.flushStore();
+          }
+        }
         // V2a §3.2：succeeded 在此发射（info 不推送）；failed 必经 setExecutionStatus（markFailed/级联/死锁）
         // ——failed 发射收敛在该单一出口，防止结算+状态双写路径各发一条（实测双发）
         if (outcome.executionStatus === 'succeeded') {
@@ -339,8 +404,14 @@ export class ExecutionEngine extends EventEmitter {
       },
       onStreamEvent: (taskId, ev) => {
         // agent_message_chunk = 活动心跳（Q-026）：重置 idle 计时器
-        const e = ev as { kind?: string };
-        if (e?.kind === 'text_chunk') self.heartbeat.reset(taskId);
+        const e = ev as { kind?: string; text?: string };
+        if (e?.kind === 'text_chunk') {
+          self.heartbeat.reset(taskId);
+          // Q-回复落盘（2026-09-05）：流文本同步 append 落盘（本地 ssd + 文本量小，简单正确优先；
+          // 无 executionsDir / 无 currentExecutionId → 跳过）
+          const execId = self.findTaskById(taskId)?.currentExecutionId ?? null;
+          if (execId && e.text) self.appendExecLog(execId, e.text);
+        }
       },
       // VerifyGateMutations
       markSucceeded: (taskId, reason, detail) => {
@@ -363,7 +434,8 @@ export class ExecutionEngine extends EventEmitter {
       fillManualResult: (taskId, summary) => {
         const boardId = self.findBoardIdOf(taskId);
         if (boardId === null) return;
-        store.addComment({ boardId, taskId, content: `执行结果：${summary}` });
+        // Q-026：执行结果回填标记 agent 来源——与用户评论区分（user 通道可编辑/删除，agent 条目只读）
+        store.addComment({ boardId, taskId, content: `执行结果：${summary}`, source: { type: 'agent', provider: 'dsh' } });
       },
     };
   }

@@ -665,3 +665,49 @@ test('Q-020 结算透传 summary：正常顺序 onResult → settled 含 summary
   await waitFor(() => mutations.settled.size === 1);
   equal(mutations.settled.get('T')?.summary, '正常顺序失败原因');
 });
+
+// ─────────────────── Q-021 推理力度三级回落（task.agentSpec.reasoningEffort > board.defaultReasoningEffort > 不设置） ───────────────────
+
+test('Q-021 reasoningEffort 三级回落：task.agentSpec.reasoningEffort 优先', async () => {
+  const board = makeBoard('b1', [makeTask('T', { agentSpec: { provider: 'dsh', agent: null, model: null, subagentPolicy: 'auto', reasoningEffort: 'low' } })]);
+  (board as { defaultReasoningEffort?: string }).defaultReasoningEffort = 'high';
+  const { mutations, provider, sched } = setupRecording(board);
+  sched.executeTask('b1', 'T');
+  await waitFor(() => mutations.settled.size === 1);
+  equal(provider.captured[0].reasoningEffort, 'low', 'task 级优先');
+});
+
+test('Q-021 reasoningEffort 三级回落：task 无 → board.defaultReasoningEffort 兜底', async () => {
+  const board = makeBoard('b1', [makeTask('T')]);
+  (board as { defaultReasoningEffort?: string }).defaultReasoningEffort = 'high';
+  const { mutations, provider, sched } = setupRecording(board);
+  sched.executeTask('b1', 'T');
+  await waitFor(() => mutations.settled.size === 1);
+  equal(provider.captured[0].reasoningEffort, 'high', 'board 默认兜底');
+});
+
+test('Q-021 reasoningEffort 三级回落：task/board 都无 → 终端兜底 low（Q-021 修订：dsh 默认 off 对 glm 系渠道 400）', async () => {
+  const board = makeBoard('b1', [makeTask('T')]);
+  const { mutations, provider, sched } = setupRecording(board);
+  sched.executeTask('b1', 'T');
+  await waitFor(() => mutations.settled.size === 1);
+  equal(provider.captured[0].reasoningEffort, 'low', '终端兜底 low（不再是不带字段）');
+});
+
+// ─────────────────── Q-022 会话复用（task.acpSessionId → ExecutionTask.resumeSessionId） ───────────────────
+
+test('Q-022 会话复用：task.acpSessionId 存在 → ExecutionTask.resumeSessionId 透传', async () => {
+  const board = makeBoard('b1', [makeTask('T', { acpSessionId: 'sess-prev-1' })]);
+  const { mutations, provider, sched } = setupRecording(board);
+  sched.executeTask('b1', 'T');
+  await waitFor(() => mutations.settled.size === 1);
+  equal(provider.captured[0].resumeSessionId, 'sess-prev-1', 'resume 会话 id 透传 provider');
+});
+
+test('Q-022 会话复用：task.acpSessionId 无 → ExecutionTask 不带 resumeSessionId（走 session/new）', async () => {
+  const board = makeBoard('b1', [makeTask('T')]);
+  const { mutations, provider, sched } = setupRecording(board);
+  sched.executeTask('b1', 'T');
+  await waitFor(() => mutations.settled.size === 1);
+  equal('resumeSessionId' in provider.captured[0], false, '不带 resumeSessionId');
+});
