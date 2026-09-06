@@ -274,9 +274,29 @@ test('defaultNpxUpdate：数组参数 --no-install skills update <name> + cwd=sk
   const savedPath = process.env.PATH ?? '';
   process.env.PATH = `${bin}:/usr/bin:/bin`;
   try {
-    await defaultNpxUpdate(cwdDir, 'up1'); // 参数形状错 → fake exit 9 → reject
-    await rejects(() => defaultNpxUpdate(cwdDir, 'wrong-name'), /退出码 9/);
+    await defaultNpxUpdate()(cwdDir, 'up1'); // 参数形状错 → fake exit 9 → reject
+    await rejects(() => defaultNpxUpdate()(cwdDir, 'wrong-name'), /退出码 9/);
   } finally {
     process.env.PATH = savedPath;
   }
+});
+
+// ─────────────────── 0.1.7 同根因修复：defaultNpxUpdate 捆绑 npx 形态（打包版 PATH 无 node） ───────────────────
+
+test('defaultNpxUpdate 捆绑 npx：spawn(nodePath, [cliJs, --no-install, skills, update, name])（fake node 校验 argv 形状）', async () => {
+  const bin = makeTemp();
+  mkdirSync(bin, { recursive: true });
+  const nodeFake = join(bin, 'node');
+  writeFileSync(
+    nodeFake,
+    '#!/bin/sh\n[ "$1" = "CLIJS" ] && [ "$2" = "--no-install" ] && [ "$3" = "skills" ] && [ "$4" = "update" ] && [ "$5" = "up1" ] || exit 9\npwd > /dev/null\n'
+  );
+  chmodSync(nodeFake, 0o755);
+  const cwdDir = makeTemp();
+  await defaultNpxUpdate({ nodePath: nodeFake, cliJs: 'CLIJS' })(cwdDir, 'up1'); // 形状对 → exit 0
+  await rejects(
+    () => defaultNpxUpdate({ nodePath: nodeFake, cliJs: 'WRONG' })(cwdDir, 'up1'),
+    /退出码 9/,
+    'cliJs 不符 → fake exit 9 → reject（证明 cliJs 确实作为 argv[1] 传入）'
+  );
 });

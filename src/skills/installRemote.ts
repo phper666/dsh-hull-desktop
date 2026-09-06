@@ -6,6 +6,8 @@
  */
 import { spawn } from 'node:child_process';
 
+import type { BundledNpx } from '../runtime/spawnArgs';
+
 import { RemoteInstallFailedError, SkillValidationError } from './errors';
 
 export const REMOTE_INSTALL_TIMEOUT_MS = 120_000;
@@ -16,20 +18,25 @@ export type InstallAgent = (typeof INSTALL_AGENTS)[number];
 
 export type InstallRunner = (args: string[], signal?: AbortSignal) => Promise<{ code: number; stdout: string }>;
 
-function defaultRunner(args: string[], signal?: AbortSignal): Promise<{ code: number; stdout: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('npx', args, { signal });
-    let stdout = '';
-    child.stdout?.on('data', (d: Buffer) => {
-      stdout += d.toString();
+function defaultRunner(npx?: BundledNpx): InstallRunner {
+  return (args, signal) =>
+    new Promise((resolve, reject) => {
+      // npx shebang = #!/usr/bin/env node：打包版 GUI PATH 无 node → spawn('npx') ENOENT；
+      // 捆绑 npx 存在时用捆绑 node 显式跑 JS 入口（spawnArgs.resolveBundledNpx）
+      const child = npx ? spawn(npx.nodePath, [npx.cliJs, ...args], { signal }) : spawn('npx', args, { signal });
+      let stdout = '';
+      child.stdout?.on('data', (d: Buffer) => {
+        stdout += d.toString();
+      });
+      child.on('error', reject);
+      child.on('close', (code) => resolve({ code: code ?? -1, stdout }));
     });
-    child.on('error', reject);
-    child.on('close', (code) => resolve({ code: code ?? -1, stdout }));
-  });
 }
 
 export interface InstallRemoteOptions {
   runner?: InstallRunner;
+  /** 捆绑 npx 运行参数（打包版必传；缺省 spawn PATH 'npx'——dev 环境） */
+  npx?: BundledNpx;
   timeoutMs?: number;
 }
 
@@ -50,7 +57,7 @@ export async function installRemote(
   if (!INSTALL_AGENTS.includes(a as InstallAgent)) {
     throw new SkillValidationError('agent 不在支持列表（claude-code/opencode/codex/gemini-cli/cursor）', 'agent');
   }
-  const runner = opts.runner ?? defaultRunner;
+  const runner = opts.runner ?? defaultRunner(opts.npx);
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), opts.timeoutMs ?? REMOTE_INSTALL_TIMEOUT_MS);
   let res: { code: number; stdout: string };

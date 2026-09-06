@@ -1,0 +1,10 @@
+# 多 spawn 通道 node 解析漂移 + spawn error 事件未监听 → 打包版 uncaughtException 弹框（渲染层之外的第二盲区：spawn 通道一致性）
+
+| 项 | 内容 |
+|:---|:-----|
+| 背景 | 0.1.7 打包版偶发「A JavaScript error occurred in the main process: spawn node ENOENT」。RuntimeManager（dsh web 视图）早有 resolveNodePath（env HULL_NODE_PATH → 捆绑 <userData>/node/bin/node → PATH 兜底），但 ACPProvider（看板 auto 执行 + 模型清单探测）另起炉灶硬编码 `spawnFn('node', ...)` 走 PATH——打包版 GUI 环境 PATH 只有 /usr/bin:/bin:/usr/sbin:/sbin，无 node。connect 路径挂了 crashPromise（error → 任务 failed，不弹框），fetchModels 路径完全没挂 error handler：child_process spawn 失败是**异步 emit 'error'**，无监听者时 Node 直接抛 uncaughtException（stack 特征：`ChildProcess._handle.onexit → onErrorNT → processTicksAndRejections`）→ Electron 主进程弹框。skills searchRemote/installRemote 的 spawn('npx') 同病：npx shebang `#!/usr/bin/env node` 在打包环境同样找不到 node（有 handler 不弹框，但功能必挂）。dev 环境三处全部正常（PATH 有 node），单测全走注入 seam 也测不到——只有打包版真实运行才暴露。 |
+| 决策或坑 | 不这样做：每条 spawn 通道各自解析 node（或硬编码 'node'），通道间漂移迟早复发；spawn error 事件漏挂 = 主进程弹框，用户视角是"应用坏了"而不仅是功能失败。这样做：①node 解析收敛到 spawnArgs.resolveNodePath 单一修改点，所有 spawn node 通道（RuntimeManager/ACPProvider/skills npx/UpgradeExecutor npx 轨）必须接入，禁止裸 'node' 字面量——新通道评审时按此检查；②任何 child_process.spawn 后必须同步挂 error handler（吸收为 reject/失败路径），fetchModels 型 Promise.race 把 spawnError 并入 race；③npx 型 shebang 脚本在打包环境要"捆绑 node 显式跑 JS 入口"（npx-cli.js），不能 spawn(npx) 本体——同 npmRunner 跑 corepack 先例；④**三端捆绑 node 布局不同**：POSIX = bin/node + ../lib/node_modules/npm/bin/，win32 = 根 node.exe + 同级 node_modules/npm/bin/（无 lib 层）——解析器必须平台参数化，布局事实以 extractNode.isNodeExtracted 与 npmRunner.npmCliPathFor 为准；win 真机验证要防"开发机 PATH 恰好有 node"掩盖（f3279d4 win 全链路验证即被掩盖，存量隐患顺带才暴露）。 |
+| 影响 | 不这样做：打包版用户随机弹框（"偶尔"= 触发路径依赖：打开任务详情才 spawn 模型探测），且 dev/单测零信号，排查成本高。这样做：新 spawn 通道接入共享解析器 + error handler 两件套，成本近乎零，同类缺陷根除。 |
+| 适用范围 | 任何 Electron/打包 GUI 应用内 spawn 外部命令的场景；多通道 spawn 同一运行时（node/npx/python）的项目尤甚。凡"dev 正常、打包炸、单测绿"三特征并存，优先查 PATH 依赖与 error 事件监听。 |
+| 来源 | 出生：需求 bugfix（2026-09-06，用户实测 0.1.7 打包版报告）；修复：spawnArgs.resolveNodePath/resolveBundledNpx 收敛 + ACPProvider nodePath 注入 + fetchModels spawnError 吸收 + skills npx 显式跑 cliJs；引用：docs/spec/变更摘要-Hull.md 2026-09-06 条 |
+| 引用 | 首次引用：本 lesson 出生（2026-09-06） |

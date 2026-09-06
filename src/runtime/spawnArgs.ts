@@ -1,10 +1,51 @@
 import { dirname, isAbsolute, join } from 'node:path';
-import { readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 
 /**
  * dsh CLI 契约收敛点（设计 §3 / §4.1 / P2 §4.3）：
  * spawn 参数串、就绪行正则、命令行签名全部集中在本文件，单一修改点。
  */
+
+/**
+ * Node 可执行解析器（单一修改点，所有 spawn node 的通道共用）：env HULL_NODE_PATH →
+ * 捆绑 node → PATH 兜底 'node'。平台布局（对齐 extractNode.isNodeExtracted 事实）：
+ * darwin/linux = <userData>/node/bin/node；win32 = <userData>/node/node.exe（根布局，无 bin 层）。
+ * 打包版 GUI 环境 PATH 无 node（macOS /usr/bin:/bin:/usr/sbin:/sbin；win 用户机可能也无），
+ * PATH 兜底必然 spawn node ENOENT——任何新 spawn 通道必须接入本解析器，禁止裸 'node' 字面量
+ * （0.1.7 ACP 通道漏接 → 打开任务详情 fetchModels 无 error handler → uncaughtException 弹框）。
+ */
+export function resolveNodePath(userDataPath: string, platform: NodeJS.Platform = process.platform): string {
+  const envPath = process.env.HULL_NODE_PATH;
+  if (envPath) return envPath;
+  const bundled =
+    platform === 'win32' ? join(userDataPath, 'node', 'node.exe') : join(userDataPath, 'node', 'bin', 'node');
+  if (existsSync(bundled)) return bundled;
+  return 'node';
+}
+
+/** 捆绑 npx 显式运行参数（npx shebang 是 `#!/usr/bin/env node`，打包版 GUI PATH 无 node，
+ *  直接 spawn('npx') 仍 ENOENT——用捆绑 node 显式跑 JS 入口，同 npmRunner 跑 corepack 先例。
+ *  布局对齐 npmRunner.npmCliPathFor：POSIX bin/node → 上一级 lib/node_modules/npm/bin/；
+ *  win32 node.exe 同级直挂 node_modules/npm/bin/（无 lib 层）） */
+export interface BundledNpx {
+  nodePath: string;
+  cliJs: string;
+}
+
+/**
+ * 解析捆绑 node 附带的 npx JS 入口。未捆绑（dev / 解压失败）→ undefined，
+ * 调用方回退 PATH 'npx'（dev 环境 shell PATH 有 node，可正常工作）。
+ */
+export function resolveBundledNpx(userDataPath: string, platform: NodeJS.Platform = process.platform): BundledNpx | undefined {
+  const nodePath = resolveNodePath(userDataPath, platform);
+  if (nodePath === 'node') return undefined;
+  const npmBin = join(
+    dirname(nodePath),
+    ...(platform === 'win32' ? ['node_modules', 'npm', 'bin'] : ['..', 'lib', 'node_modules', 'npm', 'bin']),
+  );
+  const cliJs = join(npmBin, 'npx-cli.js').replace(/\\/g, '/');
+  return existsSync(cliJs) ? { nodePath: nodePath.replace(/\\/g, '/'), cliJs } : undefined;
+}
 
 /** dsh 可执行文件绝对路径（overlay 布局：<overlayDir>/bin/dsh，S2 首装按此落位）。
  *  ⚠️ P2：spawn 已改用 dshEntryPath（真实 JS 入口，不依赖 .bin shim）；

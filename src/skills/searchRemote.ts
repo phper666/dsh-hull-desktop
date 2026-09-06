@@ -6,6 +6,8 @@
  */
 import { spawn } from 'node:child_process';
 
+import type { BundledNpx } from '../runtime/spawnArgs';
+
 import { RemoteSearchFailedError, SkillValidationError } from './errors';
 import type { RemoteSkillEntry } from './types';
 
@@ -13,27 +15,32 @@ export const REMOTE_SEARCH_TIMEOUT_MS = 30_000;
 
 export type RemoteRunner = (args: string[], signal?: AbortSignal) => Promise<{ code: number; stdout: string }>;
 
-function defaultRunner(args: string[], signal?: AbortSignal): Promise<{ code: number; stdout: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('npx', args, { signal });
-    let stdout = '';
-    child.stdout?.on('data', (d: Buffer) => {
-      stdout += d.toString();
+function defaultRunner(npx?: BundledNpx): RemoteRunner {
+  return (args, signal) =>
+    new Promise((resolve, reject) => {
+      // npx shebang = #!/usr/bin/env node：打包版 GUI PATH 无 node → spawn('npx') ENOENT；
+      // 捆绑 npx 存在时用捆绑 node 显式跑 JS 入口（spawnArgs.resolveBundledNpx）
+      const child = npx ? spawn(npx.nodePath, [npx.cliJs, ...args], { signal }) : spawn('npx', args, { signal });
+      let stdout = '';
+      child.stdout?.on('data', (d: Buffer) => {
+        stdout += d.toString();
+      });
+      child.on('error', reject);
+      child.on('close', (code) => resolve({ code: code ?? -1, stdout }));
     });
-    child.on('error', reject);
-    child.on('close', (code) => resolve({ code: code ?? -1, stdout }));
-  });
 }
 
 export interface SearchRemoteOptions {
   runner?: RemoteRunner;
+  /** 捆绑 npx 运行参数（打包版必传；缺省 spawn PATH 'npx'——dev 环境） */
+  npx?: BundledNpx;
   timeoutMs?: number;
 }
 
 export async function searchRemote(query: string, opts: SearchRemoteOptions = {}): Promise<RemoteSkillEntry[]> {
   const q = (query ?? '').trim();
   if (!q) throw new SkillValidationError('搜索词不能为空', 'query');
-  const runner = opts.runner ?? defaultRunner;
+  const runner = opts.runner ?? defaultRunner(opts.npx);
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), opts.timeoutMs ?? REMOTE_SEARCH_TIMEOUT_MS);
   let res: { code: number; stdout: string };

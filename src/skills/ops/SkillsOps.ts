@@ -20,6 +20,7 @@ import {
 import type { DisabledEntry, OperationLogEntry, PathInfo, SkillEntry, TrashEntry } from '../types';
 import type { SkillsScanner } from '../SkillsScanner';
 import { defaultNpxUpdate, UpgradeExecutor, type UpgradeRunners } from './UpgradeExecutor';
+import { resolveBundledNpx } from '../../runtime/spawnArgs';
 import { TrashManager } from './TrashManager';
 import { DisableManager } from './DisableManager';
 import { OperationLog } from './OperationLog';
@@ -57,7 +58,12 @@ class PathLocks {
  * 生产缺省 runners（O-2 接线）：npx-first，失败/无效果由 UpgradeExecutor 降级 git-staging。
  * 仅在未注入 runnersRef 时生效——测试经 runnersRef 全量接管，不触真实子进程。
  */
-const PRODUCTION_RUNNERS: UpgradeRunners = { npxUpdate: defaultNpxUpdate };
+/** 生产缺省 runners 工厂：npx-first，失败/无效果由 UpgradeExecutor 降级 git-staging。
+ *  npx 轨接捆绑 node（打包版 GUI PATH 无 node，spawn('npx') ENOENT——0.1.7 同根因漏网点）。
+ *  仅在未注入 runnersRef 时生效——测试经 runnersRef 全量接管，不触真实子进程。 */
+function productionRunners(userDataPath: string): UpgradeRunners {
+  return { npxUpdate: defaultNpxUpdate(resolveBundledNpx(userDataPath)) };
+}
 
 export class SkillsOps {
   private readonly ops: SkillFsOps;
@@ -70,12 +76,14 @@ export class SkillsOps {
   private readonly disabledMgr: DisableManager;
   private readonly skillsBase: string;
   private readonly runnersRef?: () => UpgradeRunners | undefined;
+  private readonly userDataPath: string;
 
   constructor(options: SkillsOpsOptions) {
     this.ops = options.ops ?? createNodeFsOps();
     this.logger = options.logger ?? NOOP_LOGGER;
     this.scanner = options.scanner;
     this.runnersRef = options.runnersRef;
+    this.userDataPath = options.userDataPath;
     this.registryDirs = REGISTRY.map((r) => this.ops.join(options.homeDir, r.dir));
     this.skillsBase = this.ops.join(options.userDataPath, 'skills');
     this.log = new OperationLog(this.ops.join(this.skillsBase, 'log', 'operations.jsonl'));
@@ -141,7 +149,7 @@ export class SkillsOps {
   private newExecutor(): UpgradeExecutor {
     return new UpgradeExecutor(
       { ops: this.ops, base: this.skillsBase, scanner: this.scanner, log: this.log, logger: this.logger },
-      this.runnersRef ? this.runnersRef() : PRODUCTION_RUNNERS
+      this.runnersRef ? this.runnersRef() : productionRunners(this.userDataPath)
     );
   }
 

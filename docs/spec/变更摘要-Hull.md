@@ -3,6 +3,14 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-09-06 缺陷修复——ACP/skills 通道 spawn node ENOENT 主进程弹框（0.1.7 实测，三端排查）
+
+- 类型：缺陷修复（无共识规则变化；新增工程约束——所有 spawn node 通道必须接 spawnArgs.resolveNodePath，禁止裸 'node' 字面量）
+- 内容：①根因——ACPProvider 硬编码 spawn('node') 走 PATH，打包版 GUI 无 node → ENOENT；fetchModels 未挂 error handler → unhandled 'error' → uncaughtException 弹框（connect 路径有 crashPromise 仅任务失败不弹框）；②修复——resolveNodePath 从 RuntimeManager 提取至 spawnArgs 共享（env HULL_NODE_PATH → 捆绑 → PATH 单一修改点），ACPProvider 增 nodePath 注入 + fetchModels spawnError 吸收为 reject；③同根因漏网清点（三端 8 个子进程调用点全查）——skills searchRemote/installRemote spawn('npx')（shebang 依赖 PATH）与 UpgradeExecutor defaultNpxUpdate 均接 BundledNpx（捆绑 node 显式跑 npx-cli.js）；④跨平台布局——resolveNodePath/resolveBundledNpx 平台参数化：POSIX bin/node + ../lib/node_modules/npm/bin/，win32 根 node.exe + 同级 node_modules/npm/bin/（对齐 extractNode/npmRunner.npmCliPathFor 已实锤布局）；git 轨不捆绑有降级语义、spawnSync('ps') win 静默降级、taskkill win 自带——不涉及
+- 影响：win 打包版顺带根治 dsh web/ACP 通道起不来的存量隐患（0.1.7 win 验证被开发机 PATH 有 node 掩盖）；linux 与 mac 布局同构，首轮修复即覆盖
+- 核验：tsc ✓ + 单测 1020 绿（新增 10：nodePath 透传/spawn error 吸收/npx 注入/解析器三分支/win32 布局/npxUpdate 捆绑形态）；test:integration 基线即挂（tests/e2e 三 spec 类型错误，与本修复无关，stash 验证）
+- 文档：docs/lessons/2026-09-06-spawn-node-enoent-multi-channel-drift-lesson.md
+
 ## 2026-09-03 通知偏好 V2b——按源系统通知开关 + 免打扰时段
 
 - 类型：功能需求实现（判级常规，设计 §八 轻量冻结；无共识规则变化）

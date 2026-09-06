@@ -6,7 +6,7 @@ import { basename, isAbsolute, join } from 'node:path';
 
 import { acquireSingleInstanceLock } from '../runtime/SingleInstance';
 import { RuntimeManager, type CrashInfo } from '../runtime/RuntimeManager';
-import { matchesDshSignature } from '../runtime/spawnArgs';
+import { matchesDshSignature, resolveNodePath } from '../runtime/spawnArgs';
 import { DshMissingError, HullError } from '../shared/errors';
 import { HullUpdatePhase, InstallPhase, RuntimePhase, UpgradePhase } from '../shared/types';
 import { OverlayManager } from '../overlay/OverlayManager';
@@ -121,7 +121,9 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   // runtime spawnArgs 同源解析）——壳红线 DSH_HOME 零引用（本文件头注），用户环境通常未设，
   // 此前 ACPProvider 硬依赖 env.DSH_HOME → 每任务必然 settleFailure（实测 15:21 卡死根因 B）
   const providerManager = new ProviderManager({
-    acpFactory: () => new ACPProvider({ overlayDir: join(userDataPath, 'dsh'), logger }),
+    // nodePath 与 RuntimeManager 同源解析（spawnArgs 单一修改点）：捆绑 node 优先，
+    // 打包版 GUI PATH 无 node，缺省 'node' 会 spawn ENOENT（0.1.7 实测弹框缺陷）
+    acpFactory: () => new ACPProvider({ overlayDir: join(userDataPath, 'dsh'), nodePath: resolveNodePath(userDataPath), logger }),
   });
   // B4 收口：真实 ACP provider 显式实例化（供 ApprovalManager 审批链路接线 permission 事件；
   // 仅 HULL_EXEC_PROVIDER=mock 时回落 ProviderManager 的 MockProvider，不接 permission 事件）

@@ -2,8 +2,10 @@
  * 远程安装单测（O-3：npx skills add 封装）
  * 注入 runner mock：参数校验（owner/repo@skill + agent 白名单）、非零退出、runner 抛错、超时
  */
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
 import { deepEqual, equal, rejects, throws } from 'node:assert/strict';
+import childProcess from 'node:child_process';
+import { EventEmitter } from 'node:events';
 
 import { RemoteInstallFailedError, SkillValidationError } from './errors';
 import { installRemote, parseSkillRef, INSTALL_AGENTS } from './installRemote';
@@ -60,4 +62,26 @@ test('超时 → remote-install-failed（注入短超时 + 永不返回的 runne
       }),
     (err: Error) => err instanceof RemoteInstallFailedError
   );
+});
+
+// ─────────────────── 0.1.7 同根因修复：defaultRunner 捆绑 npx 注入（打包版 PATH 无 node） ───────────────────
+
+test('npx 注入：spawn(nodePath, [cliJs, ...args])（npx shebang 依赖 PATH，须用捆绑 node 显式跑）', async () => {
+  const calls: { cmd: string; args: string[] }[] = [];
+  const spawnMock = mock.method(childProcess, 'spawn', ((cmd: string, args: string[]) => {
+    calls.push({ cmd, args });
+    const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter };
+    child.stdout = new EventEmitter();
+    queueMicrotask(() => child.emit('close', 0));
+    return child;
+  }) as never);
+  try {
+    const res = await installRemote('a/b@c', 'opencode', {
+      npx: { nodePath: '/bundled/node', cliJs: '/bundled/lib/node_modules/npm/bin/npx-cli.js' },
+    });
+    deepEqual(calls, [{ cmd: '/bundled/node', args: ['/bundled/lib/node_modules/npm/bin/npx-cli.js', 'skills', 'add', 'a/b', '-s', 'c', '-a', 'opencode'] }]);
+    deepEqual(res, { installedRef: 'a/b@c', agent: 'opencode' });
+  } finally {
+    spawnMock.mock.restore();
+  }
 });

@@ -13,7 +13,7 @@ import {
 } from '../shared/types';
 import { HullError, StartTimeoutError, SpawnFailedError, DshMissingError, ChildExitedError } from '../shared/errors';
 import { ReadinessProbe, type ProbeResult } from './ReadinessProbe';
-import { buildSpawnArgv, dshEntryPath } from './spawnArgs';
+import { buildSpawnArgv, dshEntryPath, resolveNodePath } from './spawnArgs';
 
 export type { RuntimeLogger, ChildLike } from '../shared/types';
 
@@ -299,13 +299,9 @@ export class RuntimeManager extends EventEmitter {
     }
   }
 
-  /** Node 解析器来源（契约 #1 注记 / 设计 §5 偏离 3）：env → 捆绑路径探测 → PATH 兜底 */
+  /** Node 解析器来源（契约 #1 注记 / 设计 §5 偏离 3）：委托 spawnArgs.resolveNodePath（env → 捆绑 → PATH，与 ACP 通道共用单一修改点） */
   private resolveNodePath(): string {
-    const envPath = process.env.HULL_NODE_PATH;
-    if (envPath) return envPath;
-    const bundled = join(this.userDataPath, 'node', 'bin', 'node');
-    if (existsSync(bundled)) return bundled;
-    return 'node';
+    return resolveNodePath(this.userDataPath);
   }
 
   /** 探测失败结构化映射（契约 #1 异常）：窗口耗尽/就绪行超时 → start-timeout；流提前结束 → child-exited */  private mapProbeFailure(pr: ProbeResult): HullError {

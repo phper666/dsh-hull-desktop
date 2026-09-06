@@ -7,6 +7,8 @@
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 
+import type { BundledNpx } from '../../runtime/spawnArgs';
+
 import { NOOP_LOGGER, type RuntimeLogger } from '../../shared/types';
 
 import type { SkillFsOps } from '../SkillFsOps';
@@ -94,11 +96,20 @@ export function spawnChecked(cmd: string, args: string[], options: { cwd?: strin
 }
 
 /**
- * 生产 npx runner（O-2 已拍板：`skills update <name>` 单路径语义已实测）。
+ * 生产 npx runner 工厂（O-2 已拍板：`skills update <name>` 单路径语义已实测）。
  * `--no-install` 禁止 npx 临时下载；npx 不存在/网络失败/非零退出 → reject → 降级 git-staging。
+ * ⚠️ npx shebang `#!/usr/bin/env node`：打包版 GUI PATH 无 node → spawn('npx') ENOENT（0.1.7 同根因
+ * 漏网点）——须传捆绑 npx（spawnArgs.resolveBundledNpx：捆绑 node 显式跑 npx-cli.js）；
+ * 缺省（dev 环境 PATH 有 node）保持 spawn('npx')。
  */
-export function defaultNpxUpdate(cwd: string, skillName: string): Promise<void> {
-  return spawnChecked('npx', ['--no-install', 'skills', 'update', skillName], { cwd, timeoutMs: GIT_CLONE_TIMEOUT_MS });
+export function defaultNpxUpdate(npx?: BundledNpx): (cwd: string, skillName: string) => Promise<void> {
+  return (cwd: string, skillName: string): Promise<void> =>
+    npx
+      ? spawnChecked(npx.nodePath, [npx.cliJs, '--no-install', 'skills', 'update', skillName], {
+          cwd,
+          timeoutMs: GIT_CLONE_TIMEOUT_MS,
+        })
+      : spawnChecked('npx', ['--no-install', 'skills', 'update', skillName], { cwd, timeoutMs: GIT_CLONE_TIMEOUT_MS });
 }
 
 export class UpgradeExecutor {

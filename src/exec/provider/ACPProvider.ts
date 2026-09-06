@@ -190,6 +190,12 @@ export interface ACPProviderOptions {
   settingsPath?: string;
   /** Q-023：listModels 整体硬超时（缺省 45s；测试 seam 注入短超时）——渲染层 await 不永久挂起 */
   listModelsTimeoutMs?: number;
+  /**
+   * node 可执行路径（spawnArgs.resolveNodePath 解析：env → 捆绑 → PATH）——缺省 'node'（兼容）。
+   * 0.1.7 缺陷：硬编码 'node' → 打包版 PATH 无 node → spawn ENOENT；必须与 RuntimeManager
+   * 同源解析（spawnArgs 单一修改点）。
+   */
+  nodePath?: string;
 }
 
 /** 权限请求上下文（ApprovalManager 消费；B2 非阻塞弹窗数据源） */
@@ -217,6 +223,12 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
   private readonly settingsPath?: string;
   /** Q-023：listModels 整体硬超时（缺省 45s） */
   private readonly listModelsTimeoutMs: number;
+  /**
+   * node 可执行路径（spawnArgs.resolveNodePath 解析，env → 捆绑 → PATH）——缺省 'node'
+   * （测试/兼容）。0.1.7 缺陷修复：此前硬编码 'node' 走 PATH，打包版 GUI 环境无 node
+   * → spawn ENOENT；fetchModels 未挂 error handler → unhandled 'error' → 主进程弹框。
+   */
+  private readonly nodePath: string;
   /** Q-018：listModels 进程内缓存（overlayDir → {at, groups}） */
   private readonly modelsCache = new Map<string, { at: number; data: ModelOption[] }>();
 
@@ -228,6 +240,7 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
     this.overlayDir = options.overlayDir;
     this.settingsPath = options.settingsPath;
     this.listModelsTimeoutMs = options.listModelsTimeoutMs ?? 45_000;
+    this.nodePath = options.nodePath ?? 'node';
   }
 
   execute(task: ExecutionTask, handlers: ExecutionHandlers): { cancel(): Promise<void> } {
@@ -364,12 +377,17 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
     const bin = dshBinPath(dir);
     // Q-023：DSH_HOME=临时 home（会话落临时 sessions）；bin 仍 overlayDir——内置分组来自 dsh 安装本身，
     // 不受隔离影响，清单完整性不变；自定义渠道本来走 settings.yaml 合并
-    const child = this.spawnFn('node', ['--expose-internals', bin, '--profile', 'acp'], {
+    const child = this.spawnFn(this.nodePath, ['--expose-internals', bin, '--profile', 'acp'], {
       cwd: dir,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, DSH_HOME: tmpHome },
     });
     this.logger.info(`[Q-023] 模型清单探测子进程已启动 pid=${child.pid ?? '?'}`);
+    // spawn 异步失败（ENOENT 等）必须就地吸收：不挂 handler 会变 unhandled 'error'
+    // → uncaughtException → 主进程弹框（0.1.7 实测缺陷）；转 reject 走既有失败路径
+    const spawnError = new Promise<never>((_, reject) => {
+      child.on('error', (err: Error) => reject(new Error(`dsh ACP 探测子进程启动失败: ${err.message}`)));
+    });
     const client = new JsonRpcClient({ stdin: child.stdin, stdout: child.stdout, logger: this.logger });
     // Q-023 整体硬超时兜底：spawn→initialize→session/new 任一环节挂起 → reject「模型清单获取超时」
     // → IPC {ok:false} → 渲染层隐藏降级，不再永久卡「加载模型中…」；
@@ -396,6 +414,7 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
           return result;
         })(),
         hardTimeout,
+        spawnError,
       ]);
       return groups;
     } finally {
@@ -438,7 +457,7 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
       // spawn 参数与 M1 web 子命令同构：node --expose-internals <bin> acp
       // dsh CLI 契约（0.1.2 README「入口模式」）：ACP 是 profile 不是子命令——
       // `dsh acp` 会被当成 profile args，缺 --profile 直接 exit 1（实测 0.1.1-rc.2/0.1.2-rc.1）
-      child = this.spawnFn('node', ['--expose-internals', bin, '--profile', 'acp'], {
+      child = this.spawnFn(this.nodePath, ['--expose-internals', bin, '--profile', 'acp'], {
         cwd: overlayDir,
         stdio: ['pipe', 'pipe', 'pipe'],
       });

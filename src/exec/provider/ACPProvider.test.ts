@@ -973,3 +973,55 @@ test('Q-027 cancel 兜底：cancel 后未退出 → grace 窗口后 SIGTERM（O-
   await sleep(1800);
   ok(h.child!.killed.includes('SIGTERM'), 'cancel 未退出 → SIGTERM 兜底（O-11）');
 });
+
+// ─────────────────── 0.1.7 修复：nodePath 注入（捆绑 node 解析）+ fetchModels spawn error 吸收 ───────────────────
+
+test('nodePath 注入：execute 与 listModels 的 spawn 均用注入路径（不再裸 \'node\' 走 PATH）', async () => {
+  const h = new Harness();
+  const spawnLog: { cmd: string; args: string[] }[] = [];
+  const provider = new ACPProvider({
+    nodePath: '/bundled/node/bin/node',
+    settingsPath: join(tmpdir(), 'hull-no-settings.yaml'),
+    spawnFn: ((cmd: string, args: string[], _opts: never) => {
+      spawnLog.push({ cmd, args });
+      h.child = new FakeChild();
+      return h.child;
+    }) as never,
+  });
+  // execute 路径（connect）
+  provider.execute(TASK, h.handlers);
+  equal(spawnLog[0].cmd, '/bundled/node/bin/node');
+  // listModels 路径（fetchModels）——新 provider 实例避开 modelsCache
+  const h2 = new Harness();
+  const spawnLog2: { cmd: string; args: string[] }[] = [];
+  const provider2 = new ACPProvider({
+    nodePath: '/bundled/node/bin/node',
+    settingsPath: join(tmpdir(), 'hull-no-settings.yaml'),
+    spawnFn: ((cmd: string, args: string[], _opts: never) => {
+      spawnLog2.push({ cmd, args });
+      h2.child = new FakeChild();
+      return h2.child;
+    }) as never,
+  });
+  const p = provider2.listModels();
+  const init = sentRequest(h2, 0);
+  respond(h2.child!, init.id!, { protocolVersion: 1 });
+  await sleep(5);
+  const ns = sentRequest(h2, 1);
+  respond(h2.child!, ns.id!, { sessionId: 's', configOptions: [] });
+  await p;
+  equal(spawnLog2[0].cmd, '/bundled/node/bin/node');
+});
+
+test('fetchModels spawn 异步失败（ENOENT）→ 吸收为 reject 不炸主进程（unhandled \'error\' 回归）', async () => {
+  const provider = new ACPProvider({
+    settingsPath: join(tmpdir(), 'hull-no-settings.yaml'),
+    spawnFn: ((_cmd: string, _args: string[], _opts: never) => {
+      const child = new FakeChild();
+      // 模拟 child_process.spawn 真实行为：error 事件异步 emit（unhandled → uncaughtException 弹框）
+      setTimeout(() => child.emit('error', new Error('spawn node ENOENT')), 5);
+      return child;
+    }) as never,
+  });
+  await rejects(() => provider.listModels(), /dsh ACP 探测子进程启动失败: spawn node ENOENT/);
+});

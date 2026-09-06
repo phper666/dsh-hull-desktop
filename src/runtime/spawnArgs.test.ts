@@ -13,6 +13,8 @@ import {
   cleanLine,
   DSH_CLI_SIGNATURE,
   matchesDshSignature,
+  resolveNodePath,
+  resolveBundledNpx,
 } from './spawnArgs';
 
 const tempDirs: string[] = [];
@@ -185,4 +187,84 @@ test('Q-017-D：同进程 swap 后 dshEntryPath 不得返回旧版缓存路径',
 
   const second = dshEntryPath(live);
   ok(second.includes('dsh@2.0.0'), `swap 后必须解析到 v2: ${second}`);
+});
+
+// ─────────────────── 0.1.7 修复：resolveNodePath / resolveBundledNpx（单一修改点） ───────────────────
+
+test('resolveNodePath：HULL_NODE_PATH env 优先', () => {
+  const saved = process.env.HULL_NODE_PATH;
+  try {
+    process.env.HULL_NODE_PATH = '/env/node';
+    equal(resolveNodePath('/any/userData'), '/env/node');
+  } finally {
+    if (saved === undefined) delete process.env.HULL_NODE_PATH;
+    else process.env.HULL_NODE_PATH = saved;
+  }
+});
+
+test('resolveNodePath：捆绑 node 存在 → <userData>/node/bin/node；缺失 → PATH 兜底 \'node\'', () => {
+  const saved = process.env.HULL_NODE_PATH;
+  delete process.env.HULL_NODE_PATH;
+  try {
+    const dir = mkdtempSync(join(tmpdir(), 'hull-node-'));
+    tempDirs.push(dir);
+    mkdirSync(join(dir, 'node', 'bin'), { recursive: true });
+    writeFileSync(join(dir, 'node', 'bin', 'node'), '#!/bin/sh\n', { mode: 0o755 });
+    equal(resolveNodePath(dir), join(dir, 'node', 'bin', 'node'));
+    // 无捆绑 → 兜底
+    equal(resolveNodePath(join(tmpdir(), 'hull-no-node-xyz')), 'node');
+  } finally {
+    if (saved !== undefined) process.env.HULL_NODE_PATH = saved;
+  }
+});
+
+test('resolveBundledNpx：捆绑齐备 → {nodePath, cliJs}；未捆绑 / npx-cli.js 缺失 → undefined', () => {
+  const saved = process.env.HULL_NODE_PATH;
+  delete process.env.HULL_NODE_PATH;
+  try {
+    // 齐备：bin/node + lib/node_modules/npm/bin/npx-cli.js
+    const dir = mkdtempSync(join(tmpdir(), 'hull-npx-'));
+    tempDirs.push(dir);
+    mkdirSync(join(dir, 'node', 'bin'), { recursive: true });
+    mkdirSync(join(dir, 'node', 'lib', 'node_modules', 'npm', 'bin'), { recursive: true });
+    writeFileSync(join(dir, 'node', 'bin', 'node'), '#!/bin/sh\n', { mode: 0o755 });
+    writeFileSync(join(dir, 'node', 'lib', 'node_modules', 'npm', 'bin', 'npx-cli.js'), 'console.log(1)\n');
+    deepEqual(resolveBundledNpx(dir), {
+      nodePath: join(dir, 'node', 'bin', 'node'),
+      cliJs: join(dir, 'node', 'lib', 'node_modules', 'npm', 'bin', 'npx-cli.js'),
+    });
+    // 有 node 无 npx-cli.js（结构变化防御）→ undefined
+    const dir2 = mkdtempSync(join(tmpdir(), 'hull-npx2-'));
+    tempDirs.push(dir2);
+    mkdirSync(join(dir2, 'node', 'bin'), { recursive: true });
+    writeFileSync(join(dir2, 'node', 'bin', 'node'), '#!/bin/sh\n', { mode: 0o755 });
+    equal(resolveBundledNpx(dir2), undefined);
+    // 未捆绑 → undefined（dev 回退 PATH npx）
+    equal(resolveBundledNpx(join(tmpdir(), 'hull-no-npx-xyz')), undefined);
+  } finally {
+    if (saved !== undefined) process.env.HULL_NODE_PATH = saved;
+  }
+});
+
+test('resolveNodePath/resolveBundledNpx：win32 布局——node.exe 在根（无 bin 层），npx-cli.js 同级 node_modules', () => {
+  const saved = process.env.HULL_NODE_PATH;
+  delete process.env.HULL_NODE_PATH;
+  try {
+    const dir = mkdtempSync(join(tmpdir(), 'hull-win-'));
+    tempDirs.push(dir);
+    mkdirSync(join(dir, 'node', 'node_modules', 'npm', 'bin'), { recursive: true });
+    writeFileSync(join(dir, 'node', 'node.exe'), 'binary');
+    writeFileSync(join(dir, 'node', 'node_modules', 'npm', 'bin', 'npx-cli.js'), 'console.log(1)\n');
+    // resolveNodePath win32 → <userData>/node/node.exe
+    equal(resolveNodePath(dir, 'win32'), join(dir, 'node', 'node.exe'));
+    // resolveBundledNpx win32 → nodePath + 同级 node_modules/npm/bin/npx-cli.js（正斜杠归一，跨平台断言确定）
+    const npx = resolveBundledNpx(dir, 'win32');
+    ok(npx, 'win32 捆绑 npx 解析成功');
+    ok(npx!.nodePath.endsWith('/node/node.exe'), `nodePath 指向 node.exe: ${npx!.nodePath}`);
+    ok(npx!.cliJs.includes('/node/node_modules/npm/bin/npx-cli.js'), `cliJs win 布局: ${npx!.cliJs}`);
+    // win 布局不满足（只有 POSIX bin/node）→ undefined
+    equal(resolveBundledNpx(dir, 'darwin'), undefined);
+  } finally {
+    if (saved !== undefined) process.env.HULL_NODE_PATH = saved;
+  }
 });

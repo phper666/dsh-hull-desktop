@@ -7,6 +7,8 @@
  */
 import { NOOP_LOGGER, type RuntimeLogger } from '../shared/types';
 
+import { resolveBundledNpx } from '../runtime/spawnArgs';
+
 import { HashCache, computeDirHash } from './hash';
 import { isValidSkillName, isWithinRoots } from './pathGuard';
 import { parseFrontmatter, type Frontmatter } from './frontmatter';
@@ -126,14 +128,15 @@ export class SkillsScanner {
     return this.scanPromise;
   }
 
-  /** 远程搜索委托（renderer 经 IPC 消费；runner 仅测试/主进程内部可注入） */
+  /** 远程搜索委托（renderer 经 IPC 消费；runner 仅测试/主进程内部可注入）。
+   *  捆绑 npx 自动解析（打包版 PATH 无 node，spawn('npx') ENOENT——0.1.7 同根因缺陷） */
   searchRemote(query: string, opts?: SearchRemoteOptions) {
-    return searchRemoteImpl(query, opts);
+    return searchRemoteImpl(query, { npx: resolveBundledNpx(this.userDataPath), ...opts });
   }
 
-  /** 远程安装委托（O-3：npx skills add；runner 仅测试/主进程内部可注入） */
+  /** 远程安装委托（O-3：npx skills add；runner 仅测试/主进程内部可注入）。npx 解析同上 */
   installRemote(skillRef: string, agent: string, opts?: InstallRemoteOptions) {
-    return installRemoteImpl(skillRef, agent, opts);
+    return installRemoteImpl(skillRef, agent, { npx: resolveBundledNpx(this.userDataPath), ...opts });
   }
 
   // ─────────────────────────── 管线 ───────────────────────────

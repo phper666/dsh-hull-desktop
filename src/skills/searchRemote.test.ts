@@ -2,8 +2,10 @@
  * S1 远程搜索单测（CON-R-skills-010 / Q-036 / T-2，设计 D6）
  * npx skills find 封装：注入 runner mock、30s 超时、失败降级 remote-search-failed
  */
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
 import { deepEqual, equal, rejects } from 'node:assert/strict';
+import childProcess from 'node:child_process';
+import { EventEmitter } from 'node:events';
 
 import { RemoteSearchFailedError, SkillValidationError } from './errors';
 import { searchRemote } from './searchRemote';
@@ -114,4 +116,43 @@ test('超时 → remote-search-failed（注入短超时 + 永不返回的 runner
       }),
     (err: Error) => err instanceof RemoteSearchFailedError
   );
+});
+
+// ─────────────────── 0.1.7 同根因修复：defaultRunner 捆绑 npx 注入（打包版 PATH 无 node） ───────────────────
+
+test('npx 注入：spawn(nodePath, [cliJs, ...args])（npx shebang 依赖 PATH，须用捆绑 node 显式跑）', async () => {
+  const calls: { cmd: string; args: string[] }[] = [];
+  const spawnMock = mock.method(childProcess, 'spawn', ((cmd: string, args: string[]) => {
+    calls.push({ cmd, args });
+    const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter };
+    child.stdout = new EventEmitter();
+    queueMicrotask(() => child.emit('close', 0));
+    return child;
+  }) as never);
+  try {
+    const entries = await searchRemote('commit', {
+      npx: { nodePath: '/bundled/node', cliJs: '/bundled/lib/node_modules/npm/bin/npx-cli.js' },
+    });
+    deepEqual(calls, [{ cmd: '/bundled/node', args: ['/bundled/lib/node_modules/npm/bin/npx-cli.js', 'skills', 'find', 'commit'] }]);
+    deepEqual(entries, [], 'close 0 + 空 stdout → 空结果');
+  } finally {
+    spawnMock.mock.restore();
+  }
+});
+
+test('未传 npx（dev）→ 保持 spawn(\'npx\', args) 原行为', async () => {
+  const calls: { cmd: string; args: string[] }[] = [];
+  const spawnMock = mock.method(childProcess, 'spawn', ((cmd: string, args: string[]) => {
+    calls.push({ cmd, args });
+    const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter };
+    child.stdout = new EventEmitter();
+    queueMicrotask(() => child.emit('close', 0));
+    return child;
+  }) as never);
+  try {
+    await searchRemote('q');
+    deepEqual(calls, [{ cmd: 'npx', args: ['skills', 'find', 'q'] }]);
+  } finally {
+    spawnMock.mock.restore();
+  }
 });
