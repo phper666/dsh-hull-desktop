@@ -81,19 +81,25 @@ function captureWindow(app: import('@playwright/test').ElectronApplication): Pro
     .then((b64) => Buffer.from(b64, 'base64'));
 }
 
-/** 官方 UI webContents 自身截图（绕开主窗口 capturePage 不合成 WebContentsView 的限制） */
-function captureOfficialPage(app: import('@playwright/test').ElectronApplication): Promise<Buffer> {
+/** 整窗合成截图（desktopCapturer 抓窗口源像素——包含 WebContentsView 层，即壳 nav + 官方 UI 同框） */
+function captureWindowComposited(app: import('@playwright/test').ElectronApplication): Promise<Buffer> {
   return app
-    .evaluate(({ webContents }) =>
+    .evaluate(({ desktopCapturer, BrowserWindow }) =>
       (async () => {
-        const wc = webContents.getAllWebContents().find((w) => w.getURL().startsWith('http://127.0.0.1:'));
-        if (!wc) return '';
-        const img = await wc.capturePage();
-        return img.toPNG().toString('base64');
+        const win = BrowserWindow.getAllWindows()[0];
+        const b = win.getBounds();
+        const sources = await desktopCapturer.getSources({
+          types: ['window'],
+          thumbnailSize: { width: Math.max(b.width * 2, 2400), height: Math.max(b.height * 2, 1600) },
+          fetchWindowIcons: false,
+        });
+        const src = sources.find((s) => s.name === win.getTitle()) ?? sources[0];
+        if (!src) return '';
+        return src.thumbnail.toPNG().toString('base64');
       })()
     )
     .then((b64) => {
-      if (!b64) throw new Error('官方 UI webContents 未找到');
+      if (!b64) throw new Error('desktopCapturer 未抓到窗口源（可能缺屏幕录制权限）');
       return Buffer.from(b64, 'base64');
     });
 }
@@ -161,10 +167,17 @@ test.describe('README 截图采集', () => {
         throw new Error('真实 dsh web 未在 60s 内就绪');
       }
       await waitForMainWindow(app, 30_000);
+      // 隐藏 nav 状态区：真实 dsh web URL 含 ?token=（虽 localhost-only 也不该进公开 README），顺带消「检查更新中」噪声
+      const shell = shellPage(app);
+      if (shell) {
+        await shell.evaluate(() => document.getElementById('nav-status')?.style.setProperty('display', 'none'));
+        await shell.waitForTimeout(300);
+      }
       await new Promise((r) => setTimeout(r, 4000)); // 等官方 UI 渲染稳定
       const outDir = join(PROJECT_ROOT, 'docs', 'screenshots');
       mkdirSync(outDir, { recursive: true });
-      writeFileSync(join(outDir, 'dsh-web.png'), await captureOfficialPage(app));
+      // 整窗合成截图（壳 nav + 官方 UI 同框；desktopCapturer 含 WebContentsView 层）
+      writeFileSync(join(outDir, 'dsh-web.png'), await captureWindowComposited(app));
     } finally {
       await app.close();
     }
