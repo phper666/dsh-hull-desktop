@@ -16,13 +16,13 @@ Built for developers, Hull adds its own layer on top: a task kanban for planning
 
 | Task Kanban | Board Calendar |
 |:---:|:---:|
-| ![Task Kanban](https://cdn.jsdelivr.net/gh/phper666/dsh-hull-desktop@main/docs/screenshots/board.png) | ![Board Calendar](https://cdn.jsdelivr.net/gh/phper666/dsh-hull-desktop@main/docs/screenshots/board-calendar.png) |
+| ![Task Kanban](https://cdn.jsdelivr.net/gh/phper666/dsh-hull-desktop@main/docs/screenshots/board.png?v=20260907) | ![Board Calendar](https://cdn.jsdelivr.net/gh/phper666/dsh-hull-desktop@main/docs/screenshots/board-calendar.png?v=20260907) |
 
 | Task Detail | Settings & Upgrade |
 |:---:|:---:|
-| ![Task Detail](https://cdn.jsdelivr.net/gh/phper666/dsh-hull-desktop@main/docs/screenshots/board-detail.png) | ![Settings & Upgrade](https://cdn.jsdelivr.net/gh/phper666/dsh-hull-desktop@main/docs/screenshots/settings.png) |
+| ![Task Detail](https://cdn.jsdelivr.net/gh/phper666/dsh-hull-desktop@main/docs/screenshots/board-detail.png?v=20260907) | ![Settings & Upgrade](https://cdn.jsdelivr.net/gh/phper666/dsh-hull-desktop@main/docs/screenshots/settings.png?v=20260907) |
 
-<p align="center"><img src="https://cdn.jsdelivr.net/gh/phper666/dsh-hull-desktop@main/docs/screenshots/dsh-web.png" alt="dsh official web UI" width="640"><br><sub>dsh official web UI (rendered inside the Hull shell, zero injection)</sub></p>
+<p align="center"><img src="https://cdn.jsdelivr.net/gh/phper666/dsh-hull-desktop@main/docs/screenshots/dsh-web.png?v=20260907" alt="dsh official web UI" width="640"><br><sub>dsh official web UI (rendered inside the Hull shell, zero injection)</sub></p>
 
 > Screenshots are captured automatically in the e2e environment (kanban/detail/settings use seeded fake data; dsh web is the real official UI in its empty landing state): `CAPTURE_SCREENSHOTS=1 CAPTURE_REAL_DSH=1 npx playwright test tests/e2e/capture-screenshots.spec.ts`. Images are referenced via the jsDelivr CDN (raw.githubusercontent is unreachable from some networks).
 
