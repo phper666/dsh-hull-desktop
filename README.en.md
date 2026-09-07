@@ -12,6 +12,14 @@ Built for developers, Hull adds its own layer on top: a task kanban for planning
 
 > **AI workflow statement:** This project is developed with [ai-workflow-skills](https://github.com/phper666/ai-workflow-skills), a team AI R&D workflow skill suite — consensus docs → tri-role scanning → open-question closure → API contracts → technical design (graded) → implementation discipline (TDD/lint/Review/Semgrep) → delivery verification → change propagation → lesson deposit. Workflow artifacts live under `docs/` (spec/consensus, api/contracts, design/technical design, prd/requirements, prototype/, records/implementation records, lessons/).
 
+## Screenshots
+
+| Task Kanban | Settings & Upgrade |
+|:---:|:---:|
+| ![Task Kanban](docs/screenshots/board.png) | ![Settings & Upgrade](docs/screenshots/settings.png) |
+
+> Screenshots are captured automatically in the e2e environment (seeded fake data, not real user data): `CAPTURE_SCREENSHOTS=1 npx playwright test tests/e2e/capture-screenshots.spec.ts`
+
 ## Design principles
 
 - **Pure shell.** Hull never forks, patches, or replaces dsh or its web UI. Every official dsh release works in Hull the day it ships.
