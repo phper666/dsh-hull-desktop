@@ -14,11 +14,17 @@ Hull 面向程序员，在官方之上叠加自己的层：任务看板、原生
 
 ## 截图
 
-| 任务看板 | 设置与升级 |
+| 任务看板 | 看板日历 |
 |:---:|:---:|
-| ![任务看板](docs/screenshots/board.png) | ![设置与升级](docs/screenshots/settings.png) |
+| ![任务看板](https://cdn.jsdelivr.net/gh/phper666/dsh-hull-desktop@main/docs/screenshots/board.png) | ![看板日历](https://cdn.jsdelivr.net/gh/phper666/dsh-hull-desktop@main/docs/screenshots/board-calendar.png) |
 
-> 截图由 e2e 环境自动采集（种子假数据，非真实用户数据）：`CAPTURE_SCREENSHOTS=1 npx playwright test tests/e2e/capture-screenshots.spec.ts`
+| 任务详情 | 设置与升级 |
+|:---:|:---:|
+| ![任务详情](https://cdn.jsdelivr.net/gh/phper666/dsh-hull-desktop@main/docs/screenshots/board-detail.png) | ![设置与升级](https://cdn.jsdelivr.net/gh/phper666/dsh-hull-desktop@main/docs/screenshots/settings.png) |
+
+<p align="center"><img src="https://cdn.jsdelivr.net/gh/phper666/dsh-hull-desktop@main/docs/screenshots/dsh-web.png" alt="dsh 官方 Web UI" width="640"><br><sub>dsh 官方 Web UI（Hull 壳内嵌渲染，零注入）</sub></p>
+
+> 截图由 e2e 环境自动采集（看板/详情/设置为种子假数据；dsh web 为真实官方 UI 空态首页）：`CAPTURE_SCREENSHOTS=1 CAPTURE_REAL_DSH=1 npx playwright test tests/e2e/capture-screenshots.spec.ts`。图片走 jsDelivr CDN 引用（raw.githubusercontent 部分网络环境不可达）。
 
 ## 设计原则
 
