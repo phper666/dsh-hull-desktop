@@ -123,8 +123,8 @@
           : '';
     el.innerHTML = `
       <span>共 <b>${counts.total}</b> 个 skill</span>
-      <span>可升级 <b>${counts.upgradable}</b></span>
-      <span>已禁用 <b>${counts.disabled}</b></span>
+      <span>可升级 <b class="sk-upg-count">${counts.upgradable}</b></span>
+      <span>已禁用 <b class="sk-dis-count">${counts.disabled}</b></span>
       <span>全局 <b>${counts.global}</b></span>
       ${filt}
       ${state}
@@ -264,7 +264,7 @@
     const activePaths = e.paths.map((p) => p.path);
     const disabledPaths = disabledList.filter((d) => d.skillName === e.name && !activePaths.includes(d.originalPath));
     const canUpgrade = e.upgradable === 'upgradable';
-    return `<div class="sk-row" data-name="${esc(e.name)}">
+    return `<div class="sk-row${canUpgrade ? ' sk-upgradable' : ''}" data-name="${esc(e.name)}">
       <div class="sk-main">
         <div class="sk-name">${esc(e.name)}
           ${scopeBadge(e.scope)}
@@ -293,7 +293,7 @@
     const activePaths = e.paths.map((p) => p.path);
     const disabledPaths = disabledList.filter((d) => d.skillName === e.name && !activePaths.includes(d.originalPath));
     const canUpgrade = e.upgradable === 'upgradable';
-    return `<div class="sk-card" data-name="${esc(e.name)}">
+    return `<div class="sk-card${canUpgrade ? ' sk-upgradable' : ''}" data-name="${esc(e.name)}">
         <div class="sk-name">${esc(e.name)}
           ${scopeBadge(e.scope)}
           <span class="sk-badge ${e.upgradable}">${upgNames[e.upgradable] || e.upgradable}</span>

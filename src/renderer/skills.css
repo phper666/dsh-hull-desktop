@@ -41,6 +41,8 @@
   background: var(--hull-panel); border-bottom: 1px solid var(--hull-border); font-size: var(--text-sm); color: var(--hull-text-muted);
 }
 .sk-statusbar b { color: var(--hull-text); font-weight: 600; }
+.sk-statusbar b.sk-upg-count { color: var(--hull-warning); }
+.sk-statusbar b.sk-dis-count { color: var(--hull-text-sub); }
 .sk-scanstate { color: var(--hull-accent); }
 .sk-scanstate.error { color: var(--hull-danger); }
 
@@ -59,6 +61,9 @@
   transition: border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 .sk-card:hover { border-color: var(--hull-accent-hover); transform: translateY(-1px); box-shadow: var(--shadow-2); }
+/* 可升级行/卡：4px 琥珀左条（hover 不覆盖左条色） */
+.sk-row.sk-upgradable, .sk-card.sk-upgradable { border-left: 4px solid var(--hull-warning); }
+.sk-row.sk-upgradable:hover { border-left-color: var(--hull-warning); }
 @media (prefers-reduced-motion: reduce) { .sk-row, .sk-card { transition: none; } .sk-row:hover, .sk-card:hover { transform: none; } }
 .sk-main { flex: 1; min-width: 0; }
 .sk-name { font-weight: 600; font-size: var(--text-md); color: var(--hull-text); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
