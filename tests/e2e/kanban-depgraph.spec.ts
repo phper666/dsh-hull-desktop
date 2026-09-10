@@ -52,10 +52,10 @@ test.describe('U3 依赖图可视化', () => {
     await shell.locator('#nav-board').click();
     await expect(shell.locator('#board-root .kb-card')).toHaveCount(6);
 
-    // ① 父卡详情 → 详情内子任务列表仍在（4 行）+ 摘要入口条可见（依赖图文案 + 计数：两条依赖边）
+    // ① 父卡详情（v0.5 详情改右侧抽屉 .kb-drawer）→ 详情内子任务列表仍在（4 行）+ 摘要入口条可见（依赖图文案 + 计数：两条依赖边）
     await shell.locator('.kb-card', { hasText: '父任务' }).click();
-    await expect(shell.locator('.kb-modal .kb-sub-item')).toHaveCount(4);
-    const entry = shell.locator('.kb-modal .dg-entry');
+    await expect(shell.locator('.kb-drawer .kb-sub-item')).toHaveCount(4);
+    const entry = shell.locator('.kb-drawer .dg-entry');
     await expect(entry).toBeVisible();
     await expect(entry.locator('.dg-et')).toHaveText('依赖图');
     await expect(entry.locator('.dg-sum')).toContainText('2 依赖');
@@ -71,7 +71,7 @@ test.describe('U3 依赖图可视化', () => {
     await expect(shell.locator('.dg-modal .dg-li', { hasText: '子任务一' })).toBeVisible();
     // 缩放工具条：滚轮放大 + 适配复位
     await expect(shell.locator('.dg-modal .dg-zoom')).toBeVisible();
-    const pctBefore = await shell.locator('#dg-zoom-pct').textContent();
+    const pctBefore = (await shell.locator('#dg-zoom-pct').textContent()) ?? '';
     const vpBox = await shell.locator('.dg-modal .dg-vp').boundingBox();
     if (vpBox) {
       await shell.mouse.move(vpBox.x + vpBox.width / 2, vpBox.y + vpBox.height / 2);
@@ -83,10 +83,10 @@ test.describe('U3 依赖图可视化', () => {
     await shell.keyboard.press('Escape');
     await expect(shell.locator('.dg-modal')).toHaveCount(0);
 
-    // ③ 无子任务普通卡详情不显示摘要条
+    // ③ 无子任务普通卡详情（抽屉）不显示摘要条
     await shell.locator('.kb-card', { hasText: '普通任务' }).click();
-    await expect(shell.locator('.kb-modal')).toBeVisible();
-    await expect(shell.locator('.kb-modal .dg-entry')).toHaveCount(0);
+    await expect(shell.locator('.kb-drawer')).toBeVisible();
+    await expect(shell.locator('.kb-drawer .dg-entry')).toHaveCount(0);
 
     await app.close();
     tmp.cleanup();

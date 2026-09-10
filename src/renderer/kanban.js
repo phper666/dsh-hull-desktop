@@ -36,7 +36,7 @@
   let dragTaskId = null;
   let approvalModal = null;
   let openDepgraphTaskId = null; // U3：依赖图弹框当前打开的任务 id（exec 刷新时推最新数据）
-  let openDetailTaskId = null; // 需求 1（2026-09-05）：详情弹框定向更新定位（开/关同步）
+  let openDetailTaskId = null; // 需求 1（2026-09-05）：详情抽屉定向更新定位（开/关同步）
   let openDetailWrap = null;
   // T1/D5 按需渲染状态：时间线分页 + 日历粒度/游标
   // ponytail: 分页封顶首屏 DOM（CON-R-timeline-006 <300ms）；≥1000 卡实测超标再升级虚拟滚动（只换 renderTimeline 内部，聚合纯函数不动）
@@ -627,7 +627,7 @@
     updateDetailForTask(task);
   }
 
-  /** 详情弹框原地刷新（需求 1③）：状态徽标 + 时间线重建 + 执行输出区块；弹框不重建（评论编辑器焦点保留） */
+  /** 详情抽屉原地刷新（需求 1③）：状态徽标 + 流程步骤条 + AC/AI 结果 + 时间线重建 + 执行输出区块；抽屉不重建（评论编辑器焦点保留） */
   function updateDetailForTask(task) {
     const w = openDetailWrap;
     if (!w || !w.isConnected || openDetailTaskId !== task.id) return;
@@ -636,6 +636,10 @@
       badge.className = `kb-exec kb-exec-${task.executionStatus}`;
       badge.textContent = execNames[task.executionStatus] || task.executionStatus;
     }
+    const flowHost = w.querySelector('.kb-flow-host');
+    if (flowHost) flowHost.innerHTML = renderFlowBar(task); // 执行态推进 → 步骤条/分支 chip 同步
+    const acHost = w.querySelector('.kb-ac-host');
+    if (acHost) acHost.innerHTML = acSectionHtml(task); // manual 执行完成 → AI 结果区块出现
     const tlEl = w.querySelector('.kb-tl');
     if (tlEl) {
       const tmp = document.createElement('div');
@@ -646,7 +650,7 @@
     loadExecLogBlock(w, task.id);
   }
 
-  /** 详情弹框时间线 HTML（openDetail 与定向更新共用；需求 2：user 来源 comment 带编辑按钮） */
+  /** 详情抽屉时间线 HTML（openDetail 与定向更新共用；需求 2：user 来源 comment 带编辑按钮） */
   function timelineHtml(t) {
     const tl = (t.timeline || []).slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return `<div class="kb-tl"><h4>时间线</h4>${tl.length === 0 ? '<div class="kb-empty-tl">暂无记录</div>' : tl.map((i) => {
@@ -658,6 +662,47 @@
       const editBtn = i.type === 'comment' && i.source?.type === 'user' ? `<button class="kb-cmt-edit" data-editcmt="${esc(i.id)}" title="编辑评论">编辑</button>` : '';
       return `<div class="kb-tl-item" data-cmtid="${esc(i.id)}"><span class="kb-tl-who">${esc(who)}</span><span class="kb-tl-time">${new Date(i.createdAt).toLocaleString()}</span>${execTag}${editBtn}<div class="kb-tl-content kb-md">${contentHtml}</div></div>`;
     }).join('')}</div>`;
+  }
+
+  /** 执行流程步骤条（M2 原型 flow-bar retro）：idle→queued→running→succeeded→已完成列；
+   *  paused/interrupted 在「执行中」位以当前态显示，failed/cancelled 走尾部分支 chip（原型同款视觉）。
+   *  纯渲染：数据源 task.executionStatus + 列 type，openDetail 与定向更新共用 */
+  function renderFlowBar(t) {
+    const labels = { idle: '未执行', queued: '排队中', running: '执行中', succeeded: '待验证', done: '已完成' };
+    const steps = ['idle', 'queued', 'running', 'succeeded', 'done'];
+    const posMap = { idle: 0, queued: 1, running: 2, paused: 2, interrupted: 2, succeeded: 3 };
+    const doneCol = colById(t.columnId)?.type === 'done';
+    const cur = t.executionStatus || 'idle';
+    let curPos;
+    let branch = '';
+    if (cur === 'failed' || cur === 'cancelled') { curPos = -1; branch = cur === 'failed' ? '失败' : '已取消'; }
+    else if (doneCol) curPos = 4;
+    else curPos = posMap[cur] ?? 0;
+    const chip = (label, cls) => `<span class="kb-flow-step ${cls}">${label}</span>`;
+    const html = steps.map((s, i) => {
+      let label = labels[s];
+      let cls = '';
+      if (i === 2 && (cur === 'paused' || cur === 'interrupted')) label = cur === 'paused' ? '已暂停' : '已中断';
+      if (i === curPos) cls = 'active';
+      else if (curPos > -1 && i < curPos) cls = 'done';
+      return chip(label, cls);
+    }).join('<span class="kb-flow-arrow">→</span>');
+    const branchHtml = branch ? `<span class="kb-flow-arrow">→</span>${chip(branch, 'cancel')}` : '';
+    return `<div class="kb-flow-bar">${html}${branchHtml}</div>`;
+  }
+
+  /** AC/执行模式区块（M2 原型 retro）：auto 展示 acceptanceCriteria 四字段（创建后仍可回看）；
+   *  manual 展示最新「执行结果：」评论（与卡片 succeeded 徽标 title 同源） */
+  function acSectionHtml(t) {
+    if (t.executionMode === 'auto') {
+      const ac = t.acceptanceCriteria;
+      if (!ac) return '';
+      const row = (k, v) => `<p class="kb-ac-row"><b>${k}：</b>${esc(v || '-')}</p>`;
+      return `<div class="kb-drawer-section"><h4>验收标准（AC）</h4>${row('做什么', ac.what)}${row('期望结果', ac.expected)}${row('如何验证', ac.verify)}${ac.context ? row('上下文', ac.context) : ''}</div>`;
+    }
+    const resultCmt = (t.timeline || []).filter((i) => i.type === 'comment' && i.content.startsWith('执行结果：')).pop();
+    if (!resultCmt) return '';
+    return `<div class="kb-drawer-section"><h4>AI 结果</h4><div class="kb-md">${mdRender(resultCmt.content)}</div></div>`;
   }
 
   /** 需求 2（2026-09-05）+ 相对路径扩展（2026-09-05）：路径扫描正则源（每次调用 new RegExp 隔离 /g 状态）。
@@ -1009,6 +1054,41 @@
     });
   }
 
+  /** 详情抽屉（M2 原型 P1 详情侧板 retro：右侧滑入 460px，无遮罩——看板保持可见可交互；
+   *  Esc/✕ 关闭，重入单实例。挂 body 而非 boardRoot——看板整面重渲染不误杀抽屉。
+   *  EasyMDE/监听清理走 kbOnClose 栈，与 modal() 同纪律（CON-R-editor-001）；有 modal 打开时 Esc 只关 modal 不关抽屉 */
+  let drawerWrap = null;
+  let drawerClose = null;
+  function closeOpenDrawer() { drawerClose?.(true); } // 重入换内容：旧抽屉同步移除（无退场动画，防 DOM 双实例竞态）
+  function openDrawer(bodyHtml, opsHtml, onOpen) {
+    closeOpenDrawer();
+    const wrap = document.createElement('div');
+    wrap.className = 'kb-drawer';
+    wrap.setAttribute('role', 'dialog');
+    wrap.setAttribute('aria-label', '任务详情');
+    wrap.innerHTML = `<div class="kb-drawer-head"><h3>卡片详情</h3><button class="kb-icon" data-close title="关闭">✕</button></div><div class="kb-drawer-body">${bodyHtml}</div><div class="kb-drawer-ops">${opsHtml}</div>`;
+    document.body.appendChild(wrap);
+    requestAnimationFrame(() => wrap.classList.add('open')); // 下一帧再加 open → transform 滑入生效
+    const cleanups = [];
+    const close = (instant) => {
+      if (!wrap.parentNode) return;
+      while (cleanups.length) { try { cleanups.pop()(); } catch {} }
+      if (instant) { wrap.remove(); return; }
+      wrap.classList.remove('open');
+      setTimeout(() => wrap.remove(), 200); // 退场动画与 transition 同步
+    };
+    const onKey = (e) => { if (e.key === 'Escape' && !document.querySelector('.kb-modal, .dg-modal')) close(); };
+    document.addEventListener('keydown', onKey);
+    cleanups.push(() => document.removeEventListener('keydown', onKey));
+    wrap.kbOnClose = cleanups;
+    wrap.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) close(); });
+    drawerWrap = wrap;
+    drawerClose = close;
+    cleanups.push(() => { if (drawerWrap === wrap) { drawerWrap = null; drawerClose = null; } });
+    onOpen?.(wrap, close);
+    return wrap;
+  }
+
   function promptNewBoard() {
     modal('新建看板', `<input id="kb-bname" class="kb-input" placeholder="看板名称" /><div class="kb-modal-ops"><button class="kb-btn kb-primary" data-ok>创建</button><button class="kb-btn" data-close>取消</button></div>`, (w, close) => {
       const inp = $('#kb-bname', w); inp.focus();
@@ -1065,19 +1145,20 @@
     if (!t) return;
     const col = colById(t.columnId);
     const sub = childrenOf(t.id);
-    modal('卡片详情', `
+    const bodyHtml = `
       <div class="kb-detail-head"><h3>${esc(t.title)}</h3><span class="kb-pri kb-pri-${t.priority}">${esc(t.priority)}</span>${t.labels.map((l) => `<span class="kb-label">${esc(l)}</span>`).join('')}</div>
       <div class="kb-detail-meta"><span>列：${col ? esc(col.name) : ''}</span><span>模式：${t.executionMode}</span><span class="kb-exec kb-exec-${t.executionStatus}">${execNames[t.executionStatus] || t.executionStatus}</span></div>
       <div class="kb-detail-dates"><label>开始 <input type="date" id="kb-date-start" value="${esc(t.startDate || '')}" /></label><label>截止 <input type="date" id="kb-date-due" value="${esc(t.dueDate || '')}" /></label></div>
       ${t.description ? `<div class="kb-detail-desc kb-md">${mdRender(t.description)}</div>` : ''}
+      <div class="kb-drawer-section kb-flow-sec"><h4>执行流程</h4><div class="kb-flow-host">${renderFlowBar(t)}</div></div>
+      <div class="kb-ac-host">${acSectionHtml(t)}</div>
       ${sub.length ? `<div class="kb-sub-list"><h4>子任务</h4>${sub.map((s) => `<div class="kb-sub-item">${esc(s.title)} <span class="kb-exec kb-exec-${s.executionStatus}">${execNames[s.executionStatus] || s.executionStatus}</span></div>`).join('')}</div>` : ''}
       ${sub.length ? `<div class="dg-entry" role="button" tabindex="0" title="点开查看依赖图"><span class="dg-et">依赖图</span><span class="dg-sum" id="dg-sum">…</span><span class="dg-open">查看依赖图 ↗</span></div>` : ''}
       ${timelineHtml(t)}
-      <div class="kb-comment"><textarea id="kb-comment-text" class="kb-input" placeholder="添加评论…"></textarea></div>
-      <div class="kb-modal-ops"><button class="kb-btn kb-primary" data-comment>评论</button><button class="kb-btn" data-edit>编辑</button>${t.archivedAt ? '' : `<button class="kb-btn" data-archive>归档</button>`}<button class="kb-btn kb-danger" data-del>删除</button></div>`, (w, close) => {
-      // 详情弹框自适应尺寸（2026-09-05）：modifier class → CSS 放大 + head/ops sticky（其余弹框维持 440px）
-      w.querySelector('.kb-modal-box')?.classList.add('kb-modal-detail');
-      // 需求 1（2026-09-05）：详情弹框追踪（执行事件定向更新定位；随 close 清理防泄漏）
+      <div class="kb-comment"><textarea id="kb-comment-text" class="kb-input" placeholder="添加评论…"></textarea></div>`;
+    const opsHtml = `<button class="kb-btn kb-primary" data-comment>评论</button><button class="kb-btn" data-edit>编辑</button>${t.archivedAt ? '' : `<button class="kb-btn" data-archive>归档</button>`}<button class="kb-btn kb-danger" data-del>删除</button>`;
+    openDrawer(bodyHtml, opsHtml, (w, close) => {
+      // 需求 1（2026-09-05）：详情定向更新定位（执行事件 → updateDetailForTask；随 close 清理防泄漏）
       openDetailTaskId = t.id;
       openDetailWrap = w;
       w.kbOnClose.push(() => { openDetailTaskId = null; openDetailWrap = null; });

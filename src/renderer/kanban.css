@@ -130,22 +130,49 @@ textarea.kb-input { min-height: 56px; resize: vertical; font-family: inherit; }
   border-bottom-right-radius: var(--radius-xl);
 }
 .kb-modal-resize:hover { background: linear-gradient(135deg, transparent 0 50%, var(--hull-info) 50% 56%, transparent 56% 66%, var(--hull-info) 66% 72%, transparent 72%); }
-/* 详情弹框自适应（2026-09-05）：宽 min(92vw, 1100px)、高 ≤88vh，大屏充分利用、小屏不溢出；
-   头部/操作区 sticky 固定，内容区（描述/子任务/时间线）随盒体滚动。纯尺寸/布局，DOM 与交互不变 */
-.kb-modal-box.kb-modal-detail { width: min(92vw, 1100px); max-width: 92vw; max-height: 88vh; }
-.kb-modal-box.kb-modal-detail .kb-modal-head {
-  position: sticky; top: 0; z-index: 1;
-  margin: -18px -18px var(--space-3); padding: 16px 18px;
-  background: var(--hull-panel); border-bottom: 1px solid var(--hull-card);
+/* 详情抽屉（M2 原型 P1 详情侧板 retro：右侧滑入 460px，无遮罩——看板保持可见可交互；
+   头部/操作区固定，内容区滚动；transform .2s ease 滑入，z-index 60＝高于看板(10)、低于弹框(100)——
+   审批/编辑等弹框可盖在抽屉上） */
+.kb-drawer {
+  position: fixed; top: 0; right: 0; width: 460px; max-width: 92vw; height: 100%;
+  background: var(--hull-panel); border-left: 1px solid var(--hull-card);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.35);
+  z-index: 60;
+  transform: translateX(100%); transition: transform 0.2s ease;
+  display: flex; flex-direction: column;
 }
-.kb-modal-box.kb-modal-detail .kb-modal-ops {
-  position: sticky; bottom: 0; z-index: 1;
-  margin: 14px -18px -18px; padding: 12px 18px 16px;
-  background: var(--hull-panel); border-top: 1px solid var(--hull-card);
+.kb-drawer.open { transform: translateX(0); }
+.kb-drawer-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 16px; border-bottom: 1px solid var(--hull-card); flex-shrink: 0;
 }
-@media (max-width: 899px) {
-  .kb-modal-box.kb-modal-detail { width: 95vw; max-width: 95vw; max-height: 92vh; }
+.kb-drawer-head h3 { font-size: var(--text-lg); }
+.kb-drawer-body { flex: 1; overflow-y: auto; padding: 16px; }
+.kb-drawer-ops {
+  display: flex; justify-content: flex-end; gap: var(--space-2);
+  padding: 12px 16px 14px; border-top: 1px solid var(--hull-card); flex-shrink: 0;
+  background: var(--hull-panel);
 }
+@media (max-width: 899px) { .kb-drawer { width: 100vw; max-width: 100vw; } }
+
+/* 抽屉内区块标题（沿用子任务/时间线 h4 款式，选择器在其定义处扩展） */
+.kb-drawer-section { margin-bottom: 4px; }
+
+/* 执行流程步骤条（M2 原型 flow-bar 同款视觉） */
+.kb-flow-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.kb-flow-step {
+  border: 1px solid var(--hull-border); color: var(--hull-text-sub);
+  border-radius: var(--radius-sm); padding: 2px 9px; font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.kb-flow-step.done { border-color: var(--hull-success); color: var(--hull-success); background: var(--hull-success-soft); }
+.kb-flow-step.active { border-color: var(--hull-info); color: var(--hull-info); background: var(--hull-info-soft); }
+.kb-flow-step.cancel { border-color: var(--hull-danger); color: var(--hull-danger); background: var(--hull-danger-soft); }
+.kb-flow-arrow { color: var(--hull-text-sub); font-size: var(--text-xs); }
+
+/* AC/执行模式区块 */
+.kb-ac-row { font-size: var(--text-sm); color: var(--hull-text-dim); line-height: 1.6; margin: 0 0 4px; }
+.kb-ac-row b { color: var(--hull-text-muted); font-weight: 600; }
 .kb-modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-3); }
 .kb-modal-head h3 { font-size: var(--text-lg); }
 .kb-modal-body { }
@@ -166,7 +193,7 @@ textarea.kb-input { min-height: 56px; resize: vertical; font-family: inherit; }
 .kb-detail-meta { display: flex; align-items: center; gap: 10px; color: var(--hull-text-muted); font-size: var(--text-sm); margin-bottom: 14px; flex-wrap: wrap; padding-bottom: 10px; border-bottom: 1px solid var(--hull-card); }
 .kb-detail-meta .kb-exec { font-size: var(--text-xs); }
 .kb-detail-desc { color: var(--hull-text-dim); font-size: var(--text-md); margin-bottom: 14px; padding: 10px 12px; background: var(--hull-panel); border: 1px solid var(--hull-card); border-radius: var(--radius-md); }
-.kb-sub-list h4, .kb-tl h4 { font-size: var(--text-xs); color: var(--hull-text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 14px 0 8px; font-weight: 600; }
+.kb-sub-list h4, .kb-tl h4, .kb-drawer-section h4 { font-size: var(--text-xs); color: var(--hull-text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 14px 0 8px; font-weight: 600; }
 .kb-sub-list { margin-bottom: var(--space-1); }
 /* Q-回复落盘（2026-09-05）：执行输出区块（详情弹框内、时间线之前）——pre 滚动容器封顶高度 */
 .kb-exec-log h4 {
