@@ -106,7 +106,7 @@
 /* ── 边（<g class="dg-edge …">，path 描边 + polygon 箭头，CSS currentColor 取色）
    分寸：默认统一灰蓝弱化，语义态（进行/失败/中止）全强度着色 ── */
 .dg-edge { color: var(--hull-text-sub); opacity: 0.45; }
-[data-theme="light"] .dg-edge { color: #a0a0a0; opacity: 0.85; } /* 亮色默认边加深；置于状态规则前，语义态色不受影响 */
+[data-theme="light"] .dg-edge { color: var(--hull-text-sub); opacity: 0.85; } /* 亮色默认边加深；置于状态规则前，语义态色不受影响 */
 .dg-edge path { stroke: currentColor; stroke-width: 2; fill: none; }
 .dg-edge polygon { fill: currentColor; }
 .dg-edge.st-active { color: var(--hull-accent); opacity: 1; }
@@ -130,15 +130,15 @@
 
 /* 亮色主题对比度（壳主题跟随，不强制暗色）：边线加深 #a0a0a0 级、文字用实色
    置于状态着色规则之前 → 各态边框/辉光色仍生效（edge 覆盖已前移至 .dg-edge 基规则处） */
-[data-theme="light"] .dg-node { border-color: #c2c7cf; border-left-color: #a0a0a0; }
+[data-theme="light"] .dg-node { border-color: var(--hull-border); border-left-color: var(--hull-text-sub); }
 [data-theme="light"] .dg-node .dg-n-title { color: var(--hull-text); }
 [data-theme="light"] .dg-node .dg-n-meta,
 [data-theme="light"] .dg-node .dg-n-id,
 [data-theme="light"] .dg-node .dg-n-deps,
-[data-theme="light"] .dg-li-title { color: #5a6472; }
-[data-theme="light"] .dg-li { color: #4e5a6b; }
-[data-theme="light"] .dg-pri-P2 { background: #c2c7cf; }
-[data-theme="light"] .dg-hint { color: #7b8694; }
+[data-theme="light"] .dg-li-title { color: var(--hull-text-dim); }
+[data-theme="light"] .dg-li { color: var(--hull-text-dim); }
+[data-theme="light"] .dg-pri-P2 { background: var(--hull-border); }
+[data-theme="light"] .dg-hint { color: var(--hull-text-note); }
 .dg-node:hover { border-color: var(--hull-accent); box-shadow: 0 0 0 1px var(--hull-accent-soft), var(--shadow-2); transform: translateY(-1px); z-index: 5; }
 .dg-node.hl { border-color: var(--hull-accent); box-shadow: 0 0 0 2px var(--hull-accent), 0 0 18px var(--hull-accent-soft); z-index: 6; }
 /* 优先级色条（顶部 2px 发丝线，P0/P1/P2/无） */

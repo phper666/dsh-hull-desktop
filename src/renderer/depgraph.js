@@ -1,6 +1,6 @@
 /**
  * U3 依赖图渲染（docs/design/U3-依赖图可视化-kanban-depgraph-design.md §三/§五）
- * 独立弹框（900px × 72vh）+ 内联 SVG（createElementNS，CSP img-src data: 相容，无外链）。
+ * 独立弹框（min(96vw,1400px) × calc(100vh - 24px)）+ 内联 SVG（createElementNS，CSP img-src data: 相容，无外链）。
  * 数据由 kanban.js 推入（open/幂等 open），本模块不反读 kanban 状态。
  * API：window.depgraph = { open(task, subtasks), refresh(), isOpen() }
  * 关闭三路：ESC / 点遮罩 / ✕。

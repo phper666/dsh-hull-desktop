@@ -92,3 +92,10 @@ src/renderer/
 2. depgraph.js + depgraph.css（弹框 + 摘要条 + SVG）
 3. kanban.js 4 集成点 + 编辑表单依赖多选
 4. e2e 1 例 + 全量回归
+
+## 十、实现回写（2026-09-10）
+
+实现阶段对上文参数做了放大调整，**以本节为准**：
+
+- **弹框尺寸**：原「900px × 72vh」→ 实现为 `min(96vw, 1400px) × max-height: calc(100vh - 24px)`（depgraph.css `.dg-box`，body 级 fixed，另支持零呼吸全屏 `.dg-fullscreen`）
+- **布局参数**：原「层距 220px、节点 178×48」→ 实现为 `layerGap: 260, nodeW: 190, nodeH: 60`（另有 nodeGapY: 44, pad: 40，depgraph.js `LAYOUT` 常量）
