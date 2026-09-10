@@ -88,7 +88,7 @@
 | CON-R-notes-008 | 编辑链路沿用编辑器共识：EasyMDE vendoring + markdown-it 锁 v14.1.0 + DOMPurify 全量消毒 + destroy 纪律（CON-R-editor-001~006 直接适用于笔记）；**保存策略**（v1.1 Q-069，业界笔记应用惯例）：自动保存为主（debounce ~2s + 失焦/关窗 flush + Cmd/Ctrl+S 显式强制）；切换/关窗静默（autosave 已落盘）；仅冲突/失败走 002 分流；冲突副本命名 `xxx (冲突副本 YYYY-MM-DD).md` | PRD §6 + Q-069 闭环 | 定案 | 稳定 |
 | CON-R-notes-009 | IPC 沿用 `<module>:<verb><Noun>` 约定，v1 通道集闭合（v1.1 Q-064）：`notes:index/get/save/create/move/delete/trashList/restore/purge/search` + 推送事件 `notes:indexChanged`（fs.watch 增量后推 renderer，不轮询）；preload contextBridge 薄封装 | PRD §5.4 + Q-064 闭环 | 定案 | 稳定 |
 | CON-R-notes-010 | 修改 `notes.dir` 不自动迁移文件：提示「新目录将被扫描，旧目录文件不动」；换目录后重扫索引；**切换前置**（v1.1 Q-065）：切换前若有脏笔记 → 先走保存/放弃流程，切换后打开中的笔记失效清空回列表（提示「存储目录已更改」） | Q4 讨论 + Q-065 闭环 | 定案 | 稳定 |
-| CON-R-notes-011 | 视图接入壳 nav 第五入口（dsh web / 任务看板 / **笔记** / 设置）；view 机制 4→5 态 | PRD §F1 + Q1 | 笔记放任务看板后（v1.0 定案） | 稳定 |
+| CON-R-notes-011 | 视图接入壳 nav——入口插在「任务看板」之后（dsh web / 任务看板 / 笔记 / … / 设置）；view 机制新增 notes 态（态序按 shell 现状，非计数。v1.1 契约复核修正「4→5 态」表述：shell 实际 nav 已 8 入口） | PRD §F1 + Q1 + N2 契约复核 | 笔记放任务看板后（v1.0 定案） | 稳定 |
 | CON-R-notes-012 | 性能与搜索验收口径（v1.1 Q-067 具体化）：种子 300 篇（含子目录、平均 ~10KB）冷启动后点 nav「笔记」→ 列表首行渲染 <2s（e2e 计时断言，CI 抖动降级手动）；搜索 v1 = 标题+内容子串、大小写不敏感、updatedAt 倒序、无分词/模糊；扫描异步 + 增量，对齐 CON-R-skills-009 精神 | PRD §F4 + Q-067 闭环 | 定案 | 稳定 |
 | CON-R-notes-013 | **路径安全**（v1.1 新增，对齐 CON-R-skills-007）：所有路径参数经 resolve 后必须位于 notes.dir（或 .trash）内；拒绝 `..`、绝对路径、隐藏目录段；文件名 slug 经 basename(realpath) 校验 | Q-071 闭环 | 定案 | 稳定 |
 | CON-R-notes-014 | **标题与文件名**（v1.1 新增，业界惯例调研背书）：标题 = frontmatter `title:` 单源（缺失回退文件名基名）；文件名 = 创建时 slug，**稳定不随标题自动改**；另提供手动「重命名文件」动作（可选）；快速捕捉命名 `YYYY-MM-DD-<slug>.md`（slug 空则时间戳序号） | Q-062 闭环 | 定案 | 稳定 |
