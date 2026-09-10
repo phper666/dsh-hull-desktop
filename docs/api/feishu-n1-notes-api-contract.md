@@ -29,7 +29,7 @@
 
 - **Store（笔记文件操作）**：save（原子写 temp+rename + mtime 乐观锁 + 冲突分流）/ create / move / get
 - **Scanner（扫描索引）**：启动全量扫描（跳过隐藏目录与 .trash，仅 `.md`）→ 内存索引（路径/标题/frontmatter/内容摘要）；frontmatter 解析失败 = 三键视为空照常入索引；扫描异步不阻塞启动；索引可全量重建
-- **Watch（增量监听）**：首选 chokidar；不可用降级 30s 定时重扫；自写回声 1s 窗口抑制；rename 按 delete+add
+- **Watch（增量监听）**：首选 chokidar；不可用降级 30s 定时重扫；自写回声 1s 窗口抑制；rename 按 delete+add；win 事件路径经 `path.relative` + sep 归一（v1.1 评审修复）
 - **Trash（回收站）**：manifest（`<userData>/notes/trash.json`）+ 实体（`.trash/tr_<uuid>.md`）+ restore/purge + TTL/容量清理
 - **路径安全**：所有路径参数守卫（CON-R-notes-013）
 - **settings 接线**：`notesDir` 字段 + schemaVersion bump + 换目录重扫
@@ -132,7 +132,7 @@
 | content | string | 是 | 全文（含 frontmatter，编辑器持有） |
 | expectedMtime | string | 是 | 乐观锁基线（来自 notes:get / 上次 save） |
 | frontmatterPatch | `{ title?: string; type?: string; task?: string\|null; tags?: string[] }` | 否 | key 级回写：仅更新给定键，未知键与键序保留（沿用 src/skills/frontmatter.ts:84 行级文本操作模式）；解析失败 → 不改写原块，文件头注入新 frontmatter 块（正文不动，CON-R-notes-005） |
-| strategy | `'overwrite' \| 'saveAsCopy'` | 否 | 冲突分流执行（CON-R-notes-002）：缺省 = 先校验，冲突即返回错误；`overwrite` = 跳过 mtime 校验覆盖（文件已被删除时仍拒绝，不静默重建原路径）；`saveAsCopy` = 写入冲突副本（命名见下） |
+| strategy | `'overwrite' \| 'saveAsCopy'` | 否 | 冲突分流执行（CON-R-notes-002）：缺省 = 先校验，冲突即返回错误；`overwrite` = 跳过 mtime 校验覆盖（文件已被删除时仍拒绝，不静默重建原路径）；`saveAsCopy` = 写入冲突副本（命名见下）。**白名单校验**（v1.1 评审修复）：非法值 → notes-io-error 拒绝，不落盘 |
 
 冲突副本命名：`<基名> (冲突副本 YYYY-MM-DD).md`（CON-R-notes-008），写入原文件同目录；`TBD（待确认）`：同名冲突副本已存在时的后缀策略（建议追加序号 `(冲突副本 YYYY-MM-DD) 2`，待复核定案）。
 

@@ -236,6 +236,10 @@ docs/design/N-笔记-notes-design.md  # 本文档
 - 评审机制：self-check（团队配置未配置评审机制，按默认）· 评审人：AI · 日期：2026-09-11 · 结论：**通过**
 - 依据：结构完整（8 节）/ 4 份冻结契约逐项对齐（接口以契约为准）/ 7 项架构决策含备选与理由 / 8 项关键机制实现形态明确 / 风险 7 条均有对策；R7 chokidar 经 Q-074 定案确认
 
-### 交付核验（待填）
-（空占位——交付核验时由 phper666-teamflow-story-to-contract 填写：判级匹配 / 契约对照 / 测试结果 / review 结论）
+### 交付核验（2026-09-11，ora-1 四层核验）
+- 判级匹配：✅（实际复杂度 = 复杂：跨进程 + 文件事实源 + 乐观锁 + 跨模块关联；实现纪律完整执行：TDD + oracle 评审 + semgrep）
+- 设计对照：✅ PASS——D1~D7 逐项落实；有意偏离 1 处已备案（notes:mkdir 第 11 通道，v1.1 集成期 Q-075，契约已回写）
+- 契约对照：✅ PASS——4 份契约逐项核对；评审修复（strategy 白名单 / win sep 归一）已回写 N1 契约 v1.1 变更记录
+- 测试：typecheck clean · unit 1077/1077（notes 套件 61 用例）· e2e notes 6 + kanban 8 + settings 3 全绿 · semgrep 0 findings
+- review：oracle 评审 4🟠 + 6🟡 全部修复（11 项，均配回归测试）
 
