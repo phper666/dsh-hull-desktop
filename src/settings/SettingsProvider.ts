@@ -43,12 +43,14 @@ export interface HullSettings {
   packageManager: PkgMgrName;
   /** 通知偏好（V2b：按源系统通知开关 + 免打扰时段；字段级扩展不 bump schemaVersion） */
   notifPrefs: NotifPrefs;
+  /** 笔记根目录（N1 契约：绝对路径；缺省 <userData>/notes/；改址不迁移 CON-R-notes-001/010） */
+  notesDir: string;
 }
 
-/** 当前 schema 版本（S4 bump 1→2，S5 两字段再 bump 2→3） */
-export const SCHEMA_VERSION_CURRENT = 3;
+/** 当前 schema 版本（S4 bump 1→2，S5 两字段再 bump 2→3，N1 notesDir bump 3→4——无迁移语义，读路径缺省补齐） */
+export const SCHEMA_VERSION_CURRENT = 4;
 
-const DEFAULT_SETTINGS: HullSettings = {
+const DEFAULT_SETTINGS: Omit<HullSettings, 'notesDir'> = {
   closeToQuit: false,
   schemaVersion: SCHEMA_VERSION_CURRENT,
   channel: 'latest',
@@ -108,21 +110,26 @@ export class SettingsProvider extends EventEmitter {
     return super.on(event, listener);
   }
 
+  /** 默认值（notesDir 依赖实例 userDataPath，独立于模块级 DEFAULT_SETTINGS；N1 契约缺省 <userData>/notes） */
+  private defaultSettings(): HullSettings {
+    return { ...DEFAULT_SETTINGS, notesDir: join(this.userDataPath, 'notes') };
+  }
+
   getSettings(): HullSettings {
-    if (!existsSync(this.filePath)) return { ...DEFAULT_SETTINGS };
+    if (!existsSync(this.filePath)) return this.defaultSettings();
     let raw: string;
     try {
       raw = readFileSync(this.filePath, 'utf8');
     } catch (err) {
       this.logger.warn(`settings.json 读取失败: ${(err as Error).message}（回退默认值）`);
-      return { ...DEFAULT_SETTINGS };
+      return this.defaultSettings();
     }
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
     } catch (err) {
       this.logger.warn(`settings.json 解析失败: ${(err as Error).message}（回退默认值，不覆盖原文件）`);
-      return { ...DEFAULT_SETTINGS };
+      return this.defaultSettings();
     }
     const obj = parsed as Record<string, unknown>;
     const closeToQuit = typeof obj.closeToQuit === 'boolean' ? obj.closeToQuit : DEFAULT_SETTINGS.closeToQuit;
@@ -152,7 +159,9 @@ export class SettingsProvider extends EventEmitter {
       this.logger.warn('settings.json 字段类型不符（回退默认值，不覆盖原文件）');
     }
     const notifPrefs = normalizeNotifPrefs(obj.notifPrefs);
-    return { closeToQuit, schemaVersion, channel, pinnedVersion, autoCheckDsh, autoCheckHull, registry, theme, packageManager, notifPrefs };
+    // N1：notesDir 读路径缺省补齐（无迁移语义，CON-R-notes-001）
+    const notesDir = typeof obj.notesDir === 'string' && obj.notesDir !== '' ? obj.notesDir : join(this.userDataPath, 'notes');
+    return { closeToQuit, schemaVersion, channel, pinnedVersion, autoCheckDsh, autoCheckHull, registry, theme, packageManager, notifPrefs, notesDir };
   }
 
   /**
@@ -235,6 +244,8 @@ export class SettingsProvider extends EventEmitter {
       packageManager: isValidPkgMgr(obj.packageManager) ? obj.packageManager : DEFAULT_SETTINGS.packageManager,
       // V2b：旧文件无 notifPrefs → 默认（迁移路径字段级补齐）
       notifPrefs: normalizeNotifPrefs(obj.notifPrefs),
+      // N1：旧文件无 notesDir → 默认补齐（schemaVersion 3→4 无迁移语义，不搬数据）
+      notesDir: typeof obj.notesDir === 'string' && obj.notesDir !== '' ? obj.notesDir : join(this.userDataPath, 'notes'),
     };
     try {
       const tmp = `${this.filePath}.tmp`;

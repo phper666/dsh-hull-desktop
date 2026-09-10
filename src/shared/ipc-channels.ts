@@ -76,13 +76,31 @@ export const SKILLS_IPC_CHANNELS = [
   'skills:getOperationLog',
 ] as const;
 
-/** 全部 channel 白名单（B1+B5+B3+B4+S1+dialog 共面） */
+/** N1 notes 11 invoke + 1 推送 + hull:showNotes 壳导航（feishu-n1-notes-api-contract §接口清单；notes:mkdir 为 v1.1 集成期补获 Q-075） */
+export const NOTES_IPC_CHANNELS = [
+  'hull:showNotes',
+  'notes:index',
+  'notes:get',
+  'notes:save',
+  'notes:create',
+  'notes:mkdir',
+  'notes:move',
+  'notes:delete',
+  'notes:trashList',
+  'notes:restore',
+  'notes:purge',
+  'notes:search',
+  'notes:indexChanged',
+] as const;
+
+/** 全部 channel 白名单（B1+B5+B3+B4+S1+dialog+N1 notes 共面） */
 export const ALL_IPC_CHANNELS = [
   ...KANBAN_IPC_CHANNELS,
   ...KANBAN_EXEC_IPC_CHANNELS,
   ...KANBAN_B4_EXEC_IPC_CHANNELS,
   ...SKILLS_IPC_CHANNELS,
   ...DIALOG_IPC_CHANNELS,
+  ...NOTES_IPC_CHANNELS,
 ] as const;
 
 export type KanbanIpcChannel = (typeof KANBAN_IPC_CHANNELS)[number];

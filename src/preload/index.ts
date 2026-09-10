@@ -58,6 +58,8 @@ contextBridge.exposeInMainWorld('hull', {
   /** 工作流视图（设置之前） */
   showWorkflows: () => invoke('hull:showWorkflows'),
   showNotifs: () => invoke('hull:showNotifs'),
+  /** N1：壳导航笔记入口 → main 切 view 到 placeholder:notes（镜像 showNotifs） */
+  showNotes: () => invoke('hull:showNotes'),
 
   // ─────────── S8' D2：设置页桥 15 方法并入（原 src/preload/settings.ts 删除） ───────────
   /** 读全量设置（settings.json 持久化，CON-R002 走主进程 SettingsProvider） */
@@ -171,6 +173,29 @@ contextBridge.exposeInMainWorld('connections', {
 
 contextBridge.exposeInMainWorld('tokens', {
   getUsage: (period: string, customFrom?: string, customTo?: string) => invoke('tokens:getUsage', period, customFrom, customTo),
+});
+
+// ─────────────────────────── N1 笔记桥（feishu-n1-notes-api-contract） ───────────────────────────
+/** window.notes：10 invoke 原语 + indexChanged 订阅（薄封装，不持业务态；模式对齐 window.kanban） */
+contextBridge.exposeInMainWorld('notes', {
+  index: () => invoke('notes:index'),
+  get: (path: string) => invoke('notes:get', path),
+  save: (input: unknown) => invoke('notes:save', input),
+  create: (dir?: string, title?: string) => invoke('notes:create', dir, title),
+  /** 新建目录（v1.1 集成期补获 Q-075；幂等，已存在目录 ok） */
+  mkdir: (dir: string) => invoke('notes:mkdir', dir),
+  move: (path: string, targetDir: string) => invoke('notes:move', path, targetDir),
+  delete: (path: string) => invoke('notes:delete', path),
+  trashList: () => invoke('notes:trashList'),
+  restore: (trashId: string) => invoke('notes:restore', trashId),
+  purge: (trashId: string) => invoke('notes:purge', trashId),
+  search: (query: string) => invoke('notes:search', query),
+  /** 索引变更推送（incremental/rescan/dir-changed；收到后统一重拉 notes:index），返回取消订阅函数 */
+  onIndexChanged: (cb: (payload: unknown) => void) => {
+    const listener = (_e: unknown, payload: unknown) => cb(payload);
+    ipcRenderer.on('notes:indexChanged', listener);
+    return () => ipcRenderer.removeListener('notes:indexChanged', listener);
+  },
 });
 
 contextBridge.exposeInMainWorld('kanban', {

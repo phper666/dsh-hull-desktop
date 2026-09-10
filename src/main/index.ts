@@ -1,8 +1,8 @@
 import { app, clipboard, dialog, ipcMain, nativeTheme, safeStorage, shell } from 'electron';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, isAbsolute, join } from 'node:path';
+import { basename, isAbsolute, join, sep } from 'node:path';
 
 import { acquireSingleInstanceLock } from '../runtime/SingleInstance';
 import { RuntimeManager, type CrashInfo } from '../runtime/RuntimeManager';
@@ -52,6 +52,8 @@ import { registerExecIpc } from '../exec/ipc/ExecIpc';
 import { SkillsScanner } from '../skills/SkillsScanner';
 import { SkillsOps } from '../skills/ops/SkillsOps';
 import { registerSkillsIpc } from '../skills/ipc/SkillsIpc';
+import { NotesService } from '../notes/NotesService';
+import { registerNotesIpc, NOTES_PUSH_CHANNEL } from '../notes/NotesIpc';
 import { Logger } from '../log/Logger';
 
 /**
@@ -115,6 +117,27 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   const skillsOps = new SkillsOps({ homeDir: homedir(), userDataPath, scanner: skillsScanner, logger });
   skillsOps.selfHeal(); // 启动自愈：staging backup 残留还原（两段 rename 窗口崩溃兜底，设计 §4.1）
   registerSkillsIpc(skillsScanner, skillsOps);
+  // N1：笔记服务（磁盘 md 事实源 + 内存索引 + chokidar watch + 回收站；默认 <userData>/notes/，CON-R-notes-001）
+  const notesService = new NotesService({ userDataPath, logger });
+  registerNotesIpc(notesService);
+  // N4/N1：settings.notesDir 接线（契约 §接口详情 11）——启动应用 + changed 广播跟随；
+  // 换目录校验（须存在且为目录；不得位于 DSH_HOME 内，CON-R-notes-001）不合法拒绝切换维持旧目录；
+  // setNotesDir 幂等（同目录重复设置无副作用）；换目录 → 全量重扫 + dir-changed（不迁移，CON-R-notes-010）
+  const applyNotesDir = (dir: string): void => {
+    try {
+      if (!statSync(dir).isDirectory()) throw new Error('不是目录');
+      const dshHome = process.env.DSH_HOME;
+      if (dshHome && (dir === dshHome || dir.startsWith(dshHome + sep))) {
+        logger.warn(`[notes] 拒绝切换 notes.dir 到 DSH_HOME 内: ${dir}（CON-R-notes-001）`);
+        return;
+      }
+      notesService.setNotesDir(dir);
+    } catch (err) {
+      logger.warn(`[notes] notes.dir 非法，拒绝切换: ${dir} ${(err as Error).message}`);
+    }
+  };
+  applyNotesDir(settings.getSettings().notesDir);
+  settings.on('changed', (s) => { applyNotesDir(s.notesDir); });
   // B3+B4：执行引擎门面（ExecutionEngine 组装 Scheduler/Heartbeat/Convergence/VerifyGate）+ ProviderManager
   // + ProviderRegistry（M2 注册 'dsh' ACP）+ ApprovalManager + AcEditor + 执行控制 IPC（B3 10 + B4 3）
   // Q-017-B：ACP overlay 显式注入壳自管 dsh（<userData>/dsh，与 DSH_HOME/dsh 结构同构，
@@ -386,6 +409,11 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   });
   winMgrRef = winMgr; // §8.1：工作流通知点击跳转的晚绑定引用回填
   notifsWinRef = winMgr; // V2a：通知存储推送/系统通知点击的窗口引用回填
+  // N1：indexChanged 推送 → 壳页（渲染层收到后统一重拉 notes:index，契约 §IndexChangedPayload）
+  notesService.setBroadcaster((payload) => {
+    const w = winMgr.getWindow();
+    if (w && !w.isDestroyed()) w.webContents.send(NOTES_PUSH_CHANNEL, payload);
+  });
   // S8' D5：托盘补充入口（聚焦主窗口 + 切视图；设置 → showSettings，检查 dsh → 聚焦主窗口 + 切 settings 视图渲染确认）
   const tray = new TrayController({
     runtime,
@@ -806,6 +834,12 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   ipcMain.handle('hull:showNotifs', async () => {
     if (quitting) return { ok: false, message: '正在退出' };
     winMgr.showNotifs();
+    return { ok: true };
+  });
+  // N1：壳导航笔记入口 → 切 notes 视图（镜像 showNotifs，设计 §3 main 接线）
+  ipcMain.handle('hull:showNotes', async () => {
+    if (quitting) return { ok: false, message: '正在退出' };
+    winMgr.showNotes();
     return { ok: true };
   });
   // B2 补丁：壳导航 dsh web 入口 → 恢复官方 view（与 showBoard 对称；无新通道）

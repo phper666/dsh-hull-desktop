@@ -26,11 +26,11 @@ function makeProvider(files: Record<string, string>, warns: string[] = []) {
   return { provider: new SettingsProvider({ userDataPath: dir, logger }), dir, warns };
 }
 
-test('缺 settings.json → 默认值（closeToQuit=false, schemaVersion=3〔S5 bump〕），不建文件', () => {
+test('缺 settings.json → 默认值（closeToQuit=false, schemaVersion=4〔N1 bump〕），不建文件', () => {
   const { provider, dir } = makeProvider({});
   const s = provider.getSettings();
   equal(s.closeToQuit, false);
-  equal(s.schemaVersion, 3);
+  equal(s.schemaVersion, 4);
   ok(!existsSync(join(dir, 'settings.json')));
 });
 
@@ -48,7 +48,7 @@ test('JSON.parse 失败 → 回退默认值 + 告警，不覆盖原文件', () =
   const { provider, dir } = makeProvider({ 'settings.json': '{broken json' }, warns);
   const s = provider.getSettings();
   equal(s.closeToQuit, false);
-  equal(s.schemaVersion, 3);
+  equal(s.schemaVersion, 4);
   ok(warns.length >= 1, '应产生告警日志');
   // 原文件内容必须原样保留（S1 只读）
   equal(readFileSync(join(dir, 'settings.json'), 'utf8'), '{broken json');
@@ -62,7 +62,7 @@ test('字段类型错 → 回退该字段默认值 + 告警', () => {
   );
   const s = provider.getSettings();
   equal(s.closeToQuit, false);
-  equal(s.schemaVersion, 3);
+  equal(s.schemaVersion, 4);
   ok(warns.length >= 1);
 });
 
@@ -70,7 +70,7 @@ test('部分字段：仅 closeToQuit 存在，schemaVersion 用默认', () => {
   const { provider } = makeProvider({ 'settings.json': JSON.stringify({ closeToQuit: false }) });
   const s = provider.getSettings();
   equal(s.closeToQuit, false);
-  equal(s.schemaVersion, 3);
+  equal(s.schemaVersion, 4);
 });
 
 test('S4-① set 新写文件：channel=latest + schemaVersion=2（bump）', () => {
@@ -81,7 +81,7 @@ test('S4-① set 新写文件：channel=latest + schemaVersion=2（bump）', () 
     schemaVersion: number;
   };
   equal(parsed.channel, 'latest');
-  equal(parsed.schemaVersion, 3);
+  equal(parsed.schemaVersion, 4);
 });
 
 test('S4-② set 后 get 读回（含 pinnedVersion 写入）', () => {
@@ -134,7 +134,7 @@ test('S4-⑤ S1 语义回归：损坏回退不覆盖 + 缺字段默认 + closeTo
   equal(c.provider.getSettings().channel, 'latest');
 });
 
-test('S5-① 新写文件：autoCheckDsh/autoCheckHull 默认 true + schemaVersion=3', () => {
+test('S5-① 新写文件：autoCheckDsh/autoCheckHull 默认 true + schemaVersion=4', () => {
   const { provider, dir } = makeProvider({});
   provider.set({ closeToQuit: true });
   const parsed = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as {
@@ -144,7 +144,7 @@ test('S5-① 新写文件：autoCheckDsh/autoCheckHull 默认 true + schemaVersi
   };
   equal(parsed.autoCheckDsh, true);
   equal(parsed.autoCheckHull, true);
-  equal(parsed.schemaVersion, 3);
+  equal(parsed.schemaVersion, 4);
 });
 
 test('S5-② set autoCheckHull=false → 读回', () => {
@@ -198,11 +198,11 @@ test('S6-③ set registry 非法 → registry-invalid', () => {
   throws(() => provider.set({ registry: 'not-a-url' }), (e: unknown) => (e as { code: string }).code === 'registry-invalid');
 });
 
-test('S6-④ migrate：旧文件 schemaVersion 1 → 补齐五字段 + bump 3', () => {
+test('S6-④ migrate：旧文件 schemaVersion 1 → 补齐五字段 + bump 4', () => {
   const { provider, dir } = makeProvider({ 'settings.json': JSON.stringify({ closeToQuit: true, schemaVersion: 1 }) });
   provider.migrate();
   const parsed = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as Record<string, unknown>;
-  equal(parsed.schemaVersion, 3);
+  equal(parsed.schemaVersion, 4);
   equal(parsed.channel, 'latest');
   equal(parsed.pinnedVersion, null);
   equal(parsed.autoCheckDsh, true);
@@ -360,16 +360,16 @@ test('P3-⑥ migrate：旧文件 schemaVersion 1 → 补 packageManager 默认 p
   const { provider, dir } = makeProvider({ 'settings.json': JSON.stringify({ closeToQuit: true, schemaVersion: 1 }) });
   provider.migrate();
   const parsed = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as Record<string, unknown>;
-  equal(parsed.schemaVersion, 3);
+  equal(parsed.schemaVersion, 4);
   equal(parsed.packageManager, 'pnpm');
   equal(parsed.closeToQuit, true, '既有字段保留');
 });
 
-test('P3-⑦ set 已合法 packageManager 后 schemaVersion 仍 3（字段级扩展不 bump）', () => {
+test('P3-⑦ set 已合法 packageManager 后 schemaVersion 仍 4（N1 bump 后）', () => {
   const { provider, dir } = makeProvider({});
   provider.set({ packageManager: 'npm' });
   const parsed = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as { schemaVersion: number };
-  equal(parsed.schemaVersion, 3);
+  equal(parsed.schemaVersion, 4);
 });
 
 // ── V2b：notifPrefs 归一化/迁移/写路径 ──
@@ -410,4 +410,34 @@ test('notifPrefs：旧文件无字段 → 默认；set 写路径归一化落盘'
   // 恶意/脏输入经 IPC 到达 set()：类型断言模拟 unknown 载荷（运行时归一化兜底）
   provider.set({ notifPrefs: { systemPushWorkflow: 'oops', systemPushBoardExec: true, dndEnabled: true, dndFrom: '23:00', dndTo: '07:00' } as unknown as import('../notifications/prefs').NotifPrefs });
   equal(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).notifPrefs.systemPushWorkflow, true);
+});
+
+// ── N1：notesDir 字段 + schemaVersion 3→4（feishu-n1-notes-api-contract §Schema） ──
+
+test('N1-① 缺省 notesDir → 读路径默认 <userData>/notes（无迁移语义，CON-R-notes-001）', () => {
+  const { provider, dir } = makeProvider({ 'settings.json': JSON.stringify({ closeToQuit: true, schemaVersion: 3 }) });
+  const s = provider.getSettings();
+  equal(s.notesDir, join(dir, 'notes'));
+  equal(s.schemaVersion, 3, '读路径保留文件值（迁移归 migrate）');
+});
+
+test('N1-② set notesDir 写盘 + bump schemaVersion=4；emit changed 广播全量', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-settings-notes-'));
+  tempDirs.push(dir);
+  const provider = new SettingsProvider({ userDataPath: dir });
+  let changed: string | null = null;
+  provider.on('changed', (s) => { changed = s.notesDir; });
+  provider.set({ notesDir: '/tmp/hull-my-notes' });
+  const parsed = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as { notesDir: string; schemaVersion: number };
+  equal(parsed.notesDir, '/tmp/hull-my-notes');
+  equal(parsed.schemaVersion, 4);
+  equal(changed, '/tmp/hull-my-notes');
+});
+
+test('N1-③ migrate：schemaVersion 3 → 4，旧文件无 notesDir 默认补齐（不搬数据）', () => {
+  const { provider, dir } = makeProvider({ 'settings.json': JSON.stringify({ closeToQuit: true, schemaVersion: 3 }) });
+  provider.migrate();
+  const parsed = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as { notesDir: string; schemaVersion: number };
+  equal(parsed.schemaVersion, 4);
+  equal(parsed.notesDir, join(dir, 'notes'));
 });

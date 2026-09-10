@@ -3,8 +3,8 @@
 ## 契约信息
 
 - 工作项：N1 存储与索引服务（飞书 dsh-hull-desktop 清单 Todo 列，ticket guid `198bcd7a-cf20-4a22-9919-c2e8ed35834b`）
-- 契约状态：已冻结（2026-09-11 复核通过）
-- 版本：v1.0
+- 契约状态：已冻结（2026-09-11 复核通过；v1.1 集成期补获 mkdir）
+- 版本：v1.1
 - 适用需求：notes（共识 [共识-Hull桌面壳-笔记.md](../spec/共识-Hull桌面壳-笔记.md) v1.1）
 - 最后更新：2026-09-11
 - 说明：桌面壳内部模块契约（Electron，无 HTTP API 面）；本契约 = notes 主进程服务（Store/Scanner/Watch/Trash/路径安全）的 IPC 接口面与模块行为。IPC 封装、通道命名沿用 [feishu-s1-m1-api-contract.md](feishu-s1-m1-api-contract.md) 既有约定（`<module>:<verb><Noun>` + toResult 包裹）。
@@ -33,7 +33,7 @@
 - **Trash（回收站）**：manifest（`<userData>/notes/trash.json`）+ 实体（`.trash/tr_<uuid>.md`）+ restore/purge + TTL/容量清理
 - **路径安全**：所有路径参数守卫（CON-R-notes-013）
 - **settings 接线**：`notesDir` 字段 + schemaVersion bump + 换目录重扫
-- **IPC**：10 通道（闭合）+ 1 推送事件 + preload `window.notes` 薄封装
+- **IPC**：11 通道（闭合，v1.1 补 notes:mkdir）+ 1 推送事件 + preload `window.notes` 薄封装
 
 ### 非目标
 
@@ -88,6 +88,7 @@
 | 2 | NEW | notes:get | R→M | `path: string` | `NoteDetail` | notes-path-invalid / notes-not-found / notes-io-error |
 | 3 | NEW | notes:save | R→M | `SaveInput` | `{ path: string; mtime: string }` | notes-path-invalid / notes-not-found / notes-conflict-modified / notes-conflict-deleted / notes-name-conflict / notes-io-error |
 | 4 | NEW | notes:create | R→M | `dir?: string; title?: string` | `{ path: string; mtime: string }` | notes-path-invalid / notes-name-conflict / notes-io-error |
+| 4b | NEW（v1.1） | notes:mkdir | R→M | `dir: string` | `{ path: string }` | notes-path-invalid / notes-io-error |
 | 5 | NEW | notes:move | R→M | `path: string; targetDir: string` | `{ path: string; mtime: string }` | notes-path-invalid / notes-not-found / notes-name-conflict / notes-io-error |
 | 6 | NEW | notes:delete | R→M | `path: string` | `{ trashId: string }` | notes-path-invalid / notes-not-found / notes-io-error |
 | 7 | NEW | notes:trashList | R→M | 无 | `{ entries: TrashEntry[]; totalSizeBytes: number }` | notes-io-error |
@@ -97,7 +98,8 @@
 | 11 | NEW | notes:indexChanged | M→R（推送） | — | `IndexChangedPayload` | —（单向推送） |
 
 - 接线：主进程 `registerNotesIpc(...)`，对齐 `registerKanbanIpc` 装配模式（src/main/index.ts:98）；preload `contextBridge.exposeInMainWorld('notes', {...})` 薄封装（对齐 src/preload/index.ts:134 `window.kanban` 模式）+ `onIndexChanged` 订阅。
-- 幂等：save/create/move/delete/restore/purge 均按「当前磁盘态 + 参数」求值，重复调用语义由错误码表达（如二次 delete → notes-not-found），无独立幂等态。
+- 通道集口径：v1.0 = 10 invoke + 1 推送；**v1.1 起 = 11 invoke（+notes:mkdir，Q-075）+ 1 推送**。
+- 幂等：save/create/move/delete/restore/purge 均按「当前磁盘态 + 参数」求值，重复调用语义由错误码表达（如二次 delete → notes-not-found），无独立幂等态；mkdir 已存在目录 → 幂等 ok。
 
 ## 数据结构（Schema）
 
@@ -210,6 +212,15 @@
 - 命名：`YYYY-MM-DD-<slug>.md`（slug 由 title 生成；slug 空 → 时间戳序号，§9/§7）；同目录同名 → notes-name-conflict（UI 拦截，§7）。
 - 响应：`{ path, mtime }`。
 
+### 4b. notes:mkdir（v1.1 集成期补获，Q-075）
+
+- 语义：§12「+ 新建目录」的主进程建目录能力（v1.0 通道集闭合遗漏，wave-1 联调补获）。
+- 参数：`dir`（相对 notes.dir 的目录路径，`/` 分隔，支持 `a/b` 一次建多级）。
+- 行为：路径守卫（拒 `..`/绝对路径/隐藏段/`.trash`）→ `mkdirSync(recursive)`；目录不进索引（索引仅 `.md`）。
+- 幂等：目标已是目录 → ok 返回 `{ path }`；同名文件占位 → notes-io-error（不覆盖）。
+- 响应：`{ path }`（回传规整后的相对路径）。
+- 错误码：notes-path-invalid / notes-io-error。
+
 ### 5. notes:move
 
 - 语义：移动到目标目录（磁盘 rename，索引跟随，§7「手动移动 = 磁盘操作，索引跟随」）。
@@ -304,4 +315,5 @@
 
 ## 变更记录
 
+- 2026-09-11：v1.1（wave-1 集成期补获）——新增 `notes:mkdir` 通道（§接口清单 4b + §接口详情 4b）：§12「+ 新建目录」（Q-075）需主进程建目录能力，v1.0 通道集闭合遗漏；通道集 10 invoke → 11 invoke。
 - 2026-09-11：新建契约（v0.1 草稿，待复核冻结）——N1 存储与索引服务：10 IPC 通道（闭合，CON-R-notes-009）+ notes:indexChanged 推送；Store（原子写 + mtime 乐观锁 + 冲突分流，CON-R-notes-002）；Scanner/Watch（chokidar 首选 + 30s 降级 + 1s 回声抑制，§13）；Trash（固定 .trash + trash.json manifest + TTL 30d/500MB，CON-R-notes-007）；路径安全（CON-R-notes-013）；settings 接线（notesDir + schemaVersion 3→4 无迁移，CON-R-notes-001/010）；性能验收 300 篇 <2s（CON-R-notes-012）。
