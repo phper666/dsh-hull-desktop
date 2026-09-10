@@ -24,9 +24,11 @@ export function isWithinRoot(path: string, root: string): boolean {
   return norm === rn || norm.startsWith(rn + sep);
 }
 
-/** 路径参数非法（契约 notes-path-invalid，扩展字段 path） */
+/** 路径参数非法（契约 notes-path-invalid，扩展字段 path——toResult 透传面依赖，oracle 🟠4） */
 export function pathInvalid(relPath: string, reason: string): never {
-  throw new HullError(NOTES_ERRORS.pathInvalid, `路径非法（${reason}）: ${relPath}`);
+  const err = new HullError(NOTES_ERRORS.pathInvalid, `路径非法（${reason}）: ${relPath}`) as HullError & { path?: string };
+  err.path = relPath;
+  throw err;
 }
 
 /**

@@ -29,7 +29,11 @@ function seed(notesRoot: string, rel: string, content: string): void {
 }
 
 /** 边界构造：改写 manifest 中条目的 deletedAt / sizeBytes（内部态与落盘同步） */
-function patchEntry(trash: NotesTrash, id: string, patch: Partial<{ deletedAt: string; sizeBytes: number }>): void {
+function patchEntry(
+  trash: NotesTrash,
+  id: string,
+  patch: Partial<{ deletedAt: string; sizeBytes: number; originalPath: string }>
+): void {
   const entries = (trash as unknown as { entries: Array<{ id: string } & Record<string, unknown>> }).entries;
   const entry = entries.find((e) => e.id === id)!;
   Object.assign(entry, patch);
@@ -164,4 +168,28 @@ test('trash.json 原子写：无 .tmp 残留', () => {
   seed(notesRoot, 'a.md', 'x');
   trash.deleteFromNotes(notesRoot, 'a.md');
   ok(!existsSync(join(userDataPath, 'notes', 'trash.json.tmp')));
+});
+
+test('delete 目录 → 拒绝（非文件不入回收站，oracle 🟠2）', () => {
+  const { trash, notesRoot, trashDir } = makeFixture();
+  seed(notesRoot, 'adir/inner.md', 'x');
+  throws(
+    () => trash.deleteFromNotes(notesRoot, 'adir'),
+    (e: unknown) => (e as { code: string }).code === 'notes-not-found'
+  );
+  ok(existsSync(join(notesRoot, 'adir', 'inner.md')), '目录原样保留');
+  ok(readdirSync(trashDir).length === 0, '.trash 无实体');
+});
+
+test('restore：originalPath 被篡改（../ 逃逸）→ 拒绝恢复（oracle 🟡8）', () => {
+  const { trash, notesRoot } = makeFixture();
+  seed(notesRoot, 'a.md', 'x');
+  const { trashId } = trash.deleteFromNotes(notesRoot, 'a.md');
+  patchEntry(trash, trashId, { originalPath: '../outside-escape.md' });
+  throws(
+    () => trash.restore(trashId, notesRoot),
+    (e: unknown) => (e as { code: string }).code === 'notes-restore-conflict'
+  );
+  ok(!existsSync(join(notesRoot, '..', 'outside-escape.md')), '目录外无落点');
+  ok(trash.list().entries.length === 1, '非法条目保留（不静默清除）');
 });

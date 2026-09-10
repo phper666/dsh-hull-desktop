@@ -76,3 +76,15 @@ test('根内合法符号链接不误伤', () => {
   symlinkSync(join(root, 'a.md'), join(root, 'alias.md'));
   ok(resolveSafeNotePath(root, 'alias.md').endsWith('alias.md'));
 });
+
+test('path-invalid 错误携带 path 扩展字段（契约透传面，oracle 🟠4）', () => {
+  const root = makeRoot();
+  try {
+    resolveSafeNotePath(root, '../x.md');
+    ok(false, '应抛');
+  } catch (e) {
+    const err = e as { code: string; path?: string };
+    equal(err.code, 'notes-path-invalid');
+    equal(err.path, '../x.md');
+  }
+});

@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { HullError } from '../shared/errors';
 import { NOOP_LOGGER, type RuntimeLogger } from '../shared/types';
 
-import { isValidTrashId } from './pathGuard';
+import { isValidTrashId, resolveSafeNotePath } from './pathGuard';
 import { NOTES_ERRORS, type TrashEntry } from './types';
 
 /** TTL：deletedAt 起算 ≥30 天过期（契约 T3-05：恰好 30 天算过期） */
@@ -41,13 +41,17 @@ export class NotesTrash {
     if (!existsSync(this.trashDir)) mkdirSync(this.trashDir, { recursive: true });
   }
 
-  /** notes:delete：文件 rename 入 .trash/tr_<uuid>.md + manifest 追加条目（原子写） */
+  /** notes:delete：文件 rename 入 .trash/tr_<uuid>.md + manifest 追加条目（原子写）。
+   *  仅接受文件：目录误删会整树入 .trash 且 purge/cleanup unlinkSync EISDIR 永久滞留（oracle 🟠2） */
   deleteFromNotes(notesRoot: string, relPath: string): { trashId: string } {
     const abs = join(notesRoot, relPath);
     let sizeBytes: number;
     try {
-      sizeBytes = statSync(abs).size;
+      const st = statSync(abs);
+      if (!st.isFile()) throw new HullError(NOTES_ERRORS.notFound, `不是文件，不可删除入回收站: ${relPath}`);
+      sizeBytes = st.size;
     } catch (err) {
+      if (err instanceof HullError) throw err;
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         throw new HullError(NOTES_ERRORS.notFound, `笔记不存在: ${relPath}`);
       }
@@ -76,13 +80,22 @@ export class NotesTrash {
    */
   restore(trashId: unknown, notesRoot: string): { restoredPath: string } {
     const entry = this.findEntry(trashId);
-    const targetAbs = join(notesRoot, entry.originalPath);
+    // manifest 可被外部篡改：originalPath 回归路径守卫（拒 ../、隐藏段、越出 notes.dir，oracle 🟡8）
+    const restoredRel = (() => {
+      try {
+        resolveSafeNotePath(notesRoot, entry.originalPath);
+        return entry.originalPath;
+      } catch {
+        throw new HullError(NOTES_ERRORS.restoreConflict, `回收站条目原路径非法，不可恢复: ${entry.originalPath}`);
+      }
+    })();
+    const targetAbs = join(notesRoot, restoredRel);
     if (existsSync(targetAbs)) {
       const err = new HullError(
         NOTES_ERRORS.restoreConflict,
-        `恢复目标已被占用，不覆盖: ${entry.originalPath}`
+        `恢复目标已被占用，不覆盖: ${restoredRel}`
       ) as HullError & { targetPath?: string };
-      err.targetPath = entry.originalPath;
+      err.targetPath = restoredRel;
       throw err;
     }
     const entity = join(this.trashDir, `${entry.id}.md`);
@@ -98,7 +111,7 @@ export class NotesTrash {
     this.removeEntry(entry.id);
     this.flush();
     this.onNotesWrite?.(targetAbs);
-    return { restoredPath: entry.originalPath };
+    return { restoredPath: restoredRel };
   }
 
   /** notes:purge：实体删除 + manifest 移除；实体已丢失仍移除 manifest（幂等收敛） */

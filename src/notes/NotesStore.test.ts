@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, uti
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { NotesStore } from './NotesStore';
+import { localDateStr, NotesStore } from './NotesStore';
 import { resolveSafeNotePath } from './pathGuard';
 
 const tempDirs: string[] = [];
@@ -89,7 +89,7 @@ test('save overwrite：跳过 mtime 校验覆盖；文件已删仍拒（T2-03）
 test('save saveAsCopy：原路径不动，生成 `<基名> (冲突副本 YYYY-MM-DD).md`（T1-07）', () => {
   const { store } = makeRoot();
   seed(store, 'a.md', 'disk version');
-  const date = new Date().toISOString().slice(0, 10);
+  const date = localDateStr();
   const out = store.save({ path: 'a.md', content: 'my version', expectedMtime: 'stale', strategy: 'saveAsCopy' });
   equal(readFileSync(join(store.getRoot(), 'a.md'), 'utf8'), 'disk version', '原路径不动');
   equal(out.path, `a (冲突副本 ${date}).md`);
@@ -99,7 +99,7 @@ test('save saveAsCopy：原路径不动，生成 `<基名> (冲突副本 YYYY-MM
 test('save saveAsCopy：同名副本已存在 → 追加序号 2（TBD 建议实现）', () => {
   const { store } = makeRoot();
   seed(store, 'a.md', 'disk');
-  const date = new Date().toISOString().slice(0, 10);
+  const date = localDateStr();
   writeFileSync(join(store.getRoot(), `a (冲突副本 ${date}).md`), 'already');
   const out = store.save({ path: 'a.md', content: 'mine', expectedMtime: 'x', strategy: 'saveAsCopy' });
   equal(out.path, `a (冲突副本 ${date}) 2.md`);
@@ -117,16 +117,16 @@ test('save 携 frontmatterPatch：patch 生效落盘', () => {
 test('create：YYYY-MM-DD-<slug>.md + frontmatter title 预写', () => {
   const { store } = makeRoot();
   const out = store.create(undefined, '会议纪要 Go');
-  const date = new Date().toISOString().slice(0, 10);
+  const date = localDateStr();
   equal(out.path, `${date}-会议纪要-Go.md`);
   match(readFileSync(join(store.getRoot(), out.path), 'utf8'), /title: 会议纪要 Go/);
 });
 
-test('create：slug 空 → 时间戳序号；同名 → notes-name-conflict 不覆盖（T2-05）', () => {
+test('create：slug 空 → 时间戳序号（同毫秒追加序号不冲突）；固定 slug 同名 → notes-name-conflict（T2-05）', () => {
   const { store } = makeRoot();
   const out1 = store.create(undefined, '!!!');
-  ok(/^\d{4}-\d{2}-\d{2}-\d+\.md$/.test(out1.path), `实际 ${out1.path}`);
-  // 时间戳序号：连续两次均成功且不同名（时间戳推进）
+  ok(/^\d{4}-\d{2}-\d{2}-\d+(-\d+)?\.md$/.test(out1.path), `实际 ${out1.path}`);
+  // 时间戳序号：连续两次均成功且不同名（同毫秒 → 序号后缀，oracle 修复 11）
   const out2 = store.create(undefined, '!!!');
   ok(out2.path !== out1.path);
   // 固定 slug：同名 → 冲突
@@ -135,6 +135,25 @@ test('create：slug 空 → 时间戳序号；同名 → notes-name-conflict 不
     () => store.create(undefined, 'hello'),
     (e: unknown) => (e as { code: string }).code === 'notes-name-conflict'
   );
+});
+
+test('save strategy 白名单：非法值 → notes-io-error 且磁盘零改动（oracle 🟠3）', () => {
+  const { store } = makeRoot();
+  seed(store, 'a.md', 'v1');
+  throws(
+    () => store.save({ path: 'a.md', content: 'v2', expectedMtime: 'bogus', strategy: 'x' as 'overwrite' }),
+    (e: unknown) => (e as { code: string }).code === 'notes-io-error'
+  );
+  equal(readFileSync(join(store.getRoot(), 'a.md'), 'utf8'), 'v1', '非法 strategy 不落盘');
+});
+
+test('create/saveAsCopy 用本地日期（oracle 🟡7）：UTC+8 早 8 点前 ISO 日期会差一天', () => {
+  const { store } = makeRoot();
+  const out = store.create(undefined, '日期校验');
+  const d = new Date();
+  const local = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  ok(out.path.startsWith(local + '-'), `期望本地日期 ${local}，实际 ${out.path}`);
+  ok(!out.path.startsWith(new Date().toISOString().slice(0, 10) + '-') || local === new Date().toISOString().slice(0, 10));
 });
 
 test('move：磁盘 rename 到已存在子目录；目标同名 → notes-name-conflict', () => {

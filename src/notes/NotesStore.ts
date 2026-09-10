@@ -19,6 +19,14 @@ export interface SaveOutput {
   mtime: string;
 }
 
+/** 本地日期 YYYY-MM-DD（oracle 🟡7：toISOString 是 UTC——UTC+8 早 8 点前差一天） */
+export function localDateStr(d = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export class NotesStore {
   private readonly logger: RuntimeLogger;
   private root: string;
@@ -55,6 +63,10 @@ export class NotesStore {
    * content 与 frontmatterPatch 合成最终文本后单次原子写（设计 §4.1-4 等价形态）。
    */
   save(input: SaveInput): SaveOutput {
+    // strategy 白名单（oracle 🟠3）：IPC 可传任意字符串——非法值若落入 overwrite 分支会静默跳过乐观锁
+    if (input.strategy !== undefined && input.strategy !== 'overwrite' && input.strategy !== 'saveAsCopy') {
+      throw new HullError(NOTES_ERRORS.ioError, `非法保存策略: ${String(input.strategy)}`);
+    }
     const abs = join(this.root, input.path);
     if (input.strategy !== 'saveAsCopy') {
       // 校验（缺省与 overwrite 均要求目标存在）
@@ -77,7 +89,7 @@ export class NotesStore {
     let targetAbs = abs;
     let targetRel = input.path;
     if (input.strategy === 'saveAsCopy') {
-      const date = new Date().toISOString().slice(0, 10);
+      const date = localDateStr();
       const dir = dirname(input.path);
       const base = input.path.split('/').pop()!.replace(/\.md$/i, '');
       const stem = `${base} (冲突副本 ${date})`;
@@ -108,14 +120,30 @@ export class NotesStore {
    */
   create(dir: string | undefined, title: string | undefined): SaveOutput {
     const relDir = dir === undefined || dir === '' ? '.' : dir;
-    const date = new Date().toISOString().slice(0, 10);
+    const date = localDateStr();
     const slug = slugify(title ?? '');
-    const base = slug === '' ? String(Date.now()) : slug;
-    const relPath = relDir === '.' ? `${date}-${base}.md` : `${relDir}/${date}-${base}.md`;
-    const abs = join(this.root, relPath);
-    if (existsSync(abs)) {
-      throw nameConflict(relPath, `同名笔记已存在: ${relPath}`);
+    // slug 空 → 时间戳序号：同毫秒连续创建追加序号防同名冲突（oracle 测试稳定性 T2-05）
+    const candidates: string[] = [];
+    if (slug !== '') {
+      candidates.push(slug);
+    } else {
+      const ts = String(Date.now());
+      candidates.push(ts);
+      for (let n = 2; n <= 10; n++) candidates.push(`${ts}-${n}`);
     }
+    let relPath = '';
+    for (const base of candidates) {
+      const candidate = relDir === '.' ? `${date}-${base}.md` : `${relDir}/${date}-${base}.md`;
+      if (!existsSync(join(this.root, candidate))) {
+        relPath = candidate;
+        break;
+      }
+    }
+    if (relPath === '') {
+      // 固定 slug 同名（时间戳候选耗尽不可能达此）→ notes-name-conflict
+      throw nameConflict(`${date}-${slug}.md`, `同名笔记已存在: ${date}-${slug}.md`);
+    }
+    const abs = join(this.root, relPath);
     const content = title !== undefined && title !== '' ? applyFrontmatterPatch('', { title }) : '';
     this.atomicWrite(abs, content);
     this.onWrite?.(abs);
