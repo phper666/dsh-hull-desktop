@@ -3,6 +3,14 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-09-10 笔记模块共识发布 v1.0（新需求 notes，基线）
+
+- 类型：新模块共识建立（需求标识 `notes`，来自 PRD `2026-09-07-notes-prd.md` v0.3 + 原型 v0.5）
+- 内容：开发者笔记区——工作笔记 + 个人经验双类内容；磁盘 md 文件为唯一事实源（`<userData>/notes/` 默认、settings.notes.dir 可改）；任意层级真实目录树（永不自动归类、搜索永远全局）；type 徽章双维过滤；任务关联全程点选（搜索型选择器 / 徽章双向跳转 / 看板卡片 📝 N 角标 / 未知任务灰色降级）；回收站留 userData（TTL 30 天）；编辑链路沿用 CON-R-editor；IPC notes:* 约定。规则 CON-R-notes-001~012。不做：双链改名/SQLite/同步协作/块编辑器/图谱/自动归类/拖拽/daily note/全局快捷键
+- 未决项：U-002 daily note（closed，v2 再议）、U-003 全局快捷键（open，v2 候选）；U-001 nav 顺序 v1.0 定案（笔记放任务看板后）
+- 影响：新增壳内 nav 第五入口；设置页新增笔记区块（schema bump）；看板侧新增卡片角标与详情「相关笔记」行（boards.json 结构不变）
+- 下一步：三角色扫描 → 子需求拆解（Gate B）→ 契约
+
 ## 2026-09-06 缺陷修复——ACP/skills 通道 spawn node ENOENT 主进程弹框（0.1.7 实测，三端排查）
 
 - 类型：缺陷修复（无共识规则变化；新增工程约束——所有 spawn node 通道必须接 spawnArgs.resolveNodePath，禁止裸 'node' 字面量）

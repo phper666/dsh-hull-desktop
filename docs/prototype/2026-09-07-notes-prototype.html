@@ -1,0 +1,1693 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hull Desktop · 笔记</title>
+<style>
+  :root {
+    --hull-bg: #0d1117;
+    --hull-bg-soft: #10151d;
+    --hull-panel: #131a23;
+    --hull-panel-2: #171f2a;
+    --hull-border: #232c38;
+    --hull-border-soft: #1c242f;
+    --hull-text: #d6dde6;
+    --hull-text-dim: #8b96a5;
+    --hull-text-faint: #5c6773;
+    --hull-accent: #4c8dd7;
+    --hull-accent-soft: rgba(76, 141, 215, 0.14);
+    --hull-accent-border: rgba(76, 141, 215, 0.45);
+    --hull-green: #3fb950;
+    --hull-amber: #d29922;
+    --hull-radius: 6px;
+    --hull-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --hull-sans: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--hull-sans);
+    background: var(--hull-bg);
+    color: var(--hull-text);
+    font-size: 13px;
+    line-height: 1.55;
+    overflow: hidden;
+  }
+
+  .app { display: flex; height: 100vh; }
+
+  /* ── Sidebar shell ─────────────────────────── */
+  .sidebar {
+    width: 196px;
+    flex-shrink: 0;
+    background: var(--hull-bg-soft);
+    border-right: 1px solid var(--hull-border);
+    display: flex;
+    flex-direction: column;
+    padding: 14px 10px;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 9px;
+    padding: 4px 10px 16px;
+  }
+  .brand-mark {
+    width: 26px; height: 26px; border-radius: 7px;
+    background: linear-gradient(135deg, #2a4a75, #4c8dd7);
+    display: grid; place-items: center;
+    color: #fff; font-size: 13px; font-weight: 700;
+    font-family: var(--hull-mono);
+  }
+  .brand-name { font-weight: 600; font-size: 13px; letter-spacing: 0.2px; }
+  .brand-sub { font-size: 10px; color: var(--hull-text-faint); font-family: var(--hull-mono); }
+
+  .nav { display: flex; flex-direction: column; gap: 2px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 10px;
+    border-radius: var(--hull-radius);
+    color: var(--hull-text-dim);
+    cursor: default;
+    user-select: none;
+    border: 1px solid transparent;
+    transition: background 0.12s, color 0.12s;
+  }
+  .nav-item:hover { background: var(--hull-panel); color: var(--hull-text); }
+  .nav-item.active {
+    background: var(--hull-accent-soft);
+    border-color: var(--hull-accent-border);
+    color: var(--hull-text);
+  }
+  .nav-item svg { width: 15px; height: 15px; flex-shrink: 0; }
+  .nav-item.active svg { color: var(--hull-accent); }
+  .sidebar-footer {
+    margin-top: auto;
+    padding: 10px;
+    font-family: var(--hull-mono);
+    font-size: 10px;
+    color: var(--hull-text-faint);
+    border-top: 1px solid var(--hull-border-soft);
+  }
+
+  /* ── Notes layout ──────────────────────────── */
+  .notes-app { flex: 1; display: flex; min-width: 0; }
+
+  .list-pane {
+    width: 300px; flex-shrink: 0;
+    border-right: 1px solid var(--hull-border);
+    display: flex; flex-direction: column;
+    background: var(--hull-bg-soft);
+    min-width: 0;
+  }
+  .list-head {
+    padding: 14px 14px 10px;
+    border-bottom: 1px solid var(--hull-border-soft);
+  }
+  .list-title-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .list-title { font-size: 14px; font-weight: 600; }
+  .list-count {
+    font-family: var(--hull-mono); font-size: 10px;
+    color: var(--hull-text-faint);
+    margin-left: 8px; font-weight: 400;
+  }
+  .btn-new {
+    display: flex; align-items: center; gap: 5px;
+    background: var(--hull-accent-soft);
+    border: 1px solid var(--hull-accent-border);
+    color: var(--hull-accent);
+    font-size: 12px; font-family: var(--hull-sans);
+    padding: 4px 10px; border-radius: var(--hull-radius);
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .btn-new:hover { background: rgba(76, 141, 215, 0.24); }
+  .search-wrap { position: relative; }
+  .search-wrap svg {
+    position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+    width: 13px; height: 13px; color: var(--hull-text-faint);
+    pointer-events: none;
+  }
+  .search-input {
+    width: 100%;
+    background: var(--hull-panel);
+    border: 1px solid var(--hull-border);
+    border-radius: var(--hull-radius);
+    color: var(--hull-text);
+    font-size: 12px; font-family: var(--hull-sans);
+    padding: 6px 10px 6px 28px;
+    outline: none;
+    transition: border-color 0.12s;
+  }
+  .search-input:focus { border-color: var(--hull-accent-border); }
+  .search-input::placeholder { color: var(--hull-text-faint); }
+
+  /* ── Folder tree ────────────────────────────── */
+  .tree-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 10px;
+  }
+  .tree-head-label {
+    font-family: var(--hull-mono); font-size: 10px;
+    color: var(--hull-text-faint);
+  }
+  .btn-new-folder {
+    display: inline-flex; align-items: center; gap: 3px;
+    background: transparent; border: none;
+    color: var(--hull-text-faint);
+    font-size: 10.5px; font-family: var(--hull-sans);
+    cursor: pointer; padding: 1px 5px; border-radius: 4px;
+    transition: color 0.1s, background 0.1s;
+  }
+  .btn-new-folder:hover { color: var(--hull-accent); background: var(--hull-panel); }
+  .folder-tree { margin-top: 4px; }
+  .tree-row {
+    display: flex; align-items: center; gap: 5px;
+    padding: 3px 8px;
+    border-radius: var(--hull-radius);
+    cursor: pointer; user-select: none;
+    border: 1px solid transparent;
+    transition: background 0.1s, color 0.1s;
+  }
+  .tree-row:hover { background: var(--hull-panel); }
+  .tree-row.active {
+    background: var(--hull-accent-soft);
+    border-color: var(--hull-accent-border);
+  }
+  .tree-chevron {
+    width: 11px; flex-shrink: 0; text-align: center;
+    font-size: 9px; line-height: 1;
+    color: var(--hull-text-faint);
+    transition: transform 0.12s;
+  }
+  .tree-chevron.open { transform: rotate(90deg); }
+  .tree-chevron.empty { visibility: hidden; }
+  .tree-row svg { width: 13px; height: 13px; flex-shrink: 0; color: var(--hull-text-dim); }
+  .tree-row.active svg { color: var(--hull-accent); }
+  .tree-name {
+    font-size: 12px; color: var(--hull-text-dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .tree-row:hover .tree-name, .tree-row.active .tree-name { color: var(--hull-text); }
+  .tree-count {
+    margin-left: auto; padding-left: 6px;
+    font-family: var(--hull-mono); font-size: 10px;
+    color: var(--hull-text-faint);
+  }
+  .tree-new-input {
+    width: 100%;
+    background: var(--hull-panel);
+    border: 1px solid var(--hull-accent-border);
+    border-radius: 4px;
+    color: var(--hull-text); font-size: 11.5px; font-family: var(--hull-sans);
+    padding: 3px 8px; outline: none;
+  }
+  .tree-new-input::placeholder { color: var(--hull-text-faint); }
+
+  .search-hint {
+    margin-top: 7px;
+    font-family: var(--hull-mono); font-size: 10px;
+    color: var(--hull-text-faint);
+  }
+
+  .note-list { flex: 1; overflow-y: auto; padding: 6px; }
+  .note-item {
+    padding: 10px 12px;
+    border-radius: var(--hull-radius);
+    cursor: pointer;
+    border: 1px solid transparent;
+    margin-bottom: 2px;
+    transition: background 0.1s;
+  }
+  .note-item:hover { background: var(--hull-panel); }
+  .note-item.active {
+    background: var(--hull-panel-2);
+    border-color: var(--hull-border);
+  }
+  .note-item-top {
+    display: flex; align-items: center; gap: 6px;
+    margin-bottom: 3px;
+  }
+  .note-item-title {
+    font-weight: 600; font-size: 12.5px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    flex: 1; min-width: 0;
+  }
+  .unsaved-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--hull-amber); flex-shrink: 0;
+    box-shadow: 0 0 5px rgba(210, 153, 34, 0.6);
+  }
+  .note-item-snippet {
+    font-size: 11.5px; color: var(--hull-text-dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-bottom: 5px;
+  }
+  .note-item-meta {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--hull-mono); font-size: 10px;
+    color: var(--hull-text-faint);
+  }
+  .badge-task {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-family: var(--hull-mono); font-size: 10px;
+    color: var(--hull-accent);
+    background: var(--hull-accent-soft);
+    border: 1px solid var(--hull-accent-border);
+    border-radius: 4px;
+    padding: 0 5px; line-height: 16px;
+    flex-shrink: 0;
+  }
+  .badge-type {
+    font-family: var(--hull-mono); font-size: 10px;
+    color: var(--hull-text-dim);
+    background: var(--hull-panel);
+    border: 1px solid var(--hull-border);
+    border-radius: 4px;
+    padding: 0 5px; line-height: 16px;
+    flex-shrink: 0;
+  }
+  .empty-state {
+    padding: 48px 20px; text-align: center;
+    color: var(--hull-text-faint);
+  }
+  .empty-state .glyph { font-size: 26px; margin-bottom: 10px; opacity: 0.5; }
+  .empty-state p { font-size: 12px; }
+  .empty-state .hint { font-size: 11px; margin-top: 4px; color: var(--hull-text-faint); }
+
+  /* ── Editor pane ───────────────────────────── */
+  .editor-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .editor-head {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--hull-border-soft);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .chips-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .chips-label {
+    font-family: var(--hull-mono); font-size: 10px;
+    color: var(--hull-text-faint); margin-right: 2px;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-family: var(--hull-mono); font-size: 10.5px;
+    padding: 1px 8px; line-height: 18px;
+    border-radius: 20px;
+    background: var(--hull-panel);
+    border: 1px solid var(--hull-border);
+    color: var(--hull-text-dim);
+  }
+  .chip.task {
+    color: var(--hull-accent);
+    background: var(--hull-accent-soft);
+    border-color: var(--hull-accent-border);
+    cursor: pointer;
+  }
+  .chip.task:hover { background: rgba(76, 141, 215, 0.24); }
+  .chip.path {
+    color: var(--hull-text-faint);
+    border-style: dashed;
+  }
+  .chip .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--hull-green); }
+  .chip.task .unlink {
+    color: var(--hull-text-faint);
+    padding: 0 3px; margin-right: -2px;
+    border-radius: 3px; font-size: 11px;
+  }
+  .chip.task .unlink:hover { color: #e5534b; background: rgba(229, 83, 75, 0.16); }
+  .chip.task.unknown {
+    color: var(--hull-text-faint);
+    background: var(--hull-panel);
+    border-color: var(--hull-border);
+    cursor: default;
+  }
+  .chip.add-task {
+    cursor: pointer;
+    color: var(--hull-text-faint);
+    border-style: dashed;
+  }
+  .chip.add-task:hover { color: var(--hull-accent); border-color: var(--hull-accent-border); }
+  .badge-task.jump { cursor: pointer; }
+  .badge-task.jump:hover { background: rgba(76, 141, 215, 0.24); }
+  .badge-task.unknown {
+    color: var(--hull-text-faint);
+    background: var(--hull-panel);
+    border-color: var(--hull-border);
+  }
+
+  /* ── Board task detail view ─────────────────── */
+  .task-view {
+    flex: 1; min-width: 0;
+    background: var(--hull-bg);
+    overflow-y: auto;
+    padding: 26px 34px;
+  }
+  .task-detail { max-width: 680px; }
+  .back-notes {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 12px; color: var(--hull-accent);
+    cursor: pointer; padding: 2px 8px; border-radius: 4px;
+    transition: background 0.1s;
+  }
+  .back-notes:hover { background: var(--hull-accent-soft); }
+  .task-headline { display: flex; align-items: baseline; gap: 10px; margin-top: 14px; }
+  .task-headline .tid { font-family: var(--hull-mono); font-size: 12px; color: var(--hull-text-faint); }
+  .task-headline h2 { font-size: 18px; font-weight: 650; }
+  .task-chips { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .task-desc {
+    margin-top: 14px; color: var(--hull-text-dim);
+    background: var(--hull-panel); border: 1px solid var(--hull-border-soft);
+    border-radius: var(--hull-radius); padding: 12px 14px;
+  }
+  .task-related { margin-top: 22px; border-top: 1px solid var(--hull-border-soft); padding-top: 14px; }
+  .task-related-title { font-size: 12.5px; font-weight: 600; margin-bottom: 8px; }
+  .task-related-title .n { font-family: var(--hull-mono); font-size: 11px; color: var(--hull-accent); }
+  .task-note-link {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px; border-radius: var(--hull-radius);
+    cursor: pointer; font-family: var(--hull-mono); font-size: 11.5px;
+    color: var(--hull-accent);
+    transition: background 0.1s;
+  }
+  .task-note-link:hover { background: var(--hull-panel); }
+  .task-note-link svg { width: 12px; height: 12px; flex-shrink: 0; }
+  .task-note-link .rel-time { margin-left: auto; color: var(--hull-text-faint); font-size: 10px; }
+  .task-related-empty { font-size: 11.5px; color: var(--hull-text-faint); padding: 4px 10px; }
+
+  /* ── Task link modal ────────────────────────── */
+  .modal-mask {
+    position: fixed; inset: 0;
+    background: rgba(4, 8, 14, 0.62);
+    display: none; align-items: center; justify-content: center;
+    z-index: 90;
+  }
+  .modal-mask.show { display: flex; }
+  .modal {
+    width: 340px;
+    background: var(--hull-panel-2);
+    border: 1px solid var(--hull-border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+  }
+  .modal { width: 380px; }
+  .modal-title { font-size: 13.5px; font-weight: 600; margin-bottom: 4px; }
+  .modal-title .esc-hint {
+    float: right;
+    font-family: var(--hull-mono); font-size: 10px; font-weight: 400;
+    color: var(--hull-text-faint);
+  }
+  .picker-input {
+    width: 100%;
+    background: var(--hull-panel);
+    border: 1px solid var(--hull-border);
+    border-radius: var(--hull-radius);
+    color: var(--hull-text); font-size: 12px; font-family: var(--hull-sans);
+    padding: 7px 10px; outline: none;
+    margin-top: 10px;
+  }
+  .picker-input:focus { border-color: var(--hull-accent-border); }
+  .picker-input::placeholder { color: var(--hull-text-faint); }
+  .picker-list {
+    margin-top: 8px; max-height: 260px; overflow-y: auto;
+    border: 1px solid var(--hull-border-soft);
+    border-radius: var(--hull-radius);
+  }
+  .picker-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px; cursor: pointer;
+    font-family: var(--hull-mono); font-size: 11px;
+    color: var(--hull-text-dim);
+    border-bottom: 1px solid var(--hull-border-soft);
+    transition: background 0.1s;
+  }
+  .picker-item:last-child { border-bottom: none; }
+  .picker-item:hover, .picker-item.top { background: var(--hull-panel); color: var(--hull-text); }
+  .picker-item .p-board { color: var(--hull-accent); flex-shrink: 0; }
+  .picker-item .p-id { color: var(--hull-text); flex-shrink: 0; }
+  .picker-item.top .p-id { color: var(--hull-accent); }
+  .picker-item .p-title {
+    flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-family: var(--hull-sans); font-size: 12px;
+  }
+  .picker-item .p-rel { color: var(--hull-text-faint); font-size: 10px; flex-shrink: 0; }
+  .picker-empty { padding: 18px; text-align: center; font-size: 11.5px; color: var(--hull-text-faint); }
+
+  /* ── Move-to menu ───────────────────────────── */
+  .move-wrap { position: relative; flex-shrink: 0; }
+  .move-btn {
+    background: transparent; border: 1px solid var(--hull-border);
+    color: var(--hull-text-dim);
+    font-size: 11px; font-family: var(--hull-sans);
+    padding: 4px 10px; border-radius: var(--hull-radius);
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+  }
+  .move-btn:hover { color: var(--hull-text); background: var(--hull-panel); }
+  .move-menu {
+    position: absolute; right: 0; top: calc(100% + 4px);
+    min-width: 220px; max-height: 260px; overflow-y: auto;
+    background: var(--hull-panel-2);
+    border: 1px solid var(--hull-border);
+    border-radius: var(--hull-radius);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    z-index: 60;
+    display: none;
+  }
+  .move-menu.show { display: block; }
+  .move-menu-title {
+    padding: 6px 12px;
+    font-family: var(--hull-mono); font-size: 10px;
+    color: var(--hull-text-faint);
+    border-bottom: 1px solid var(--hull-border-soft);
+  }
+  .move-item {
+    display: flex; align-items: center; gap: 7px;
+    padding: 6px 12px;
+    font-family: var(--hull-mono); font-size: 11px;
+    color: var(--hull-text-dim);
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .move-item:hover { background: var(--hull-panel); color: var(--hull-text); }
+  .move-item svg { width: 12px; height: 12px; flex-shrink: 0; }
+  .move-item.current { color: var(--hull-text-faint); cursor: default; }
+  .move-item.current:hover { background: transparent; }
+  .move-item .cur-tag { margin-left: auto; font-family: var(--hull-sans); font-size: 10px; }
+
+  .title-row { display: flex; align-items: center; gap: 12px; }
+  .editor-title {
+    flex: 1; min-width: 0;
+    background: transparent; border: none; outline: none;
+    color: var(--hull-text);
+    font-family: var(--hull-sans);
+    font-size: 17px; font-weight: 650;
+    padding: 2px 0;
+  }
+  .mode-switch {
+    display: flex; border: 1px solid var(--hull-border);
+    border-radius: var(--hull-radius); overflow: hidden; flex-shrink: 0;
+  }
+  .mode-btn {
+    background: transparent; border: none;
+    color: var(--hull-text-faint);
+    font-size: 11px; font-family: var(--hull-sans);
+    padding: 4px 12px; cursor: pointer;
+    border-right: 1px solid var(--hull-border);
+    transition: background 0.1s, color 0.1s;
+  }
+  .mode-btn:last-child { border-right: none; }
+  .mode-btn:hover { color: var(--hull-text); }
+  .mode-btn.active { background: var(--hull-panel-2); color: var(--hull-accent); }
+
+  .backlink-strip {
+    display: flex; align-items: center; gap: 8px;
+    margin: 0 16px; padding: 7px 12px;
+    background: var(--hull-panel);
+    border: 1px solid var(--hull-border-soft);
+    border-radius: var(--hull-radius);
+    font-size: 11.5px; color: var(--hull-text-dim);
+  }
+  .backlink-strip .lbl { color: var(--hull-text-faint); font-size: 11px; }
+  .backlink {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-family: var(--hull-mono); font-size: 11px;
+    color: var(--hull-accent);
+    cursor: pointer; padding: 1px 6px;
+    border-radius: 4px;
+    transition: background 0.1s;
+  }
+  .backlink:hover { background: var(--hull-accent-soft); }
+  .backlink .desc { color: var(--hull-text-dim); font-family: var(--hull-sans); }
+
+  .toolbar {
+    display: flex; align-items: center; gap: 2px;
+    padding: 6px 16px;
+    border-bottom: 1px solid var(--hull-border-soft);
+  }
+  .tool-btn {
+    background: transparent; border: 1px solid transparent;
+    color: var(--hull-text-dim);
+    width: 28px; height: 26px; border-radius: 4px;
+    cursor: pointer; font-size: 12.5px;
+    font-family: var(--hull-mono);
+    display: grid; place-items: center;
+    transition: background 0.1s, color 0.1s;
+  }
+  .tool-btn:hover { background: var(--hull-panel-2); color: var(--hull-text); }
+  .tool-sep { width: 1px; height: 16px; background: var(--hull-border); margin: 0 6px; }
+
+  .editor-body { flex: 1; display: flex; min-height: 0; position: relative; }
+  .editor-textarea, .preview-pane {
+    flex: 1; min-width: 0;
+    padding: 18px 22px;
+    overflow-y: auto;
+    font-size: 13.5px; line-height: 1.7;
+  }
+  .editor-textarea {
+    background: transparent;
+    border: none; outline: none; resize: none;
+    color: var(--hull-text);
+    font-family: var(--hull-mono);
+    font-size: 12.5px; line-height: 1.75;
+    caret-color: var(--hull-accent);
+  }
+  .split-divider { width: 1px; background: var(--hull-border); flex-shrink: 0; }
+  .preview-pane { color: var(--hull-text); }
+  .preview-pane h1, .preview-pane h2, .preview-pane h3 {
+    margin: 18px 0 8px; font-weight: 650; line-height: 1.35;
+  }
+  .preview-pane h1:first-child, .preview-pane h2:first-child, .preview-pane h3:first-child { margin-top: 0; }
+  .preview-pane h1 { font-size: 19px; padding-bottom: 6px; border-bottom: 1px solid var(--hull-border-soft); }
+  .preview-pane h2 { font-size: 16px; }
+  .preview-pane h3 { font-size: 14px; color: var(--hull-text-dim); }
+  .preview-pane p { margin: 8px 0; }
+  .preview-pane ul { margin: 8px 0; padding-left: 22px; }
+  .preview-pane li { margin: 3px 0; }
+  .preview-pane code {
+    font-family: var(--hull-mono); font-size: 11.5px;
+    background: var(--hull-panel); border: 1px solid var(--hull-border-soft);
+    border-radius: 4px; padding: 1px 5px;
+  }
+  .preview-pane pre {
+    background: var(--hull-panel); border: 1px solid var(--hull-border-soft);
+    border-radius: var(--hull-radius);
+    padding: 12px 14px; margin: 10px 0;
+    overflow-x: auto;
+  }
+  .preview-pane pre code { background: none; border: none; padding: 0; font-size: 11.5px; line-height: 1.6; }
+  .preview-pane blockquote {
+    border-left: 3px solid var(--hull-accent-border);
+    padding: 2px 14px; margin: 10px 0;
+    color: var(--hull-text-dim);
+    background: var(--hull-accent-soft);
+    border-radius: 0 var(--hull-radius) var(--hull-radius) 0;
+  }
+  .preview-pane strong { color: #e8eef5; }
+  .preview-pane hr { border: none; border-top: 1px solid var(--hull-border); margin: 16px 0; }
+
+  .editor-foot {
+    display: flex; align-items: center; gap: 14px;
+    padding: 6px 16px;
+    border-top: 1px solid var(--hull-border-soft);
+    font-family: var(--hull-mono); font-size: 10px;
+    color: var(--hull-text-faint);
+  }
+  .editor-foot .right { margin-left: auto; }
+  .status-saved { color: var(--hull-green); }
+  .status-modified { color: var(--hull-amber); }
+
+  /* ── Board mock view ────────────────────────── */
+  #navBoard { cursor: pointer; }
+  .board-view {
+    flex: 1; min-width: 0;
+    background: var(--hull-bg);
+    overflow-y: auto;
+    padding: 22px 28px;
+  }
+  .board-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 16px; }
+  .board-title { font-size: 15px; font-weight: 650; }
+  .board-sub { font-family: var(--hull-mono); font-size: 10px; color: var(--hull-text-faint); }
+  .board-cols { display: flex; gap: 12px; align-items: flex-start; }
+  .board-col {
+    flex: 1; min-width: 0;
+    background: var(--hull-bg-soft);
+    border: 1px solid var(--hull-border-soft);
+    border-radius: 8px;
+    padding: 8px;
+  }
+  .board-col-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 2px 6px 8px;
+    font-size: 11px; font-weight: 600; color: var(--hull-text-dim);
+  }
+  .board-col-count { font-family: var(--hull-mono); font-size: 10px; font-weight: 400; color: var(--hull-text-faint); }
+  .board-card {
+    position: relative;
+    background: var(--hull-panel);
+    border: 1px solid var(--hull-border);
+    border-radius: var(--hull-radius);
+    padding: 9px 10px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: background 0.1s, border-color 0.1s;
+  }
+  .board-card:last-child { margin-bottom: 0; }
+  .board-card:hover { background: var(--hull-panel-2); border-color: var(--hull-accent-border); }
+  .bc-top { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+  .bc-id { font-family: var(--hull-mono); font-size: 10px; color: var(--hull-text-faint); }
+  .bc-title { font-size: 12.5px; font-weight: 600; margin-bottom: 6px; padding-right: 44px; }
+  .bc-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+  .board-card .chip { font-size: 9.5px; padding: 0 6px; line-height: 15px; }
+  .note-badge {
+    position: absolute; top: 8px; right: 8px;
+    font-family: var(--hull-mono); font-size: 10px;
+    color: var(--hull-text-dim);
+    background: var(--hull-bg-soft);
+    border: 1px solid var(--hull-border);
+    border-radius: 4px;
+    padding: 0 5px; line-height: 16px;
+    cursor: pointer;
+    transition: color 0.1s, border-color 0.1s;
+  }
+  .note-badge:hover { color: var(--hull-accent); border-color: var(--hull-accent-border); }
+  .board-empty { font-size: 11px; color: var(--hull-text-faint); padding: 4px 6px 2px; }
+
+  /* ── Toast ─────────────────────────────────── */
+  .toast {
+    position: fixed; bottom: 28px; left: 50%;
+    transform: translateX(-50%) translateY(16px);
+    background: var(--hull-panel-2);
+    border: 1px solid var(--hull-accent-border);
+    color: var(--hull-text);
+    font-size: 12px;
+    padding: 8px 18px;
+    border-radius: var(--hull-radius);
+    display: flex; align-items: center; gap: 8px;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.18s, transform 0.18s;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    z-index: 100;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast .check { color: var(--hull-green); }
+
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: #2a3441; border-radius: 5px; border: 2px solid var(--hull-bg-soft); }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  @media (max-width: 1080px) {
+    .sidebar { width: 56px; padding: 14px 8px; }
+    .brand-name, .brand-sub, .nav-item span, .sidebar-footer { display: none; }
+    .nav-item { justify-content: center; padding: 9px 0; }
+    .list-pane { width: 250px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- Shell sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">H</div>
+      <div>
+        <div class="brand-name">Hull Desktop</div>
+        <div class="brand-sub">v0.4.2-dev</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.2"/></svg><span>dsh web</span></div>
+      <div class="nav-item" id="navBoard"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg><span>任务看板</span></div>
+      <div class="nav-item active" id="navNotes"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 2.5h8.5L14 5v8.5a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z"/><path d="M5 6h6M5 9h6M5 12h3.5"/></svg><span>笔记</span></div>
+      <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 13.5h12"/><path d="M3.5 13.5V8M7 13.5V4M10.5 13.5V6.5M14 13.5V2.5" stroke-linecap="round"/></svg><span>Token 消耗</span></div>
+      <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="7" rx="1.2"/><path d="M5.5 13h5"/></svg><span>工作台连接</span></div>
+      <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="4" cy="4.5" r="2"/><circle cx="12" cy="4.5" r="2"/><circle cx="8" cy="11.5" r="2"/><path d="M5.7 5.9 7 9.8M10.3 5.9 9 9.8"/></svg><span>工作流</span></div>
+      <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.5a4.5 4.5 0 0 1 4.5 4.5v3l1.2 2H2.3l1.2-2V7A4.5 4.5 0 0 1 8 2.5z"/><path d="M6.5 13.5a1.5 1.5 0 0 0 3 0"/></svg><span>通知中心</span></div>
+      <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.4"/><path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6 11 5M5 11l-1.4 1.4"/></svg><span>设置</span></div>
+    </nav>
+    <div class="sidebar-footer">dsh 0.9.7 · CON-R001<br>v0.5 看板视图 + 笔记角标</div>
+  </aside>
+
+  <!-- Notes -->
+  <main class="notes-app" id="notesApp">
+    <section class="list-pane">
+      <div class="list-head">
+        <div class="list-title-row">
+          <div class="list-title">笔记<span class="list-count" id="listCount"></span></div>
+          <button class="btn-new" id="btnNew">
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 1.5v9M1.5 6h9" stroke-linecap="round"/></svg>
+            新建
+          </button>
+        </div>
+        <div class="search-wrap">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3" stroke-linecap="round"/></svg>
+          <input class="search-input" id="searchInput" type="text" placeholder="搜索标题与内容…" autocomplete="off">
+        </div>
+        <div class="search-hint">搜索为全局（含所有目录），不受目录筛选影响</div>
+        <div class="tree-head">
+          <span class="tree-head-label">目录</span>
+          <button class="btn-new-folder" id="btnNewFolder">＋ 新建目录</button>
+        </div>
+        <div class="folder-tree" id="folderTree"></div>
+      </div>
+      <div class="note-list" id="noteList"></div>
+    </section>
+
+    <section class="editor-pane" id="editorPane">
+      <div class="editor-head">
+        <div class="chips-row" id="chipsRow"></div>
+        <div class="title-row">
+          <input class="editor-title" id="editorTitle" spellcheck="false">
+          <div class="move-wrap">
+            <button class="move-btn" id="btnMove">移动到…</button>
+            <div class="move-menu" id="moveMenu"></div>
+          </div>
+          <div class="mode-switch">
+            <button class="mode-btn active" data-mode="edit">编辑</button>
+            <button class="mode-btn" data-mode="split">分屏</button>
+            <button class="mode-btn" data-mode="preview">预览</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="backlink-strip" id="backlinkStrip" style="display:none; margin-top:10px;">
+        <span class="lbl">关联任务：</span>
+        <span class="backlink" id="backlinkLink"><span>⧉ <span class="tid"></span></span><span class="desc">看板执行批次</span></span>
+      </div>
+
+      <div class="toolbar" id="toolbar">
+        <button class="tool-btn" data-md="bold" title="加粗"><b>B</b></button>
+        <button class="tool-btn" data-md="italic" title="斜体"><i>I</i></button>
+        <div class="tool-sep"></div>
+        <button class="tool-btn" data-md="h2" title="标题">H</button>
+        <button class="tool-btn" data-md="list" title="列表">•≡</button>
+        <button class="tool-btn" data-md="code" title="代码">&lt;/&gt;</button>
+        <button class="tool-btn" data-md="quote" title="引用">❝</button>
+      </div>
+
+      <div class="editor-body" id="editorBody">
+        <textarea class="editor-textarea" id="editorText" spellcheck="false"></textarea>
+        <div class="split-divider" id="splitDivider" style="display:none"></div>
+        <div class="preview-pane" id="previewPane" style="display:none"></div>
+      </div>
+
+      <div class="editor-foot">
+        <span id="footWords">0 字</span>
+        <span id="footLines">0 行</span>
+        <span id="footUpdated"></span>
+        <span class="right" id="footStatus"></span>
+      </div>
+    </section>
+  </main>
+
+  <!-- Board task detail (mock) -->
+  <section class="task-view" id="taskView" style="display:none">
+    <div class="task-detail">
+      <a class="back-notes" id="btnBackNotes">← 返回看板</a>
+      <div class="task-headline">
+        <span class="tid" id="taskTid"></span>
+        <h2 id="taskTitle"></h2>
+      </div>
+      <div class="task-chips" id="taskChips"></div>
+      <p class="task-desc" id="taskDesc"></p>
+      <div class="task-related">
+        <div class="task-related-title">相关笔记：<span class="n" id="taskRelCount"></span></div>
+        <div id="taskRelList"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Board overview (mock) -->
+  <section class="board-view" id="boardView" style="display:none">
+    <div class="board-head">
+      <span class="board-title">任务看板</span>
+      <span class="board-sub">Alpha · Beta · Hull 三块看板汇总（mock）</span>
+    </div>
+    <div class="board-cols" id="boardCols"></div>
+  </section>
+</div>
+
+<!-- 关联任务 modal -->
+<div class="modal-mask" id="taskModalMask">
+  <div class="modal" id="taskModal">
+    <div class="modal-title">关联看板任务<span class="esc-hint">Enter 选中首个 · Esc 关闭</span></div>
+    <input class="picker-input" id="taskSearch" placeholder="搜索任务标题或 ID…" autocomplete="off">
+    <div class="picker-list" id="pickerList"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"><span class="check">✓</span><span>已保存</span></div>
+
+<script>
+/* ── Mock data ──────────────────────────────── */
+const NOW = new Date('2026-09-07T15:30:00');
+const minutesAgo = m => new Date(NOW.getTime() - m * 60000).toISOString();
+
+const notes = [
+  {
+    id: 'n1', title: 'Q-017 优雅关停踩坑', folder: '工作/CI发布',
+    updatedAt: minutesAgo(23), dirty: false,
+    content: `---
+task: t100110
+type: 工作
+tags: research, 坑
+---
+
+## 问题
+
+SIGTERM 之后子进程不退出，dsh 卡在 \`pending_shutdown\` 状态 30s。
+
+## 排查记录
+
+- 先怀疑 IPC channel 没关，加日志发现消息已经 flush
+- 真正原因：**子进程持有未关闭的 stdin 监听**，事件循环不空转
+- 修法：关停序列里显式 \`proc.stdin.destroy()\` 再等 exit
+
+> 注意：这个改法在 Windows 上行为不同，CON-R005 的回滚路径要单独验证。
+
+\`\`\`ts
+// staging 替换前必须确认 drain 完成
+await drainPendingTasks();
+child.stdin.destroy();
+\`\`\`
+
+## 后续
+
+- [ ] 补一条关停超时的告警
+- 回写规则索引 CON-R005 的验证步骤`,
+  },
+  {
+    id: 'n2', title: '插件市场调研备忘', folder: '',
+    updatedAt: minutesAgo(190), dirty: false,
+    content: `---
+tags: research
+---
+
+## 竞品做法
+
+VS Code / Obsidian / Zed 都是 manifest + 本地索引，商店只做分发。
+
+## 我们的红线
+
+壳内功能必须走官方扩展点（CON-R004），所以插件市场只做**目录 + 安装跳转**，不做运行时加载。
+
+关键决定：manifest 校验放壳侧，签名校验放 dsh 侧。`,
+  },
+  {
+    id: 'n3', title: 'M2 看板执行链笔记', folder: '工作/M2看板',
+    updatedAt: minutesAgo(520), dirty: false,
+    content: `---
+task: t100112
+type: 工作
+tags: m2, 看板
+---
+
+## 执行链设计
+
+Q-item 状态机：\`todo → in_progress → review → done\`
+
+- in_progress 必须绑定 worktree 分支
+- review 态由 CI 状态驱动，不手动点
+- done 之后进「待核验」，核验通过才落库
+
+## 边界情况
+
+卡在 review 超过 48h → 自动降回 in_progress，通知中心发提醒。`,
+  },
+  {
+    id: 'n4', title: 'Token 消耗面板口径', folder: '',
+    updatedAt: minutesAgo(1500), dirty: false,
+    content: `---
+task: t100109
+type: 工作
+tags: token, 对齐
+---
+
+## 口径问题
+
+dsh 返回的是**会话级**累计，面板要展示的是**自然日**累计，需要本地按天聚合。
+
+公式：日消耗 = Σ(会话最后快照) − Σ(会话当日零点前快照)
+
+## 待确认
+
+- 跨天会话怎么切（按消息时间戳还是按快照间隔）
+- 缓存命中是否单独统计`,
+  },
+  {
+    id: 'n5', title: '升级回滚演练记录', folder: '工作/CI发布',
+    updatedAt: minutesAgo(2600), dirty: false,
+    content: `---
+task: t100107
+type: 工作
+tags: 升级, CON-R005
+---
+
+今天跑了一次完整演练：staging → 替换 → 验证 → 回滚。
+
+发现的问题：验证步骤里健康检查只查了端口，没查版本号。已补。
+
+下次演练加一个场景：**替换中途断电**，验证 staging 目录残留清理。`,
+  },
+  {
+    id: 'n6', title: '随记：终端字体渲染发虚', folder: '经验/Electron',
+    updatedAt: minutesAgo(4300), dirty: false,
+    content: `---
+type: 经验
+---
+
+Electron 在外接 4K 屏上 zoomFactor 非 1 时字体发虚，关掉 GPU 光栅化之后好转，但滚动掉帧。
+
+先用 zoomFactor=1 + 系统缩放顶着，后续再看。`,
+  },
+  {
+    id: 'n7', title: 'mac 签名踩坑', folder: '经验',
+    updatedAt: minutesAgo(800), dirty: false,
+    content: `---
+type: 经验
+tags: mac, codesign
+---
+
+## 现象
+
+codesign 校验通过，但 Gatekeeper 仍然拦截，报 "damaged"。
+
+## 原因
+
+- 下载文件带 quarantine 扩展属性
+- 打包时没用 \`--deep\`，内嵌 framework 没有签名
+
+## 记住
+
+- \`xattr -cr\` 清属性之后再验
+- 公证要在签名之后、打 dmg 之前`,
+  },
+  {
+    id: 'n8', title: '想法：笔记与任务双向跳转', folder: '想法',
+    updatedAt: minutesAgo(3000), dirty: false,
+    content: `---
+type: 想法
+---
+
+编辑器里提到 task id 时直接内联成可点的回链；看板侧反查"这个任务写过哪些笔记"。
+
+先不做，等 M2 看板稳定。`,
+  },
+  {
+    id: 'n9', title: 'Q-item 待核验状态设计', folder: '工作/M2看板',
+    updatedAt: minutesAgo(1800), dirty: false,
+    content: `---
+task: t100112
+type: 工作
+tags: m2, 状态机
+---
+
+## 待核验态
+
+done ≠ 落库。核验通过才落库，核验不通过降回 review 并留原因。
+
+## 未定
+
+- 核验人默认是谁（AI 自检还是人工抽检）
+- 超时未核验怎么处理（自动通过风险大）`,
+  },
+  {
+    id: 'n10', title: 'git worktree 并行踩坑', folder: '经验',
+    updatedAt: minutesAgo(3600), dirty: false,
+    content: `---
+task: t999999
+type: 经验
+tags: git, worktree
+---
+
+同一个仓库开多个 worktree 时，hooks 和依赖不共享。
+
+- 每个工作树要单独 install 依赖
+- 分支被某个 worktree 占用时 checkout 会拒绝，先 \`git worktree list\` 查
+- 删工作树后要 \`git worktree prune\`，否则残留引用`,
+  },
+];
+
+/* ── Mock 看板任务（Alpha / Beta / Hull 三块看板）── */
+const boards = {
+  'Alpha': [
+    { id: 't100110', title: '优雅关停序列实现', status: 'in_progress', priority: 'P1', updatedAt: minutesAgo(95),
+      desc: 'SIGTERM 后先 drain 再 destroy 子进程 stdio，替换 CON-R005 staging 流程里的粗暴 kill。' },
+    { id: 't100109', title: 'Token 消耗面板口径对齐', status: 'todo', priority: 'P2', updatedAt: minutesAgo(700),
+      desc: '会话级累计换算成自然日累计，跨天会话切分方案待评审。' },
+    { id: 't100107', title: '升级回滚演练第二轮', status: 'done', priority: 'P1', updatedAt: minutesAgo(2800),
+      desc: '补健康检查版本号校验，新增断电场景验证 staging 残留清理。' },
+    { id: 't100126', title: 'Windows 关停行为适配', status: 'done', priority: 'P2', updatedAt: minutesAgo(3300),
+      desc: 't100110 里提到的 Windows 行为差异，单独开卡验证。' },
+  ],
+  'Beta': [
+    { id: 't100112', title: 'M2 看板执行链落地', status: 'in_progress', priority: 'P0', updatedAt: minutesAgo(30),
+      desc: 'Q-item 状态机 todo → in_progress → review → done → 待核验，review 态由 CI 驱动。' },
+    { id: 't100115', title: '待核验状态超时降级', status: 'backlog', priority: 'P2', updatedAt: minutesAgo(1500),
+      desc: '核验超时的 Q-item 自动降回 review 并通知，避免长期挂起。' },
+    { id: 't100118', title: '通知中心降级策略', status: 'backlog', priority: 'P3', updatedAt: minutesAgo(4200),
+      desc: '通知通道不可用时的本地缓存与重发。' },
+  ],
+  'Hull': [
+    { id: 't100121', title: '壳自更新通道联调', status: 'todo', priority: 'P1', updatedAt: minutesAgo(420),
+      desc: '壳更新与 dsh 升级两条独立通道（CON-R003），验证互不阻塞。' },
+    { id: 't100124', title: '插件市场目录扫描', status: 'in_progress', priority: 'P2', updatedAt: minutesAgo(1100),
+      desc: '只做目录 + 安装跳转，运行时加载不做（CON-R004）。' },
+  ],
+};
+
+// 跨看板查任务；查不到返回 null（降级态）
+function taskOf(tid) {
+  for (const b of Object.keys(boards)) {
+    const t = boards[b].find(x => x.id === tid);
+    if (t) return { board: b, ticket: t };
+  }
+  return null;
+}
+
+/* ── State ──────────────────────────────────── */
+let activeId = notes[0].id;
+let viewMode = 'edit';
+let query = '';
+let folderFilter = 'all'; // 'all'（全部笔记）| 目录路径（含子目录）
+const collapsedFolders = new Set(); // 树中已折叠的目录
+const extraFolders = [];            // 「新建目录」产生的目录（可为空目录）
+let addingFolder = false;
+let view = 'notes';          // 'notes' | 'task'
+let currentTaskId = null;
+const $ = id => document.getElementById(id);
+
+/* ── Frontmatter parsing ────────────────────── */
+function parseNote(n) {
+  const m = n.content.match(/^---\n([\s\S]*?)\n---\n?/);
+  const meta = { task: null, tags: [], type: null };
+  let body = n.content;
+  if (m) {
+    body = n.content.slice(m[0].length);
+    m[1].split('\n').forEach(line => {
+      const i = line.indexOf(':');
+      if (i < 0) return;
+      const k = line.slice(0, i).trim(), v = line.slice(i + 1).trim();
+      if (k === 'task') meta.task = v;
+      if (k === 'tags') meta.tags = v.split(',').map(s => s.trim()).filter(Boolean);
+      if (k === 'type') meta.type = v;
+    });
+  }
+  return { meta, body };
+}
+
+// 笔记在文件系统上的相对路径（目录为真实多级目录）
+const pathOf = n => (n.folder ? n.folder + '/' : '') + n.title + '.md';
+
+// 更新 frontmatter 里的 task: 行（id 传 null 移除）
+function setTask(n, id) {
+  const m = n.content.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (m) {
+    const lines = m[1].split('\n');
+    const idx = lines.findIndex(l => l.trim().startsWith('task:'));
+    if (id === null) {
+      if (idx < 0) return;
+      lines.splice(idx, 1);
+      if (lines.every(l => !l.trim())) { // 清空后整个 frontmatter 移除
+        n.content = n.content.slice(m[0].length).replace(/^\n+/, '');
+        return;
+      }
+    } else if (idx >= 0) {
+      lines[idx] = 'task: ' + id;
+    } else {
+      lines.unshift('task: ' + id);
+    }
+    n.content = '---\n' + lines.join('\n') + '\n---\n' + n.content.slice(m[0].length);
+  } else {
+    if (id === null) return;
+    n.content = '---\ntask: ' + id + '\n---\n\n' + n.content;
+  }
+}
+
+/* ── Folder tree ────────────────────────────── */
+const folderIcon = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.5a1 1 0 0 1 1-1h3.2l1.4 1.5H13a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4.5z"/></svg>';
+
+function folderSet() {
+  const set = new Set(extraFolders);
+  notes.forEach(n => {
+    if (!n.folder) return;
+    const parts = n.folder.split('/');
+    for (let i = 1; i <= parts.length; i++) set.add(parts.slice(0, i).join('/'));
+  });
+  return set;
+}
+
+function countIn(path) {
+  return notes.filter(n => {
+    const f = n.folder || '';
+    return f === path || f.startsWith(path + '/');
+  }).length;
+}
+
+function renderTree() {
+  const folders = [...folderSet()].sort();
+  const childrenOf = {};
+  folders.forEach(p => {
+    const parent = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '';
+    (childrenOf[parent] = childrenOf[parent] || []).push(p);
+  });
+
+  const nodeHtml = (path, depth) => {
+    const kids = (childrenOf[path] || []).sort();
+    const hasKids = kids.length > 0;
+    const isOpen = !collapsedFolders.has(path);
+    return `<div class="tree-row ${folderFilter === path ? 'active' : ''}" data-path="${esc(path)}" style="padding-left:${8 + depth * 14}px">
+      <span class="tree-chevron ${hasKids ? (isOpen ? 'open' : '') : 'empty'}">▸</span>
+      ${folderIcon}
+      <span class="tree-name">${esc(path.split('/').pop())}</span>
+      <span class="tree-count">${countIn(path)}</span>
+    </div>` + (hasKids && isOpen ? kids.map(k => nodeHtml(k, depth + 1)).join('') : '');
+  };
+
+  let html = '';
+  if (addingFolder) {
+    html += `<div class="tree-row new-folder-row" style="padding-left:8px"><input class="tree-new-input" placeholder="目录名，可用 / 建子目录" autocomplete="off"></div>`;
+  }
+  html += `<div class="tree-row ${folderFilter === 'all' ? 'active' : ''}" data-path="all" style="padding-left:8px">
+    <span class="tree-chevron empty">▸</span>
+    ${folderIcon}
+    <span class="tree-name">全部笔记</span>
+    <span class="tree-count">${notes.length}</span>
+  </div>`;
+  html += (childrenOf[''] || []).map(p => nodeHtml(p, 1)).join('');
+  $('folderTree').innerHTML = html;
+  if (addingFolder) $('folderTree').querySelector('.tree-new-input')?.focus();
+}
+
+function snippetOf(n) {
+  const { body } = parseNote(n);
+  return body.replace(/[#>*`\-[\]]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
+}
+
+function relTime(iso) {
+  const diff = (NOW.getTime() - new Date(iso).getTime()) / 60000;
+  if (diff < 60) return Math.max(1, Math.round(diff)) + ' 分钟前';
+  if (diff < 60 * 24) return Math.round(diff / 60) + ' 小时前';
+  return Math.round(diff / 1440) + ' 天前';
+}
+
+/* ── Tiny markdown renderer ─────────────────── */
+function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function inline(s) {
+  return esc(s)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+}
+function renderMd(src) {
+  const lines = src.split('\n');
+  let html = '', i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.startsWith('```')) {
+      let buf = []; i++;
+      while (i < lines.length && !lines[i].startsWith('```')) buf.push(lines[i++]);
+      i++;
+      html += '<pre><code>' + esc(buf.join('\n')) + '</code></pre>';
+      continue;
+    }
+    const h = line.match(/^(#{1,3})\s+(.*)/);
+    if (h) { html += `<h${h[1].length}>` + inline(h[2]) + `</h${h[1].length}>`; i++; continue; }
+    if (line.startsWith('> ')) {
+      let buf = []; while (i < lines.length && lines[i].startsWith('> ')) buf.push(lines[i++].slice(2));
+      html += '<blockquote>' + inline(buf.join(' ')) + '</blockquote>'; continue;
+    }
+    if (/^[-*]\s+/.test(line)) {
+      let buf = []; while (i < lines.length && /^[-*]\s+/.test(lines[i])) buf.push(lines[i++].replace(/^[-*]\s+/, ''));
+      html += '<ul>' + buf.map(t => {
+        const done = t.startsWith('[x] '), todo = t.startsWith('[ ] ');
+        const label = todo || done ? t.slice(4) : t;
+        const mark = done ? '<span style="color:var(--hull-green)">☑</span> ' : todo ? '☐ ' : '';
+        return '<li>' + mark + inline(label) + '</li>';
+      }).join('') + '</ul>';
+      continue;
+    }
+    if (line.trim() === '') { i++; continue; }
+    if (line.trim() === '---') { html += '<hr>'; i++; continue; }
+    html += '<p>' + inline(line) + '</p>'; i++;
+  }
+  return html;
+}
+
+/* ── List rendering ─────────────────────────── */
+function filtered() {
+  const q = query.trim().toLowerCase();
+  if (q) {
+    // 搜索始终全局，不受目录筛选影响
+    return notes
+      .filter(n => n.title.toLowerCase().includes(q) || n.content.toLowerCase().includes(q))
+      .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  }
+  return notes
+    .filter(n => {
+      if (folderFilter === 'all') return true;
+      const f = n.folder || '';
+      return f === folderFilter || f.startsWith(folderFilter + '/'); // 含子目录
+    })
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+}
+
+function renderList() {
+  const list = $('noteList');
+  const items = filtered();
+  $('listCount').textContent = items.length ? `· ${items.length}` : '';
+  if (!items.length) {
+    list.innerHTML = `<div class="empty-state"><div class="glyph">⌕</div><p>没有匹配的笔记</p><p class="hint">换个关键词，或新建一条</p></div>`;
+    return;
+  }
+  list.innerHTML = items.map(n => {
+    const { meta } = parseNote(n);
+    const known = meta.task && !!taskOf(meta.task);
+    return `<div class="note-item ${n.id === activeId ? 'active' : ''}" data-id="${n.id}">
+      <div class="note-item-top">
+        <div class="note-item-title">${esc(n.title)}</div>
+        ${n.dirty ? '<div class="unsaved-dot" title="未保存"></div>' : ''}
+      </div>
+      <div class="note-item-snippet">${esc(snippetOf(n))}</div>
+      <div class="note-item-meta">
+        ${folderFilter === 'all' && n.folder ? `<span>${n.folder}/</span>` : ''}
+        ${meta.type ? `<span class="badge-type">${esc(meta.type)}</span>` : ''}
+        ${meta.task ? `<span class="badge-task ${known ? 'jump' : 'unknown'}" ${known ? `data-tid="${esc(meta.task)}"` : ''} title="${known ? '查看看板任务' : '看板中未找到该任务'}">⧉ ${esc(meta.task)}${known ? '' : ' 未知任务'}</span>` : ''}
+        <span>${relTime(n.updatedAt)}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ── Editor rendering ───────────────────────── */
+function renderEditor() {
+  const n = notes.find(x => x.id === activeId);
+  const { meta } = parseNote(n);
+
+  const chips = [];
+  if (meta.type) chips.push(`<span class="chip">${esc(meta.type)}</span>`);
+  if (meta.task) {
+    const known = !!taskOf(meta.task);
+    chips.push(known
+      ? `<span class="chip task" data-tid="${esc(meta.task)}" title="查看看板任务">⧉ ${esc(meta.task)}<span class="unlink" title="取消关联">×</span></span>`
+      : `<span class="chip task unknown" title="看板中未找到该任务，点击 × 可移除">⧉ ${esc(meta.task)} 未知任务<span class="unlink" title="取消关联">×</span></span>`);
+  }
+  meta.tags.forEach(t => chips.push(`<span class="chip"><span class="dot"></span>${esc(t)}</span>`));
+  chips.push(`<span class="chip path" title="文件相对路径">${esc(pathOf(n))}</span>`);
+  chips.push(`<span class="chip add-task" title="关联看板任务">＋ 关联任务</span>`);
+  $('chipsRow').innerHTML = chips.length ? `<span class="chips-label">元数据</span>` + chips.join('') : '';
+
+  $('editorTitle').value = n.title;
+  $('editorText').value = n.content;
+
+  if (meta.task) {
+    $('backlinkStrip').style.display = 'flex';
+    $('backlinkStrip').querySelector('.tid').textContent = meta.task;
+  } else {
+    $('backlinkStrip').style.display = 'none';
+  }
+
+  updateFoot();
+  applyMode();
+}
+
+function updateFoot() {
+  const n = notes.find(x => x.id === activeId);
+  const text = $('editorText').value;
+  const words = text.replace(/\s/g, '').length;
+  const lines = text.split('\n').length;
+  $('footWords').textContent = words + ' 字';
+  $('footLines').textContent = lines + ' 行';
+  $('footUpdated').textContent = '更新于 ' + relTime(n.updatedAt);
+  const st = $('footStatus');
+  st.textContent = n.dirty ? '● 未保存' : '✓ 已保存';
+  st.className = 'right ' + (n.dirty ? 'status-modified' : 'status-saved');
+}
+
+function applyMode() {
+  const ta = $('editorText'), pv = $('previewPane'), div = $('splitDivider');
+  ta.style.display = viewMode === 'preview' ? 'none' : 'block';
+  pv.style.display = viewMode === 'edit' ? 'none' : 'block';
+  div.style.display = viewMode === 'split' ? 'block' : 'none';
+  if (viewMode !== 'edit') pv.innerHTML = renderMd(parseNote(notes.find(x => x.id === activeId)).body);
+  document.querySelectorAll('.mode-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.mode === viewMode));
+}
+
+function selectNote(id) {
+  activeId = id;
+  renderList();
+  renderEditor();
+}
+
+/* ── Mutations ──────────────────────────────── */
+function markDirty() {
+  const n = notes.find(x => x.id === activeId);
+  n.content = $('editorText').value;
+  n.title = $('editorTitle').value || '无标题';
+  n.updatedAt = new Date().toISOString();
+  n.dirty = true;
+  renderList();
+  updateFoot();
+}
+
+function showToast(msg) {
+  const t = $('toast');
+  t.querySelector('span:last-child').textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 1600);
+}
+
+function saveMock() {
+  const n = notes.find(x => x.id === activeId);
+  n.dirty = false;
+  renderList();
+  updateFoot();
+  showToast('已保存');
+}
+
+function newNote() {
+  // 继承当前选中的树节点目录（全部笔记 → 根目录）
+  const folder = folderFilter === 'all' ? '' : folderFilter;
+  const n = {
+    id: '2026-09-07-' + (notes.length + 1),
+    title: '2026-09-07-' + (notes.length + 1),
+    folder,
+    updatedAt: new Date().toISOString(),
+    dirty: false,
+    content: '',
+  };
+  notes.unshift(n);
+  activeId = n.id;
+  query = '';
+  $('searchInput').value = '';
+  renderTree();
+  renderList();
+  renderEditor();
+  $('editorTitle').focus();
+  $('editorTitle').select();
+  showToast(folder ? `已存入 ${folder}/` : '已存入根目录');
+}
+
+/* ── Move note ──────────────────────────────── */
+function openMoveMenu() {
+  const n = notes.find(x => x.id === activeId);
+  const cur = n.folder || '';
+  const options = [['', '根目录（未分类）'], ...[...folderSet()].sort().map(p => [p, p])];
+  $('moveMenu').innerHTML = `<div class="move-menu-title">移动到…</div>` + options.map(([p, label]) =>
+    `<div class="move-item ${p === cur ? 'current' : ''}" data-path="${esc(p)}">
+      ${folderIcon}<span>${esc(label)}</span>${p === cur ? '<span class="cur-tag">当前</span>' : ''}
+    </div>`).join('');
+  $('moveMenu').classList.add('show');
+}
+
+function moveNoteTo(path) {
+  const n = notes.find(x => x.id === activeId);
+  if ((n.folder || '') === path) return;
+  n.folder = path;
+  n.updatedAt = new Date().toISOString();
+  $('moveMenu').classList.remove('show');
+  renderTree();
+  renderList();
+  renderEditor();
+  showToast(path ? `已移动到 ${path}/` : '已移动到根目录');
+}
+
+/* ── 任务关联 / 看板视图 / 任务详情 ──────────── */
+const STATUS_LABEL = { backlog: '未排期', todo: '待办', in_progress: '进行中', review: '评审中', done: '已完成' };
+const STATUS_COLOR = { backlog: 'var(--hull-text-faint)', todo: 'var(--hull-text-faint)', in_progress: 'var(--hull-amber)', review: 'var(--hull-accent)', done: 'var(--hull-green)' };
+const BOARD_COLS = [
+  { key: 'backlog', label: 'Backlog' },
+  { key: 'todo', label: 'Todo' },
+  { key: 'in_progress', label: 'In Progress' },
+  { key: 'done', label: 'Done' },
+];
+
+function relatedNotes(tid) {
+  return notes.filter(n => parseNote(n).meta.task === tid);
+}
+
+function switchView() {
+  $('notesApp').style.display = view === 'notes' ? 'flex' : 'none';
+  $('boardView').style.display = view === 'board' ? 'block' : 'none';
+  $('taskView').style.display = view === 'task' ? 'block' : 'none';
+  $('navBoard').classList.toggle('active', view !== 'notes');
+  $('navNotes').classList.toggle('active', view === 'notes');
+}
+
+function backToBoard() {
+  view = 'board';
+  renderBoard();
+  switchView();
+}
+
+/* 看板总览：4 列，卡片右上角 📝N 角标 = 关联笔记数（反查 frontmatter） */
+function renderBoard() {
+  $('boardCols').innerHTML = BOARD_COLS.map(col => {
+    const tickets = allTickets().filter(t => t.status === col.key);
+    const cards = tickets.map(t => {
+      const rel = relatedNotes(t.id);
+      const badge = rel.length ? `<span class="note-badge" data-tid="${t.id}" title="打开关联笔记（${rel.length}）">📝 ${rel.length}</span>` : '';
+      return `<div class="board-card" data-tid="${t.id}">
+        <div class="bc-top"><span class="bc-id">${t.id}</span></div>
+        <div class="bc-title">${esc(t.title)}</div>
+        <div class="bc-chips">
+          <span class="chip">优先级 ${esc(t.priority)}</span>
+          <span class="chip">${esc(t.board)} 看板</span>
+        </div>
+        ${badge}
+      </div>`;
+    }).join('');
+    return `<div class="board-col">
+      <div class="board-col-head"><span>${col.label}</span><span class="board-col-count">${tickets.length}</span></div>
+      ${cards || '<div class="board-empty">暂无任务</div>'}
+    </div>`;
+  }).join('');
+}
+
+function openBoardView() {
+  view = 'board';
+  renderBoard();
+  switchView();
+}
+
+function openTask(tid) {
+  if (!taskOf(tid)) return; // 未知任务不可跳转
+  currentTaskId = tid;
+  view = 'task';
+  renderTaskView();
+  switchView();
+}
+
+function renderTaskView() {
+  const { board, ticket: t } = taskOf(currentTaskId);
+  $('taskTid').textContent = t.id;
+  $('taskTitle').textContent = t.title;
+  $('taskChips').innerHTML =
+    `<span class="chip">${esc(board)} 看板</span>
+     <span class="chip"><span class="dot" style="background:${STATUS_COLOR[t.status] || 'var(--hull-text-dim)'}"></span>${STATUS_LABEL[t.status] || esc(t.status)}</span>
+     <span class="chip">优先级 ${esc(t.priority)}</span>`;
+  $('taskDesc').textContent = t.desc;
+  const rel = relatedNotes(t.id);
+  $('taskRelCount').textContent = rel.length + ' 篇';
+  $('taskRelList').innerHTML = rel.length
+    ? rel.map(n => `<div class="task-note-link" data-id="${n.id}">${folderIcon}<span>${esc(pathOf(n))}</span><span class="rel-time">${relTime(n.updatedAt)}</span></div>`).join('')
+    : `<div class="task-related-empty">暂无关联笔记，在笔记编辑器里「＋ 关联任务」即可建立。</div>`;
+}
+
+function backToNotes(selectId) {
+  view = 'notes';
+  switchView();
+  if (selectId) {
+    // 保证目标笔记在列表中可见
+    if (query) { query = ''; $('searchInput').value = ''; }
+    if (folderFilter !== 'all') folderFilter = 'all';
+    renderTree();
+    selectNote(selectId);
+  }
+}
+
+/* 搜索式任务选择器：一框搜索 + 平铺候选，Enter 选首个 */
+function allTickets() {
+  return Object.keys(boards).flatMap(b => boards[b].map(t => ({ board: b, ...t })));
+}
+
+function openTaskModal() {
+  $('taskSearch').value = '';
+  renderPicker('');
+  $('taskModalMask').classList.add('show');
+  $('taskSearch').focus();
+}
+
+function renderPicker(query) {
+  const q = (query || '').trim().toLowerCase();
+  const hits = allTickets()
+    .filter(t => !q || t.id.toLowerCase().includes(q) || t.title.toLowerCase().includes(q))
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)); // 最近更新优先
+  $('pickerList').innerHTML = hits.length
+    ? hits.map((t, i) => `<div class="picker-item ${i === 0 ? 'top' : ''}" data-tid="${t.id}">
+        <span class="p-board">[${t.board}]</span>
+        <span class="p-id">${t.id}</span>
+        <span class="p-title">${esc(t.title)}</span>
+        <span class="p-rel">${relTime(t.updatedAt)}</span>
+      </div>`).join('')
+    : `<div class="picker-empty">没有匹配的任务</div>`;
+}
+
+function closeTaskModal() {
+  $('taskModalMask').classList.remove('show');
+}
+
+function linkNoteTo(tid) {
+  const n = notes.find(x => x.id === activeId);
+  setTask(n, tid);
+  n.dirty = true;
+  closeTaskModal();
+  renderList();
+  renderEditor();
+  showToast(`已关联 ${tid}`);
+}
+
+function unlinkActiveNote() {
+  const n = notes.find(x => x.id === activeId);
+  const tid = parseNote(n).meta.task;
+  if (!tid) return;
+  setTask(n, null);
+  n.dirty = true;
+  renderList();
+  renderEditor();
+  showToast(`已取消关联 ${tid}`);
+}
+
+/* ── Toolbar markdown insert ────────────────── */
+function applyMd(kind) {
+  const ta = $('editorText');
+  const s = ta.selectionStart, e = ta.selectionEnd;
+  const sel = ta.value.slice(s, e);
+  let ins, cur = s;
+  switch (kind) {
+    case 'bold':   ins = `**${sel || '加粗文本'}**`; break;
+    case 'italic': ins = `*${sel || '斜体文本'}*`; break;
+    case 'h2':     ins = `\n## ${sel || '标题'}\n`; break;
+    case 'list':   ins = `\n- ${sel || '列表项'}\n`; break;
+    case 'code':   ins = sel ? `\n\`\`\`\n${sel}\n\`\`\`\n` : '\n```\n代码\n```\n'; break;
+    case 'quote':  ins = `\n> ${sel || '引用内容'}\n`; break;
+  }
+  ta.setRangeText(ins, s, e, 'end');
+  ta.focus();
+  markDirty();
+  if (viewMode !== 'edit') applyMode();
+}
+
+/* ── Events ─────────────────────────────────── */
+$('searchInput').addEventListener('input', e => { query = e.target.value; renderList(); });
+$('btnNew').addEventListener('click', newNote);
+
+/* 目录树：chevron 折叠/展开，行点击筛选 */
+$('folderTree').addEventListener('click', e => {
+  const row = e.target.closest('.tree-row');
+  if (!row || row.classList.contains('new-folder-row')) return;
+  if (e.target.closest('.tree-chevron')) {
+    const p = row.dataset.path;
+    collapsedFolders.has(p) ? collapsedFolders.delete(p) : collapsedFolders.add(p);
+    renderTree();
+    return;
+  }
+  folderFilter = row.dataset.path;
+  renderTree();
+  renderList();
+});
+
+/* 新建目录：内联输入，Enter 提交 / Esc 取消 */
+$('btnNewFolder').addEventListener('click', () => { addingFolder = true; renderTree(); });
+$('folderTree').addEventListener('keydown', e => {
+  if (!e.target.classList.contains('tree-new-input')) return;
+  if (e.key === 'Escape') { addingFolder = false; renderTree(); e.stopPropagation(); }
+  if (e.key === 'Enter') {
+    const name = e.target.value.trim().replace(/^\/+|\/+$/g, '');
+    addingFolder = false;
+    if (name && !folderSet().has(name)) {
+      extraFolders.push(name);
+      renderTree();
+      showToast(`已创建 ${name}/`);
+    } else {
+      renderTree();
+    }
+  }
+});
+
+/* 移动到… */
+$('btnMove').addEventListener('click', e => {
+  e.stopPropagation();
+  const menu = $('moveMenu');
+  menu.classList.contains('show') ? menu.classList.remove('show') : openMoveMenu();
+});
+$('moveMenu').addEventListener('click', e => {
+  const item = e.target.closest('.move-item');
+  if (!item || item.classList.contains('current')) return;
+  moveNoteTo(item.dataset.path);
+});
+document.addEventListener('click', e => {
+  if (!e.target.closest('.move-wrap')) $('moveMenu').classList.remove('show');
+});
+
+/* 笔记列表：点击选中；点击任务徽章跳看板详情（事件委托，renderList 重建后仍有效） */
+$('noteList').addEventListener('click', e => {
+  const badge = e.target.closest('.badge-task.jump');
+  if (badge) { openTask(badge.dataset.tid); return; }
+  const item = e.target.closest('.note-item');
+  if (item) selectNote(item.dataset.id);
+});
+
+/* 编辑器徽章区：任务徽章跳转 / × 取消关联 / ＋ 关联任务 */
+$('chipsRow').addEventListener('click', e => {
+  if (e.target.closest('.unlink')) { unlinkActiveNote(); return; }
+  if (e.target.closest('.chip.add-task')) { openTaskModal(); return; }
+  const t = e.target.closest('.chip.task');
+  if (t && !t.classList.contains('unknown')) openTask(t.dataset.tid);
+});
+
+/* 任务选择器：输入实时过滤 / Enter 选首个 / 点击选中 / Esc·遮罩关闭 */
+$('taskSearch').addEventListener('input', e => renderPicker(e.target.value));
+$('taskSearch').addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const top = $('pickerList').querySelector('.picker-item');
+  if (top) linkNoteTo(top.dataset.tid);
+});
+$('pickerList').addEventListener('click', e => {
+  const item = e.target.closest('.picker-item');
+  if (item) linkNoteTo(item.dataset.tid);
+});
+$('taskModalMask').addEventListener('click', e => {
+  if (e.target === $('taskModalMask')) closeTaskModal();
+});
+
+/* 看板总览：nav 直达；卡片点击进详情，角标点击打开第一篇关联笔记 */
+$('navBoard').addEventListener('click', openBoardView);
+$('boardCols').addEventListener('click', e => {
+  const nb = e.target.closest('.note-badge');
+  if (nb) {
+    const rel = relatedNotes(nb.dataset.tid);
+    if (rel.length) backToNotes(rel[0].id); // 角标：直达该任务第一篇关联笔记
+    return; // 不触发卡片 → 详情
+  }
+  const card = e.target.closest('.board-card');
+  if (card) openTask(card.dataset.tid);
+});
+
+/* 任务详情视图 */
+$('btnBackNotes').addEventListener('click', backToBoard);
+$('taskRelList').addEventListener('click', e => {
+  const row = e.target.closest('.task-note-link');
+  if (row) backToNotes(row.dataset.id);
+});
+
+$('editorText').addEventListener('input', markDirty);
+$('editorTitle').addEventListener('input', markDirty);
+$('toolbar').addEventListener('click', e => {
+  const b = e.target.closest('.tool-btn');
+  if (b) applyMd(b.dataset.md);
+});
+document.querySelectorAll('.mode-btn').forEach(b =>
+  b.addEventListener('click', () => { viewMode = b.dataset.mode; applyMode(); }));
+$('backlinkLink').addEventListener('click', () => {
+  const n = notes.find(x => x.id === activeId);
+  const tid = parseNote(n).meta.task;
+  if (tid && taskOf(tid)) openTask(tid);
+});
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); saveMock(); return; }
+  if (e.key === 'Escape' && $('taskModalMask').classList.contains('show')) closeTaskModal();
+});
+
+/* ── Init ───────────────────────────────────── */
+renderTree();
+renderList();
+renderEditor();
+</script>
+</body>
+</html>
