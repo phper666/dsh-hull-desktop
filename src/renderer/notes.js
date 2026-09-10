@@ -1,0 +1,817 @@
+/**
+ * N2 笔记视图（渲染层，feishu-n2-notes-api-contract.md v1.0）
+ * 消费 window.notes 桥（N1 10 原语 + onIndexChanged；N1 lane 并行落地——桥缺失时降级占位不崩溃）。
+ * 纯原生 JS 无框架；视图状态机：列表态 / 编辑态 / 保存冲突态 / 就绪态（契约 §渲染层视图状态）。
+ * 渲染管线：markdown-it v14.1.0 + DOMPurify（vendored 全局，CON-R-editor-002/004，管线对齐 kanban.js E1）。
+ * EasyMDE 纪律（CON-R-editor-001）：每开新建、关即 destroy（Q-041）；autoDownloadFontAwesome:false（CSP）。
+ */
+(() => {
+  const root = document.getElementById('notes-root');
+  if (!root) return;
+
+  // N1 桥防御性获取：契约定 window.notes；window.hull.notes 为任务书兜底形态。两者皆缺 → 视图降级。
+  const api = window.notes ?? window.hull?.notes ?? null;
+
+  /* ── 小工具 ─────────────────────────────────── */
+  const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const md = (() => {
+    if (!window.markdownit || !window.DOMPurify) return null;
+    const inst = window.markdownit({ breaks: true, linkify: false });
+    if (window.markdownitTaskLists) inst.use(window.markdownitTaskLists);
+    return inst;
+  })();
+  const mdRender = (text) => (md && window.DOMPurify ? window.DOMPurify.sanitize(md.render(String(text ?? ''))) : esc(text));
+  const basename = (p) => String(p || '').split('/').pop() || '';
+  const dirname = (p) => { const i = String(p || '').lastIndexOf('/'); return i < 0 ? '' : p.slice(0, i); };
+  const NOW = () => new Date();
+  function relTime(iso) {
+    const diff = (NOW() - new Date(iso)) / 60000;
+    if (!isFinite(diff)) return '—';
+    if (diff < 1) return '刚刚';
+    if (diff < 60) return Math.round(diff) + ' 分钟前';
+    if (diff < 60 * 24) return Math.round(diff / 60) + ' 小时前';
+    if (diff < 60 * 24 * 30) return Math.round(diff / 1440) + ' 天前';
+    return new Date(iso).toLocaleDateString();
+  }
+  const fmtSize = (n) => (n >= 1024 * 1024 ? (n / 1024 / 1024).toFixed(1) + ' MB' : n >= 1024 ? (n / 1024).toFixed(1) + ' KB' : n + ' B');
+  // 正文字符数（去 frontmatter；契约 I3 底部字数口径）
+  const stripFm = (content) => String(content ?? '').replace(/^---\n[\s\S]*?\n---\n?/, '');
+  const wordCount = (content) => stripFm(content).replace(/\s/g, '').length;
+
+  /* ── 状态 ───────────────────────────────────── */
+  const state = {
+    ready: false,        // 索引就绪（N1 scanning→ready）
+    entries: [],         // NoteIndexEntry[]（path/title/frontmatter/snippet/updatedAt）
+    selectedDir: '',     // '' = 全部；否则筛选作用于子树（I2）
+    typeFilter: '',      // '' = 全部类型（I14 双维过滤之二）
+    query: '',           // 搜索词（非空 → 全局搜索态，I8）
+    searchResults: null, // 搜索结果缓存（entries 形态）
+    collapsed: new Set(),// 树折叠目录集
+    extraDirs: new Set(),// 会话内新建的空目录（Q-075：树由 entries 派生，空目录补挂使其可见）
+    trashMode: false,    // 回收站内联视图（I13）
+    trashEntries: null,  // TrashEntry[] | null（惰性拉取）
+    addingDir: false,    // 「+ 新建目录」内联输入态
+    open: null,          // 编辑态：{ path, buffer, title, mtime, dirty, titleDirty, inflight, pendingAfter, conflict, editor }
+  };
+  let openSeq = 0;       // openNote 竞态守卫（连点两篇时仅最后一次生效）
+  let saveTimer = null;
+  const SAVE_DEBOUNCE_MS = 2000; // CON-R-notes-008：debounce ~2s
+  let searchTimer = null;
+
+  /* ── 桥调用包装（toResult 惯例：{ok,data}|{ok:false,code,message}；通道缺失/异常不崩溃）── */
+  async function call(label, fn) {
+    if (!api) return { ok: false, code: 'notes-bridge-missing', message: '笔记服务未就绪' };
+    try { return await fn(api); }
+    catch (e) { return { ok: false, code: 'notes-bridge-error', message: (e && e.message) || label + ' 调用失败' }; }
+  }
+  const bridge = {
+    index: () => call('index', (a) => a.index()),
+    get: (path) => call('get', (a) => a.get(path)),
+    save: (input) => call('save', (a) => a.save(input)),
+    create: (dir, title) => call('create', (a) => a.create(dir, title)), // 位置参数对齐 N1 通道表 dir/title（wire 形态 TBD-1，联调对齐点）
+    mkdir: (dir) => call('mkdir', (a) => a.mkdir(dir)), // Q-075「+ 新建目录」（v1.1 集成期补获 notes:mkdir）
+    move: (path, targetDir) => call('move', (a) => a.move(path, targetDir)),
+    del: (path) => call('delete', (a) => (a.delete ?? a.del ?? a.deleteTask).call(a, path)),
+    trashList: () => call('trashList', (a) => a.trashList()),
+    restore: (trashId) => call('restore', (a) => a.restore(trashId)),
+    purge: (trashId) => call('purge', (a) => a.purge(trashId)),
+    search: (query) => call('search', (a) => a.search(query)),
+  };
+
+  /* ── 轻提示 ─────────────────────────────────── */
+  let toastEl = null, toastTimer = null;
+  function toast(msg) {
+    if (!toastEl) { toastEl = document.createElement('div'); toastEl.className = 'nt-toast'; document.body.appendChild(toastEl); }
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2200);
+  }
+
+  /* ── 模态工厂（Esc/遮罩/✕ 关闭；dismissable=false 用于冲突分流——阻断直至用户选择）── */
+  function ntModal({ title, bodyHtml, dismissable = true, onOpen }) {
+    const wrap = document.createElement('div');
+    wrap.className = 'nt-modal';
+    wrap.innerHTML = `<div class="nt-modal-box"><h3>${esc(title)}</h3>${bodyHtml}</div>`;
+    document.body.appendChild(wrap);
+    const cleanups = [];
+    const close = () => {
+      if (!wrap.parentNode) return;
+      while (cleanups.length) { try { cleanups.pop()(); } catch {} }
+      wrap.remove();
+    };
+    const onKey = (e) => { if (e.key === 'Escape' && dismissable) close(); };
+    document.addEventListener('keydown', onKey);
+    cleanups.push(() => document.removeEventListener('keydown', onKey));
+    if (dismissable) wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+    wrap.querySelector('.nt-modal-box').insertAdjacentHTML('beforeend', '');
+    onOpen?.(wrap, close);
+    return { wrap, close };
+  }
+
+  /* ── 挂载骨架（一次；后续全部局部渲染）───────── */
+  function mount() {
+    root.innerHTML = `
+      <div class="notes-app">
+        <aside class="nt-side">
+          <div class="nt-head">
+            <span class="nt-title">笔记<span class="nt-count" id="nt-count"></span></span>
+            <button class="nt-btn" id="nt-new" title="新建笔记（继承当前目录）">＋ 新建</button>
+          </div>
+          <div class="nt-search">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3" stroke-linecap="round"/></svg>
+            <input id="nt-q" type="text" placeholder="搜索标题与内容…" autocomplete="off">
+          </div>
+          <div class="nt-hint">搜索为全局，不受目录筛选影响</div>
+          <div class="nt-typebar" id="nt-typebar"></div>
+          <div class="nt-treehead">
+            <span class="nt-treehead-label">目录</span>
+            <button class="nt-newdir" id="nt-newdir" title="新建目录，可用 / 建子目录">＋ 新建目录</button>
+          </div>
+          <div class="nt-tree" id="nt-tree"></div>
+          <button class="nt-trash-entry" id="nt-trash-entry">🗑 回收站<span class="nt-trash-count" id="nt-trash-count" hidden></span></button>
+        </aside>
+        <section class="nt-list">
+          <div class="nt-list-head" id="nt-list-head"></div>
+          <div class="nt-items" id="nt-items"></div>
+        </section>
+        <section class="nt-editor">
+          <div class="nt-editor-head" id="nt-editor-head"></div>
+          <div class="nt-editor-body" id="nt-editor-body"></div>
+          <div class="nt-editor-foot" id="nt-editor-foot"></div>
+        </section>
+      </div>`;
+    // 事件（一次绑定，委托于稳定容器）
+    $('#nt-new').addEventListener('click', newNoteModal);
+    $('#nt-q').addEventListener('input', onSearchInput);
+    $('#nt-trash-entry').addEventListener('click', toggleTrash);
+    $('#nt-tree').addEventListener('click', onTreeClick);
+    $('#nt-items').addEventListener('click', onListClick);
+    $('#nt-editor-head').addEventListener('click', onHeadClick);
+    // #nt-newdir 绑定在 renderTreeHeadArea()——按钮态/内联输入态互切重渲染，绑定随渲染走
+  }
+  const $ = (sel, el) => (el || root).querySelector(sel);
+
+  /* ── 索引拉取（一次取数：树/列表/类型徽章全部由 entries 派生）── */
+  let loaded = false;
+  async function refreshIndex() {
+    const r = await bridge.index();
+    if (r && r.ok) {
+      state.ready = !!r.data.ready;
+      state.entries = Array.isArray(r.data.entries) ? r.data.entries : [];
+      loaded = true;
+    } else if (r && r.code === 'notes-bridge-missing') {
+      state.ready = false; state.entries = []; state.noBridge = true;
+    } else {
+      toast('索引加载失败：' + ((r && r.message) || '可重试')); // 索引可重建——提示重试
+    }
+    renderAll();
+  }
+  function renderAll() {
+    renderCount();
+    renderTypeBar();
+    renderTree();
+    if (state.trashMode) renderTrash(); else renderList();
+    renderTrashCount();
+  }
+  function renderCount() {
+    const el = $('#nt-count');
+    if (el) el.textContent = state.entries.length ? '· ' + state.entries.length : '';
+  }
+
+  /* ── 目录树（entries[].path 派生；任意层级；子树计数；纯展示不自动归类）── */
+  function deriveDirs() {
+    const dirs = new Map([['', { name: '全部笔记', children: new Set() }]]);
+    // 树挂载：任意路径段 → 目录行（父行 children 串联）；空段防御跳过
+    const attach = (parts) => {
+      for (let i = 1; i <= parts.length; i++) {
+        const p = parts.slice(0, i).join('/');
+        if (!p) continue;
+        if (!dirs.has(p)) dirs.set(p, { name: parts[i - 1], children: new Set() });
+        const parent = i > 1 ? parts.slice(0, i - 1).join('/') : '';
+        dirs.get(parent)?.children.add(p);
+      }
+    };
+    for (const e of state.entries) attach(e.path.split('/').slice(0, -1)); // 文件段去掉基名
+    for (const d of state.extraDirs) attach(d.split('/')); // 新建空目录（Q-075）
+    for (const [p, d] of dirs) {
+      d.count = p === ''
+        ? state.entries.length
+        : state.entries.filter((e) => e.path.startsWith(p + '/')).length;
+    }
+    return dirs;
+  }
+  function subtreeCount(path) {
+    return state.entries.filter((e) => e.path.startsWith(path + '/')).length;
+  }
+  function renderTree() {
+    const dirs = deriveDirs();
+    const row = (path, name, depth, hasKids) => {
+      const isOpen = !state.collapsed.has(path);
+      return `<div class="nt-trow ${state.selectedDir === path ? 'active' : ''}" data-dir="${esc(path)}" style="padding-left:${8 + depth * 14}px">
+        <span class="nt-chev ${hasKids ? (isOpen ? 'open' : '') : 'empty'}" data-chev="${esc(path)}">▸</span>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.5a1 1 0 0 1 1-1h3.2l1.4 1.5H13a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4.5z"/></svg>
+        <span class="nt-tname">${esc(name)}</span>
+        <span class="nt-tcount">${path === '' ? state.entries.length : subtreeCount(path)}</span>
+      </div>` + (hasKids && isOpen ? [...dirs.get(path).children].sort().map((k) => row(k, dirs.get(k).name, depth + 1, dirs.get(k).children.size > 0)).join('') : '');
+    };
+    $('#nt-tree').innerHTML = row('', '全部笔记', 0, dirs.get('').children.size > 0);
+  }
+  function onTreeClick(e) {
+    const chev = e.target.closest('[data-chev]');
+    if (chev) {
+      const p = chev.dataset.chev;
+      if (p) state.collapsed.has(p) ? state.collapsed.delete(p) : state.collapsed.add(p);
+      renderTree();
+      return;
+    }
+    const r = e.target.closest('.nt-trow');
+    if (!r) return;
+    state.selectedDir = r.dataset.dir || '';
+    renderTree(); renderList();
+  }
+  function renderTreeHeadArea() {
+    // 「+ 新建目录」内联输入（原型行为）：输入行替换按钮行；Enter 提交 / Esc 取消
+    const head = $('.nt-treehead');
+    if (state.addingDir) {
+      head.innerHTML = `<input class="nt-newdir-input" id="nt-newdir-input" placeholder="目录名，可用 / 建子目录" autocomplete="off">`;
+      $('#nt-newdir-input').addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { state.addingDir = false; renderTreeHeadArea(); }
+        if (e.key === 'Enter') submitNewDir(e.target.value);
+      });
+      $('#nt-newdir-input').focus();
+    } else {
+      head.innerHTML = `<span class="nt-treehead-label">目录</span><button class="nt-newdir" id="nt-newdir">＋ 新建目录</button>`;
+      $('#nt-newdir').addEventListener('click', () => { state.addingDir = true; renderTreeHeadArea(); });
+    }
+  }
+
+  async function submitNewDir(raw) {
+    const name = String(raw || '').trim().replace(/^\/+|\/+$/g, '');
+    if (!name) { state.addingDir = false; renderTreeHeadArea(); return; }
+    const r = await bridge.mkdir(name);
+    state.addingDir = false;
+    if (r && r.ok) {
+      toast('已创建目录 ' + name + '/');
+      state.extraDirs.add(name); // 树由 entries 派生：空目录补挂保证可见
+      state.selectedDir = name; // 建完选中，便于直接新建笔记进去
+      refreshIndex();
+    } else {
+      toast('创建目录失败：' + ((r && r.message) || (r && r.code) || '未知错误'));
+      renderTreeHeadArea();
+    }
+  }
+
+  /* ── type 过滤徽章（I14：与目录筛选双维过滤；类型由 entries 派生）── */
+  function renderTypeBar() {
+    const types = [...new Set(state.entries.map((e) => e.frontmatter?.type).filter(Boolean))].sort();
+    const chip = (val, label) => `<button class="nt-typechip ${state.typeFilter === val ? 'active' : ''}" data-type="${esc(val)}" title="${esc(label)}">${esc(label)}</button>`;
+    $('#nt-typebar').innerHTML = chip('', '全部') + types.map((t) => chip(t, t)).join('');
+    $('#nt-typebar').onclick = (e) => {
+      const b = e.target.closest('.nt-typechip');
+      if (!b) return;
+      state.typeFilter = b.dataset.type || '';
+      renderTypeBar(); renderList();
+    };
+  }
+
+  /* ── 列表（updatedAt 倒序；搜索态为全局结果）── */
+  function visibleEntries() {
+    let list;
+    if (state.query) {
+      list = state.searchResults || [];
+    } else {
+      list = state.entries.slice();
+      if (state.selectedDir) list = list.filter((e) => e.path.startsWith(state.selectedDir + '/'));
+      if (state.typeFilter) list = list.filter((e) => e.frontmatter?.type === state.typeFilter);
+      list.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+    }
+    return list;
+  }
+  function itemHtml(e) {
+    const active = state.open && state.open.path === e.path ? 'active' : '';
+    const taskBadge = e.frontmatter?.task
+      ? `<span class="nt-badge task ${state.ready ? '' : 'pending'}" title="关联任务">⧉ ${esc(e.frontmatter.task)}</span>`
+      : '';
+    return `<div class="nt-item ${active}" data-path="${esc(e.path)}">
+      <div class="nt-item-top"><div class="nt-item-title">${esc(e.title)}</div></div>
+      <div class="nt-item-snippet">${esc(e.snippet || '（无正文）')}</div>
+      <div class="nt-item-meta">
+        ${dirname(e.path) ? `<span class="nt-path">${esc(dirname(e.path))}/</span>` : ''}
+        ${e.frontmatter?.type ? `<span class="nt-badge">${esc(e.frontmatter.type)}</span>` : ''}
+        ${taskBadge}
+        <span>${relTime(e.updatedAt)}</span>
+      </div>
+    </div>`;
+  }
+  function renderList() {
+    const head = $('#nt-list-head');
+    if (state.trashMode) return; // 回收站态由 renderTrash 接管
+    if (!loaded) { head.innerHTML = `<span class="nt-list-title">笔记</span>`; $('#nt-items').innerHTML = `<div class="nt-empty"><div class="nt-empty-ico">⌛</div><p>${state.noBridge ? '笔记服务未就绪（存储桥未加载）' : '正在扫描笔记…'}</p><p class="nt-empty-sub">${state.noBridge ? '等待 N1 集成后可用' : '就绪后自动刷新'}</p></div>`; return; }
+    const list = visibleEntries();
+    if (state.query) {
+      head.innerHTML = `<span class="nt-list-title">搜索结果<span class="nt-count">· ${list.length}</span></span>`;
+    } else {
+      head.innerHTML = `<span class="nt-list-title">笔记<span class="nt-count">· ${list.length}</span></span>`;
+    }
+    if (!list.length) {
+      $('#nt-items').innerHTML = state.query
+        ? `<div class="nt-empty"><div class="nt-empty-ico">⌕</div><p>没有匹配的笔记</p><p class="nt-empty-sub">搜索为全局（含所有目录），换个关键词试试</p></div>`
+        : (state.selectedDir
+          ? `<div class="nt-empty"><div class="nt-empty-ico">📁</div><p>此目录为空</p><p class="nt-empty-sub">用右上角「＋ 新建」在这里写第一篇</p></div>`
+          : `<div class="nt-empty"><div class="nt-empty-ico">📝</div><p>还没有笔记</p><button class="nt-btn" id="nt-empty-new">＋ 新建第一篇</button></div>`);
+      $('#nt-empty-new')?.addEventListener('click', newNoteModal);
+      return;
+    }
+    $('#nt-items').innerHTML = list.map(itemHtml).join('');
+  }
+  function onListClick(e) {
+    if (state.trashMode) {
+      const b = e.target.closest('[data-restore]') || e.target.closest('[data-purge]');
+      if (!b) return;
+      if (b.dataset.restore) restoreEntry(b.dataset.restore);
+      else purgeEntry(b.dataset.purge);
+      return;
+    }
+    const item = e.target.closest('.nt-item');
+    if (item) openNote(item.dataset.path);
+  }
+
+  /* ── 搜索（I8：输入即搜，全局；空查询回常规列表）── */
+  function onSearchInput(e) {
+    const q = e.target.value;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(async () => {
+      state.query = q.trim();
+      if (!state.query) { state.searchResults = null; renderList(); return; }
+      const r = await bridge.search(state.query);
+      if (r && r.ok) { state.searchResults = r.data.entries || []; if (state.query === q.trim()) renderList(); }
+      else toast('搜索失败：' + ((r && r.message) || '可重试'));
+    }, 250);
+  }
+
+  /* ── 回收站（I13：底部入口含数量；内联视图；恢复冲突不覆盖；purge 二次确认）── */
+  function renderTrashCount() {
+    const el = $('#nt-trash-count');
+    if (!el) return;
+    const n = state.trashEntries ? state.trashEntries.length : null;
+    if (n === null) { el.hidden = true; return; }
+    el.hidden = n === 0;
+    el.textContent = String(n);
+  }
+  async function refreshTrashCount() {
+    const r = await bridge.trashList();
+    if (r && r.ok) { state.trashEntries = r.data.entries || []; renderTrashCount(); }
+  }
+  async function toggleTrash() {
+    flushSave(); // 内联视图切换也属「切换」——先 flush（CON-R-notes-008）
+    state.trashMode = !state.trashMode;
+    if (state.trashMode) { const r = await bridge.trashList(); state.trashEntries = r && r.ok ? (r.data.entries || []) : []; }
+    renderAll();
+  }
+  function renderTrash() {
+    $('#nt-list-head').innerHTML = `<span class="nt-list-title">回收站</span><button class="nt-back" id="nt-trash-back">← 返回列表</button>`;
+    $('#nt-trash-back').addEventListener('click', () => { state.trashMode = false; renderAll(); });
+    const list = state.trashEntries || [];
+    $('#nt-items').innerHTML = list.length
+      ? list.map((t) => `<div class="nt-trash-item">
+          <div class="nt-trash-info">
+            <div class="nt-trash-path">${esc(t.originalPath)}</div>
+            <div class="nt-trash-meta">删除于 ${relTime(t.deletedAt)} · ${fmtSize(t.sizeBytes)}</div>
+          </div>
+          <div class="nt-trash-ops">
+            <button class="nt-mini" data-restore="${esc(t.id)}">恢复</button>
+            <button class="nt-mini danger" data-purge="${esc(t.id)}">彻底删除</button>
+          </div>
+        </div>`).join('')
+      : `<div class="nt-empty"><div class="nt-empty-ico">🗑</div><p>回收站为空</p><p class="nt-empty-sub">删除的笔记在这里保留 30 天，可恢复</p></div>`;
+  }
+  async function restoreEntry(trashId) {
+    const r = await bridge.restore(trashId);
+    if (r && r.ok) {
+      toast('已恢复到原路径');
+      state.trashEntries = null;
+      await refreshTrashCount();
+      refreshIndex();
+      if (state.trashMode) renderTrash();
+    } else if (r && r.code === 'notes-restore-conflict') {
+      toast('恢复冲突：原路径已被占用，未覆盖（条目保留在回收站）'); // CON-R-notes-007
+    } else {
+      toast('恢复失败：' + ((r && r.message) || '可重试'));
+    }
+  }
+  function purgeEntry(trashId) {
+    ntModal({
+      title: '彻底删除',
+      bodyHtml: `<p class="nt-modal-msg">将永久删除回收站中的这条笔记，<b>不可恢复</b>。确定继续？</p>
+        <div class="nt-modal-ops"><button class="nt-ghost" data-x>取消</button><button class="nt-primary danger" data-ok>彻底删除</button></div>`,
+      onOpen(w, close) {
+        $('[data-x]', w).addEventListener('click', close);
+        $('[data-ok]', w).addEventListener('click', async () => {
+          const r = await bridge.purge(trashId);
+          close();
+          if (r && r.ok) { state.trashEntries = null; await refreshTrashCount(); if (state.trashMode) renderTrash(); toast('已彻底删除'); }
+          else toast('删除失败：' + ((r && r.message) || '可重试'));
+        });
+      },
+    });
+  }
+
+  /* ── 打开/关闭编辑器（I4/I15/I16；EasyMDE 每开新建、关即 destroy）── */
+  async function openNote(path) {
+    if (!path) return;
+    const seq = ++openSeq;
+    // 切换先 flush（契约：先 flush 再切换，无确认弹窗）——buffer 快照同步持有，切换销毁编辑器不影响在途保存
+    flushSave();
+    const r = await bridge.get(path);
+    if (seq !== openSeq) return; // 连点守卫：仅最后一次打开生效
+    if (!r || !r.ok) { toast('打开失败：' + ((r && r.message) || '文件可能已被移动或删除')); refreshIndex(); return; }
+    const d = r.data;
+    destroyEditor();
+    state.open = {
+      path: d.path,
+      buffer: d.content ?? '',
+      title: d.frontmatter?.title || basename(d.path).replace(/\.md$/, ''),
+      mtime: d.mtime,
+      dirty: false, titleDirty: false, inflight: false, pendingAfter: false, conflict: null,
+      editor: null,
+    };
+    renderEditorHead();
+    $('#nt-editor-body').innerHTML = '<textarea id="nt-editor-text"></textarea>';
+    state.open.editor = createEditor($('#nt-editor-text'), state.open.buffer);
+    const ed = state.open.editor;
+    if (ed) {
+      ed.codemirror.on('change', () => {
+        if (!state.open) return;
+        state.open.buffer = ed.value();
+        state.open.dirty = true;
+        renderFoot(); scheduleSave();
+      });
+      ed.codemirror.on('blur', () => flushSave()); // 编辑器失焦 → 立即 flush（CON-R-notes-008）
+      ed.codemirror.focus();
+    }
+    applyEditorMode(editorMode);
+    renderFoot();
+    renderList(); // 列表 active 高亮
+  }
+  function closeEditor() {
+    destroyEditor();
+    state.open = null;
+    renderEditorHead();
+    $('#nt-editor-body').innerHTML = `<div class="nt-editor-empty"><div class="nt-empty" style="padding:0"><div class="nt-empty-ico">📝</div><p>从左侧选择或新建一篇笔记</p></div></div>`;
+    renderFoot();
+    renderList();
+  }
+  function destroyEditor() {
+    if (state.open?.editor) { try { state.open.editor.destroy(); } catch {} }
+    state.open && (state.open.editor = null);
+  }
+  function createEditor(textarea, initialValue) {
+    if (!window.EasyMDE || !textarea) return null;
+    return new window.EasyMDE({
+      element: textarea,
+      initialValue: initialValue ?? '',
+      spellChecker: false,
+      autoDownloadFontAwesome: false, // E14/Q-042：禁运行时 FA CDN 注入（CSP）
+      status: false,
+      toolbar: ['bold', 'italic', 'strikethrough', 'heading', '|', 'unordered-list', 'ordered-list', 'check-list', 'table', '|', 'link', '|', 'preview', 'side-by-side'],
+      previewRender: (plainText) => mdRender(plainText),
+    });
+  }
+  let editorMode = 'edit';
+  function applyEditorMode(mode) {
+    editorMode = mode;
+    document.querySelectorAll('.nt-mode-btn').forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
+    const ed = state.open?.editor;
+    if (!ed) return;
+    const isPreview = !!ed.isPreviewActive();
+    const isSplit = !!ed.isSideBySideActive();
+    if (mode === 'preview') { if (isSplit) ed.toggleSideBySide(); if (!isPreview) ed.togglePreview(); }
+    else if (mode === 'split') { if (isPreview) ed.togglePreview(); if (!isSplit) ed.toggleSideBySide(); }
+    else { if (isPreview) ed.togglePreview(); if (isSplit) ed.toggleSideBySide(); }
+  }
+
+  function renderEditorHead() {
+    const head = $('#nt-editor-head');
+    const o = state.open;
+    if (!o) {
+      head.innerHTML = `<div class="nt-chips"><span class="nt-chip">未打开笔记</span>
+        <div class="nt-mode-switch" style="display:none"></div></div>`;
+      return;
+    }
+    head.innerHTML = `
+      <div class="nt-chips">
+        <input class="nt-title-input" id="nt-title" value="${esc(o.title)}" placeholder="标题（写入 frontmatter，不改文件名）" spellcheck="false">
+        <div class="nt-mode-switch">
+          <button class="nt-mode-btn ${editorMode === 'edit' ? 'active' : ''}" data-mode="edit">编辑</button>
+          <button class="nt-mode-btn ${editorMode === 'split' ? 'active' : ''}" data-mode="split">分屏</button>
+          <button class="nt-mode-btn ${editorMode === 'preview' ? 'active' : ''}" data-mode="preview">预览</button>
+        </div>
+      </div>
+      <div class="nt-chips">
+        ${o.frontmatter?.type ? `<span class="nt-chip">${esc(o.frontmatter.type)}</span>` : ''}
+        ${o.frontmatter?.task ? `<span class="nt-chip task" title="关联任务（N3 接入跳转）">⧉ ${esc(o.frontmatter.task)}</span>` : ''}
+        <span class="nt-chip" title="相对 notes.dir 的路径">${esc(o.path)}</span>
+        <button class="nt-opbtn" id="nt-move">移动到…</button>
+        <button class="nt-opbtn danger" id="nt-del">删除</button>
+      </div>`;
+    const title = $('#nt-title');
+    title.addEventListener('input', () => {
+      if (!state.open) return;
+      state.open.title = title.value;
+      state.open.titleDirty = true;
+      state.open.dirty = true;
+      renderFoot(); scheduleSave();
+    });
+    title.addEventListener('blur', () => flushSave()); // 失焦 flush
+    $('#nt-move').addEventListener('click', moveModal);
+    $('#nt-del').addEventListener('click', deleteNoteModal);
+  }
+  function onHeadClick(e) {
+    const b = e.target.closest('.nt-mode-btn');
+    if (b) applyEditorMode(b.dataset.mode);
+  }
+  function onDateChange() { /* T2 契约字段占位：N2 v1 无日期选择器 */ }
+  function renderFoot() {
+    const o = state.open;
+    const foot = $('#nt-editor-foot');
+    if (!o) { foot.innerHTML = `<span>—</span>`; return; }
+    const status = o.conflict
+      ? `<span class="nt-right nt-dirty">⚠ 冲突待处理（自动保存已暂停）</span>`
+      : o.inflight
+        ? `<span class="nt-right">保存中…</span>`
+        : o.dirty
+          ? `<span class="nt-right nt-dirty">● 未保存（${SAVE_DEBOUNCE_MS / 1000}s 后自动保存）</span>`
+          : `<span class="nt-right nt-saved">✓ 已保存</span>`;
+    foot.innerHTML = `<span>${wordCount(o.buffer)} 字</span>${status}`;
+  }
+
+  /* ── 自动保存编排（I5/I6/I7；D4：渲染层 debounce + notes:save 乐观锁）── */
+  function scheduleSave() {
+    if (!state.open || state.open.conflict) return; // 冲突态阻断自动保存直至用户选择
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => flushSave(), SAVE_DEBOUNCE_MS);
+  }
+  async function flushSave() {
+    const o = state.open;
+    if (!o || !o.dirty || o.conflict || o.inflight) { if (o && o.inflight && o.dirty) o.pendingAfter = true; return; }
+    o.inflight = true; renderFoot();
+    const input = {
+      path: o.path,
+      content: o.buffer,
+      expectedMtime: o.mtime,
+      ...(o.titleDirty ? { frontmatterPatch: { title: o.title } } : {}),
+    };
+    const r = await bridge.save(input);
+    if (!state.open || state.open !== o) return; // 切换/关闭后丢弃陈旧响应（buffer 快照已入 input）
+    o.inflight = false;
+    if (r && r.ok) {
+      o.mtime = r.data.mtime;
+      if (r.data.path && r.data.path !== o.path) o.path = r.data.path; // saveAsCopy 后基线切到副本
+      if (!o.dirty) o.titleDirty = false;
+      renderFoot();
+    } else {
+      const code = r && r.code;
+      if (code === 'notes-conflict-modified') enterConflict('modified');
+      else if (code === 'notes-conflict-deleted') enterConflict('deleted');
+      else { toast('保存失败：' + ((r && r.message) || code || '未知错误') + '（内容已保留）'); renderFoot(); }
+    }
+    if (o.pendingAfter) { o.pendingAfter = false; scheduleSave(); }
+  }
+  function enterConflict(kind) {
+    const o = state.open;
+    if (!o) return;
+    o.conflict = kind;
+    clearTimeout(saveTimer);
+    renderFoot();
+    if (kind === 'modified') {
+      ntModal({
+        title: '保存冲突：文件已被外部修改',
+        dismissable: false,
+        bodyHtml: `<p class="nt-modal-msg">「${esc(o.path)}」在编辑期间被外部修改（Obsidian / 其他编辑器 / agent）。请选择处理方式：</p>
+          <div class="nt-modal-ops">
+            <button class="nt-primary danger" data-c="overwrite">覆盖外部修改</button>
+            <button class="nt-primary" data-c="saveAsCopy">另存冲突副本</button>
+            <button class="nt-ghost" data-c="discard">放弃我的修改</button>
+          </div>`,
+        onOpen(w, close) {
+          w.addEventListener('click', async (e) => {
+            const b = e.target.closest('[data-c]');
+            if (!b) return;
+            const strategy = b.dataset.c;
+            close();
+            if (strategy === 'discard') { await discardBuffer(); return; }
+            await resolveConflict(strategy);
+          });
+        },
+      });
+    } else {
+      ntModal({
+        title: '保存冲突：文件已被外部删除',
+        dismissable: false,
+        bodyHtml: `<p class="nt-modal-msg">「${esc(o.path)}」已不存在（被外部删除或移动）。编辑缓冲仍保留，可选择另存为新文件，或放弃：</p>
+          <div class="nt-modal-ops">
+            <button class="nt-primary" data-c="saveAsCopy">另存为新文件</button>
+            <button class="nt-ghost" data-c="discard">放弃</button>
+          </div>`,
+        onOpen(w, close) {
+          w.addEventListener('click', async (e) => {
+            const b = e.target.closest('[data-c]');
+            if (!b) return;
+            const strategy = b.dataset.c;
+            close();
+            if (strategy === 'discard') { closeEditor(); return; }
+            await resolveConflict(strategy);
+          });
+        },
+      });
+    }
+  }
+  async function resolveConflict(strategy) {
+    const o = state.open;
+    if (!o) return;
+    const input = {
+      path: o.path, content: o.buffer, expectedMtime: o.mtime, strategy,
+      ...(o.titleDirty ? { frontmatterPatch: { title: o.title } } : {}),
+    };
+    const r = await bridge.save(input);
+    if (!state.open || state.open !== o) return;
+    if (r && r.ok) {
+      o.conflict = null;
+      o.mtime = r.data.mtime;
+      if (r.data.path && r.data.path !== o.path) {
+        o.path = r.data.path;
+        renderEditorHead(); // 副本路径 → 头部 chips 重渲染
+      }
+      o.dirty = false; o.titleDirty = false;
+      renderFoot(); refreshIndex();
+      toast(strategy === 'saveAsCopy' ? '已另存为冲突副本' : '已覆盖外部修改');
+    } else if (r && r.code === 'notes-conflict-deleted') {
+      // overwrite 时文件恰好又被删 → 转二选
+      o.conflict = null;
+      enterConflict('deleted');
+    } else {
+      o.conflict = null; // 非冲突失败：解除阻断，允许继续自动保存重试
+      toast('保存失败：' + ((r && r.message) || '可重试') + '（内容已保留）');
+      renderFoot();
+    }
+  }
+  async function discardBuffer() {
+    const o = state.open;
+    if (!o) return;
+    const r = await bridge.get(o.path); // 回读磁盘态（放弃 = 以磁盘为准）
+    if (r && r.ok) {
+      destroyEditor();
+      o.buffer = r.data.content ?? '';
+      o.title = r.data.frontmatter?.title || basename(o.path).replace(/\.md$/, '');
+      o.mtime = r.data.mtime;
+      o.dirty = false; o.titleDirty = false; o.conflict = null;
+      o.editor = createEditor($('#nt-editor-text'), o.buffer);
+      if (o.editor) {
+        o.editor.codemirror.on('change', () => { o.buffer = o.editor.value(); o.dirty = true; renderFoot(); scheduleSave(); });
+        o.editor.codemirror.on('blur', () => flushSave());
+      }
+      renderEditorHead(); renderFoot();
+    } else {
+      closeEditor(); // 磁盘上已不存在 → 回列表态
+    }
+  }
+
+  /* ── 操作：新建 / 移动 / 删除（I9/I11/I12）── */
+  function newNoteModal() {
+    const dir = state.selectedDir || '';
+    ntModal({
+      title: '新建笔记',
+      bodyHtml: `<p class="nt-modal-msg">存入 <b>${esc(dir || '根目录（未分类）')}</b>；命名 YYYY-MM-DD-&lt;slug&gt;.md，slug 由标题生成，标题可留空。</p>
+        <input class="nt-modal-input" id="nt-new-title" placeholder="标题（可选）" autocomplete="off">
+        <div class="nt-modal-ops"><button class="nt-ghost" data-x>取消</button><button class="nt-primary" data-ok>创建</button></div>`,
+      onOpen(w, close) {
+        const inp = $('#nt-new-title', w);
+        inp.focus();
+        $('[data-x]', w).addEventListener('click', close);
+        const ok = async () => {
+          const title = inp.value.trim();
+          const r = await bridge.create(dir || undefined, title || undefined);
+          if (r && r.ok) {
+            close();
+            await refreshIndex();
+            openNote(r.data.path); // 成功后直接进入编辑态（契约 I9）
+          } else if (r && r.code === 'notes-name-conflict') {
+            toast('同名笔记已存在，请换一个标题'); // 同目录同名 UI 拦截（§7）
+          } else {
+            toast('创建失败：' + ((r && r.message) || '可重试'));
+          }
+        };
+        $('[data-ok]', w).addEventListener('click', ok);
+        inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') ok(); });
+      },
+    });
+  }
+  function moveModal() {
+    const o = state.open;
+    if (!o) return;
+    const dirs = [...deriveDirs().keys()].sort();
+    const cur = dirname(o.path);
+    ntModal({
+      title: '移动到…',
+      bodyHtml: `<p class="nt-modal-msg">移动「${esc(o.title)}」到目标目录（同名冲突不覆盖）：</p>
+        <select class="nt-modal-input" id="nt-move-target">${dirs.map((d) => `<option value="${esc(d)}" ${d === cur ? 'selected' : ''}>${esc(d || '根目录（未分类）')}</option>`).join('')}</select>
+        <div class="nt-modal-ops"><button class="nt-ghost" data-x>取消</button><button class="nt-primary" data-ok>移动</button></div>`,
+      onOpen(w, close) {
+        $('[data-x]', w).addEventListener('click', close);
+        $('[data-ok]', w).addEventListener('click', async () => {
+          const target = $('#nt-move-target', w).value;
+          if (target === cur) { close(); return; }
+          const r = await bridge.move(o.path, target);
+          close();
+          if (r && r.ok) {
+            o.path = r.data.path; o.mtime = r.data.mtime;
+            renderEditorHead(); renderFoot();
+            refreshIndex();
+            toast('已移动到 ' + (target ? target + '/' : '根目录'));
+          } else if (r && r.code === 'notes-name-conflict') {
+            toast('目标目录存在同名文件，未移动');
+          } else {
+            toast('移动失败：' + ((r && r.message) || '可重试'));
+          }
+        });
+      },
+    });
+  }
+  function deleteNoteModal() {
+    const o = state.open;
+    if (!o) return;
+    ntModal({
+      title: '删除笔记',
+      bodyHtml: `<p class="nt-modal-msg">删除「${esc(o.title)}」？<b>可在回收站恢复</b>（保留 30 天）。</p>
+        <div class="nt-modal-ops"><button class="nt-ghost" data-x>取消</button><button class="nt-primary danger" data-ok>删除</button></div>`,
+      onOpen(w, close) {
+        $('[data-x]', w).addEventListener('click', close);
+        $('[data-ok]', w).addEventListener('click', async () => {
+          const r = await bridge.del(o.path);
+          close();
+          if (r && r.ok) {
+            closeEditor();
+            await refreshTrashCount();
+            refreshIndex();
+            toast('已移入回收站，可在回收站恢复');
+          } else {
+            toast('删除失败：' + ((r && r.message) || '可重试'));
+          }
+        });
+      },
+    });
+  }
+
+  /* ── 全局键盘：Cmd/Ctrl+S 强制保存（仅编辑态）；nav 切换/关窗 flush ── */
+  function notesViewVisible() { return !document.getElementById('notes')?.classList.contains('hidden'); }
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 's' && notesViewVisible() && state.open && !state.open.conflict) {
+      e.preventDefault();
+      clearTimeout(saveTimer);
+      flushSave();
+    }
+  });
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('.nav-item') && notesViewVisible()) flushSave(); // 切视图先 flush（静默）
+  }, true);
+  window.addEventListener('beforeunload', () => { flushSave(); }); // 关窗尽最大努力 flush（不阻塞）
+
+  /* ── indexChanged 订阅（I17 就绪刷新 / I18 外部变更感知 / dir-changed 清空回列表）── */
+  function subscribeIndexChanged() {
+    const sub = api?.onIndexChanged;
+    if (typeof sub !== 'function') return;
+    try {
+      sub.call(api, (payload) => {
+        const reason = payload && payload.reason;
+        if (reason === 'dir-changed') {
+          // CON-R-notes-010：打开中笔记失效清空回列表 + 提示（切换前置脏处理：先尽力 flush）
+          if (state.open) { flushSave(); closeEditor(); }
+          toast('存储目录已更改');
+        }
+        refreshIndex(); // incremental/rescan/dir-changed → 统一重拉全量索引
+      });
+    } catch { /* 订阅形态以 N1 preload 为准；异常静默降级为手动刷新 */ }
+  }
+
+  /* ── 启动 ───────────────────────────────────── */
+  mount();
+  renderTreeHeadArea();
+  renderEditorHead();
+  $('#nt-editor-body').innerHTML = `<div class="nt-editor-empty"><div class="nt-empty" style="padding:0"><div class="nt-empty-ico">📝</div><p>${api ? '正在加载笔记索引…' : '笔记服务未就绪（存储桥未加载）'}</p><p class="nt-empty-sub">${api ? '扫描完成后自动出现列表' : '等待 N1 集成后可用'}</p></div></div>`;
+  renderFoot();
+  if (api) {
+    refreshIndex();
+    refreshTrashCount();
+    subscribeIndexChanged();
+  } else {
+    state.noBridge = true; // 桥缺失：列表/编辑器呈现未就绪占位，不假死在「正在扫描」
+    renderList();
+  }
+  // nav 进入即拉新（shell.html nav-notes 点击调用；桥缺失时为 no-op）
+  window.__notesRefresh = () => {
+    if (!api) { renderAll(); return; }
+    refreshIndex();
+    refreshTrashCount();
+  };
+})();
