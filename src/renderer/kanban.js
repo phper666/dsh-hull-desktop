@@ -222,7 +222,12 @@
     const resumeBtn = t.executionStatus === 'paused' ? `<button class="kb-run" data-resume="${t.id}" title="恢复">▶</button>` : '';
     const cancelBtn = t.executionStatus === 'running' || t.executionStatus === 'queued' ? `<button class="kb-run" data-cancel="${t.id}" title="取消">✕</button>` : '';
     const verifyBtn = isVerify && (['succeeded', 'idle', 'interrupted'].includes(t.executionStatus)) ? `<button class="kb-run" data-verify="${t.id}" title="确认完成">✓</button>` : '';
-    return `<div class="kb-card ${done ? 'kb-done' : ''}" draggable="true" data-id="${t.id}"><div class="kb-card-top"><span class="kb-pri kb-pri-${t.priority}">${esc(t.priority)}</span>${t.labels.map((l) => `<span class="kb-label">${esc(l)}</span>`).join('')}${execBadge}</div><div class="kb-card-title">${esc(t.title)}</div>${t.description ? `<div class="kb-card-desc">${esc(t.description)}</div>` : ''}${subDone(t) ? `<div class="kb-sub">子任务 ${subDone(t)}</div>` : ''}<div class="kb-card-ops">${runBtn}${pauseBtn}${resumeBtn}${cancelBtn}${verifyBtn}<button class="kb-run" data-detail="${t.id}" title="详情">⋯</button></div></div>`;
+    // N3 📝 角标：仅有关联笔记时显示；点击 → 直达第一篇（updatedAt 最新）关联笔记；依赖未就绪不渲染（CON-R-notes-006）
+    const noteRefs = typeof window.__notesTaskRefs === 'function' ? window.__notesTaskRefs(t.id) : null;
+    const noteBadge = Array.isArray(noteRefs) && noteRefs.length
+      ? `<span class="kb-note-badge" data-noteopen="${esc(t.id)}" title="打开关联笔记（${noteRefs.length}）">📝 ${noteRefs.length}</span>`
+      : '';
+    return `<div class="kb-card ${done ? 'kb-done' : ''}" draggable="true" data-id="${t.id}"><div class="kb-card-top"><span class="kb-pri kb-pri-${t.priority}">${esc(t.priority)}</span>${t.labels.map((l) => `<span class="kb-label">${esc(l)}</span>`).join('')}${execBadge}${noteBadge}</div><div class="kb-card-title">${esc(t.title)}</div>${t.description ? `<div class="kb-card-desc">${esc(t.description)}</div>` : ''}${subDone(t) ? `<div class="kb-sub">子任务 ${subDone(t)}</div>` : ''}<div class="kb-card-ops">${runBtn}${pauseBtn}${resumeBtn}${cancelBtn}${verifyBtn}<button class="kb-run" data-detail="${t.id}" title="详情">⋯</button></div></div>`;
   }
 
   // ── 列表视图排序/树形状态（需求 2，模块级持久）──
@@ -587,7 +592,13 @@
     el.addEventListener('dragstart', (e) => { dragTaskId = el.dataset.id; e.dataTransfer.effectAllowed = 'move'; el.classList.add('kb-dragging'); });
     el.addEventListener('dragend', () => { dragTaskId = null; el.classList.remove('kb-dragging'); });
     // 卡片主体点击 → 弹详情（操作按钮区不弹）
-    el.addEventListener('click', (e) => { if (e.target.closest('.kb-card-ops')) return; openDetail(el.dataset.id); });
+    el.addEventListener('click', (e) => {
+      // N3：📝 角标 → 切笔记视图打开第一篇关联笔记（stopPropagation 语义：不进详情）
+      const nb = e.target.closest('.kb-note-badge');
+      if (nb) { gotoNotesForTask(nb.dataset.noteopen); return; }
+      if (e.target.closest('.kb-card-ops')) return;
+      openDetail(el.dataset.id);
+    });
     el.querySelectorAll('[data-run]').forEach((b) => b.addEventListener('click', async () => { const r = await exec.executeTask(currentBoard.id, b.dataset.run); if (!r.ok) alert('执行失败：' + (r.message || r.code)); }));
     el.querySelectorAll('[data-pause]').forEach((b) => b.addEventListener('click', async () => { const r = await exec.pauseExecution(currentBoard.id, b.dataset.pause); if (!r.ok) alert('暂停失败：' + (r.message || r.code)); }));
     el.querySelectorAll('[data-resume]').forEach((b) => b.addEventListener('click', async () => { const r = await exec.resumeExecution(currentBoard.id, b.dataset.resume); if (!r.ok) alert('恢复失败：' + (r.message || r.code)); }));
@@ -640,6 +651,8 @@
     if (flowHost) flowHost.innerHTML = renderFlowBar(task); // 执行态推进 → 步骤条/分支 chip 同步
     const acHost = w.querySelector('.kb-ac-host');
     if (acHost) acHost.innerHTML = acSectionHtml(task); // manual 执行完成 → AI 结果区块出现
+    const relHost = w.querySelector('.kb-related-host');
+    if (relHost) relHost.innerHTML = relatedNotesHtml(task.id); // N3：笔记索引变化 → 相关笔记行统一重算
     const tlEl = w.querySelector('.kb-tl');
     if (tlEl) {
       const tmp = document.createElement('div');
@@ -648,6 +661,17 @@
     }
     linkifyTimeline(w, task); // 需求 2：comment 内容路径链接化（重建后重跑，task 提供相对路径 cwd 上下文）
     loadExecLogBlock(w, task.id);
+  }
+
+  /** N3 相关笔记行（feishu-n3-notes-api-contract.md：按 task: 反查，updatedAt 倒序）。
+   *  数据源 = notes.js 暴露的 window.__notesTaskRefs（TBD-3 承接，无新 IPC）；
+   *  null = 笔记索引未就绪 → 中性占位（CON-R-notes-006），不渲染死链 */
+  function relatedNotesHtml(tid) {
+    const refs = typeof window.__notesTaskRefs === 'function' ? window.__notesTaskRefs(tid) : null;
+    if (!refs) return `<div class="kb-rel-empty">笔记索引未就绪</div>`;
+    if (!refs.length) return `<div class="kb-rel-empty">暂无关联笔记</div>`;
+    return `<div class="kb-rel-count">相关笔记：${refs.length} 篇</div>` + refs.map((r) =>
+      `<div class="kb-rel-item" data-relpath="${esc(r.path)}" title="切到笔记视图打开该笔记"><span class="kb-rel-path">${esc(r.path)}</span></div>`).join('');
   }
 
   /** 详情抽屉时间线 HTML（openDetail 与定向更新共用；需求 2：user 来源 comment 带编辑按钮） */
@@ -1154,6 +1178,7 @@
       <div class="kb-ac-host">${acSectionHtml(t)}</div>
       ${sub.length ? `<div class="kb-sub-list"><h4>子任务</h4>${sub.map((s) => `<div class="kb-sub-item">${esc(s.title)} <span class="kb-exec kb-exec-${s.executionStatus}">${execNames[s.executionStatus] || s.executionStatus}</span></div>`).join('')}</div>` : ''}
       ${sub.length ? `<div class="dg-entry" role="button" tabindex="0" title="点开查看依赖图"><span class="dg-et">依赖图</span><span class="dg-sum" id="dg-sum">…</span><span class="dg-open">查看依赖图 ↗</span></div>` : ''}
+      <div class="kb-related-sec"><h4>相关笔记</h4><div class="kb-related-host" data-relfor="${esc(t.id)}">${relatedNotesHtml(t.id)}</div></div>
       ${timelineHtml(t)}
       <div class="kb-comment"><textarea id="kb-comment-text" class="kb-input" placeholder="添加评论…"></textarea></div>`;
     const opsHtml = `<button class="kb-btn kb-primary" data-comment>评论</button><button class="kb-btn" data-edit>编辑</button>${t.archivedAt ? '' : `<button class="kb-btn" data-archive>归档</button>`}<button class="kb-btn kb-danger" data-del>删除</button>`;
@@ -1167,6 +1192,9 @@
       linkifyTimeline(w, taskById(t.id) || t); // 需求 2：时间线 comment 路径链接化（mdRender(DOMPurify) 后 DOM 后处理）
       // 需求 2：评论编辑入口 + 文件路径点击（事件委托挂在弹框容器——定向更新重建时间线后仍生效）
       w.addEventListener('click', (e) => {
+        // N3：相关笔记行 → 切笔记视图打开该笔记（TBD-3 承接：window.__notesOpenNote）
+        const rel = e.target.closest('[data-relpath]');
+        if (rel) { gotoNotesPath(rel.dataset.relpath); return; }
         const p = e.target.closest('[data-openpath]');
         if (p) {
           e.preventDefault(); // href="#" 不跳转
@@ -1411,5 +1439,38 @@
 // V2a：系统通知点击 → notifs:openTask 事件（一次性订阅，openDetail 在上方作用域）
 window.hull?.onOpenTask?.((d) => window.__kanbanOpenTask?.(d.taskId));
 window.__kanbanOpenTask = (taskId) => { try { openDetail(taskId); } catch { /* 数据不存在等，忽略 */ } };
+
+/* ── N3 任务关联跨模块入口（TBD-2 承接：渲染层内部扩展，无新 IPC）── */
+/** 本地同步 nav 高亮（主进程 status 推送亦会校正——双保险，镜像 shell setActive 语义） */
+function kbSwitchNavHighlight(navId) {
+  try {
+    document.querySelectorAll('.nav-item').forEach((el) => el.classList.remove('active'));
+    document.getElementById(navId)?.classList.add('active');
+  } catch { /* nav 未就绪：忽略，交给 status 推送校正 */ }
+}
+/** 笔记任务徽章点击后程（T3-06）：切看板视图（notes.js 已先调 hull.showBoard）→ 打开 ticket 详情 */
+window.__kanbanOpenDetail = (taskId) => {
+  kbSwitchNavHighlight('nav-board');
+  try { openDetail(taskId); } catch { /* 任务不在当前看板/数据未载入：静默，徽章跳转容忍 */ }
+};
+/** 看板卡片 📝 角标点击（T3-08）：切笔记视图 + 打开第一篇（updatedAt 最新）关联笔记 */
+async function gotoNotesForTask(taskId) {
+  const refs = typeof window.__notesTaskRefs === 'function' ? window.__notesTaskRefs(taskId) : null;
+  if (!refs || !refs.length) return; // 依赖未就绪/无关联：角标本不该出现，防御
+  await gotoNotesPath(refs[0].path);
+}
+/** 任务详情相关笔记行点击（T3-07）：切笔记视图 + 打开指定笔记（hull:showNotes 镜像 showBoard 模式，TBD-3 承接） */
+async function gotoNotesPath(path) {
+  try { await window.hull?.showNotes?.(); } catch { /* showNotes 未登记（TBD-2 收口前）：本地高亮仍生效 */ }
+  kbSwitchNavHighlight('nav-notes');
+  window.__notesOpenNote?.(path);
+}
+/** 笔记索引变化钩子（notes.js refreshIndex 后调用，T3-12）：抽屉打开时重绘相关笔记行；
+ *  卡片角标随下次 render() 重画（契约：无推送事件，渲染周期刷新容忍滞后） */
+window.__kanbanOnNotesChanged = () => {
+  if (!openDetailTaskId || !openDetailWrap?.isConnected) return;
+  const host = openDetailWrap.querySelector('.kb-related-host');
+  if (host) host.innerHTML = relatedNotesHtml(openDetailTaskId);
+};
 })();
 

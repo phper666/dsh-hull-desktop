@@ -60,8 +60,9 @@ export type PlaceholderView =
   | 'placeholder:connections'
   | 'placeholder:workflows'
   | 'placeholder:notifs'
+  | 'placeholder:notes'
   | 'placeholder:settings';
-export type PlaceholderMode = 'starting' | 'installing' | 'failed' | 'not-installed' | 'board' | 'skills' | 'tokens' | 'connections' | 'workflows' | 'notifs' | 'settings';
+export type PlaceholderMode = 'starting' | 'installing' | 'failed' | 'not-installed' | 'board' | 'skills' | 'tokens' | 'connections' | 'workflows' | 'notifs' | 'notes' | 'settings';
 
 /**
  * 主窗口壳框架（S8 D1-D7 唯一实现依据）：
@@ -276,6 +277,12 @@ export class WindowManager {
   showNotifs(): void {
     this.webIntent = false; // 用户主动离开 web
     this.showPlaceholder('notifs', '');
+  }
+
+  /** N1：壳导航笔记入口 → 切 notes 视图（镜像 showBoard/showSkills，设计 §3 main 接线） */
+  showNotes(): void {
+    this.webIntent = false; // 用户主动离开 web
+    this.showPlaceholder('notes', '');
   }
 
   /** V2a：通知存储变更推送（渲染层即时刷新角标/列表） */

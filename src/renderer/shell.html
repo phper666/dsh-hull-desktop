@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="workflows.css" />
   <link rel="stylesheet" href="depgraph.css" />
   <link rel="stylesheet" href="notifs.css" />
+  <link rel="stylesheet" href="notes.css" />
 <style>
   /* T1 主题变量（CON-R-theme-002）：暗色默认 + 亮色[data-theme="light"] */
   :root, [data-theme="dark"] {
@@ -465,6 +466,8 @@
     <div id="nav-items">
       <button id="nav-web" class="nav-item active"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 7 4 5-4 5"/><path d="M12 17h8" opacity="0.5"/></svg>dsh web</button>
       <button id="nav-board" class="nav-item"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="4.5" height="15" rx="1"/><rect x="9.75" y="4.5" width="4.5" height="15" rx="1" opacity="0.55"/><rect x="16" y="4.5" width="4.5" height="15" rx="1" opacity="0.55"/></svg>任务看板</button>
+      <!-- N2 笔记（共识 v1.0：笔记入口位于任务看板之后，CON-R-notes-011） -->
+      <button id="nav-notes" class="nav-item"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5h9.5L19 7v13.5H6a1.5 1.5 0 0 1-1.5-1.5v-14A1.5 1.5 0 0 1 6 3.5z"/><path d="M8 8.5h7M8 12h7M8 15.5h4" opacity="0.6"/></svg>笔记</button>
       <button id="nav-skills" class="nav-item"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5" opacity="0.55"/><rect x="4" y="13" width="7" height="7" rx="1.5" opacity="0.55"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Skills</button>
       <button id="nav-tokens" class="nav-item"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19V12"/><path d="M12 19V8"/><path d="M19 19V5" opacity="0.55"/><path d="M3.5 20.5h17"/></svg>Token 消耗</button>
       <button id="nav-connections" class="nav-item"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 14.5a4.2 4.2 0 0 0 5.9 0l3-3a4.2 4.2 0 0 0-5.9-5.9l-1.4 1.4"/><path d="M14.5 9.5a4.2 4.2 0 0 0-5.9 0l-3 3a4.2 4.2 0 0 0 5.9 5.9l1.4-1.4" opacity="0.55"/></svg>工作台连接</button>
@@ -526,6 +529,10 @@
     <!-- B2 任务看板：view=placeholder:board 时显示；数据经 window.kanban/window.exec 桥消费 -->
     <section id="board" class="placeholder hidden">
       <div id="board-root"></div>
+    </section>
+    <!-- N2 笔记视图：view=placeholder:notes 时显示；数据经 window.notes 桥（N1）消费 -->
+    <section id="notes" class="placeholder hidden">
+      <div id="notes-root"></div>
     </section>
     <!-- S1 Skills 检查器：view=placeholder:skills 时显示；数据经 window.skills 桥消费 -->
     <section id="skills" class="placeholder hidden">
@@ -605,6 +612,23 @@
                 <button type="button" data-pkgmgr="npm" aria-pressed="false">npm</button>
                 <button type="button" data-pkgmgr="pnpm" aria-pressed="true">pnpm</button>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- N4 笔记存储（feishu-n4-notes-api-contract：目录选择器复用 dialog:pickDirectory、路径复制复用 hull:copyText、
+             读写复用 hull:getSettings/setSettings——零新增通道；notesDir 变更经 SettingsProvider changed 广播 → main applyNotesDir → N1 重扫 + dir-changed 推送） -->
+        <section class="scard" aria-labelledby="sec-notes">
+          <h2 id="sec-notes">笔记</h2>
+          <div class="srow">
+            <div class="info">
+              <div class="label">存储目录</div>
+              <div class="sub" id="notes-dir-path">—</div>
+              <div id="notes-dir-error" class="error-text" role="alert"></div>
+            </div>
+            <div class="control">
+              <button id="notes-pick" class="sbtn">更改目录…</button>
+              <button id="notes-copy" class="sbtn">复制路径</button>
             </div>
           </div>
         </section>
@@ -747,7 +771,7 @@
   const bridge = window.hull;
   const PLACEHOLDER_PREFIX = 'placeholder:';
   // S8' S8'：sections 扩 1（settings）——view 2→3 态（official/board/settings）
-  const sections = ['starting', 'installing', 'failed', 'not-installed', 'board', 'skills', 'tokens', 'connections', 'workflows', 'notifs', 'settings'];
+  const sections = ['starting', 'installing', 'failed', 'not-installed', 'board', 'notes', 'skills', 'tokens', 'connections', 'workflows', 'notifs', 'settings'];
 
   // 占位视图切换（view 字段驱动；official → 全隐藏）
   function setView(view) {
@@ -803,6 +827,7 @@
   // ── S8' §4.4 nav 高亮回写（view 字段驱动） ──
   const navActiveByView = {
     'placeholder:board': 'nav-board',
+    'placeholder:notes': 'nav-notes', // N2：view 5 态口径（CON-R-notes-011），笔记入口插于任务看板后
     'placeholder:skills': 'nav-skills',
     'placeholder:tokens': 'nav-tokens',
     'placeholder:connections': 'nav-connections',
@@ -900,6 +925,8 @@
     autoCheckHull: 'autoCheckHull', hullAlert: 'hull-alert', openLogs: 'open-logs-dir', openDataDir: 'open-data-dir',
     notifPushWorkflow: 'notifPushWorkflow', notifPushBoardExec: 'notifPushBoardExec',
     notifDnd: 'notifDnd', notifDndFrom: 'notifDndFrom', notifDndTo: 'notifDndTo', notifDndTimes: 'notifDndTimes',
+    // N4 笔记区块（存储目录显示/更改/复制）
+    notesDirPath: 'notes-dir-path', notesPick: 'notes-pick', notesCopy: 'notes-copy', notesDirError: 'notes-dir-error',
   };
   for (const k of Object.keys(SETT_IDS)) {
     sett.els[k] = document.getElementById(SETT_IDS[k]);
@@ -952,12 +979,58 @@
   }
   if (sett.els.pkgmgrSeg) {
     sett.els.pkgmgrSeg.addEventListener('click', async (e) => {
-      const btn = e.target.closest('button[data-pkgmgr]');
-      if (!btn) return;
+      const btn = e.target.closest('button[data-theme], button[data-pkgmgr]');
+      if (!btn || !btn.dataset.pkgmgr) return;
       const next = btn.dataset.pkgmgr;
       if (next !== 'npm' && next !== 'pnpm') return;
       const ok = await setSetting({ packageManager: next }, null);
       if (ok) renderPkgMgrButtons(next);
+    });
+  }
+
+  // ── N4 笔记存储区块（feishu-n4-notes-api-contract）：路径显示 / 复制 / 更改目录 ──
+  // 确认弹窗（复用 notes.css .nt-modal 组件样式——同页已加载；CON-R-notes-010 定案文案）
+  function confirmNotesDirChange(nextPath, onConfirm) {
+    const wrap = document.createElement('div');
+    wrap.className = 'nt-modal';
+    wrap.innerHTML = `<div class="nt-modal-box"><h3>更改笔记存储目录</h3>
+      <p class="nt-modal-msg">新目录：<b>${String(nextPath).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</b></p>
+      <p class="nt-modal-msg">新目录将被扫描，旧目录文件不动（不迁移）。打开中的笔记将失效清空回列表。</p>
+      <div class="nt-modal-ops"><button type="button" class="nt-ghost" data-notes-x>取消</button><button type="button" class="nt-primary" data-notes-ok>确认更改</button></div>
+    </div>`;
+    document.body.appendChild(wrap);
+    const close = () => wrap.remove();
+    wrap.querySelector('[data-notes-x]').addEventListener('click', close);
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+    wrap.querySelector('[data-notes-ok]').addEventListener('click', async () => {
+      close();
+      await onConfirm();
+    });
+  }
+  if (sett.els.notesPick) {
+    sett.els.notesPick.addEventListener('click', async () => {
+      // 原生目录选择器（复用 dialog:pickDirectory；createDirectory 已开启——目录不存在可当场创建，W1 定案）
+      let picked = null;
+      try {
+        const r = await bridge.pickDirectory();
+        if (!r || !r.ok || !r.path) return; // 取消 → 流程终止，无改动（幂等）
+        picked = r.path;
+      } catch { return; }
+      if (sett.state.settings && picked === sett.state.settings.notesDir) return; // 同目录 → 无副作用
+      confirmNotesDirChange(picked, async () => {
+        const ok = await setSetting({ notesDir: picked }, sett.els.notesDirError);
+        if (ok) toast('笔记目录已更改，正在扫描新目录…'); // 重扫完成提示由 notes 视图 indexChanged 兜底
+      });
+    });
+  }
+  if (sett.els.notesCopy) {
+    sett.els.notesCopy.addEventListener('click', async () => {
+      const p = sett.state.settings?.notesDir || (sett.els.notesDirPath && sett.els.notesDirPath.textContent) || '';
+      if (!p) { toast('目录尚未就绪'); return; }
+      try {
+        const r = await bridge.copyText(p);
+        toast(r && r.ok === false ? (r.message || '复制失败') : '路径已复制');
+      } catch { toast('复制失败'); }
     });
   }
 
@@ -1062,6 +1135,8 @@
     setTheme(s.theme);
     renderPkgMgrButtons(s.packageManager);
     renderNotifPrefs(s.notifPrefs);
+    // N4：笔记存储目录显示（生效路径——SettingsProvider 读路径已做默认解析 <userData>/notes）
+    if (sett.els.notesDirPath) sett.els.notesDirPath.textContent = s.notesDir || '—';
     if (!sett.state.editing.pinned) {
       sett.els.channel.value = s.channel;
       sett.els.pinnedVersion.value = s.pinnedVersion || '';
@@ -1469,6 +1544,12 @@
     setActive('nav-board');
     if (bridge) await bridge.showBoard(); // main 切 view → placeholder:board → section#board 显示
   });
+  // N2 笔记视图（任务看板之后；hull:showNotes 登记随 N1/preload 契约收口——桥未就绪时静默跳过，本地高亮先行）
+  document.getElementById('nav-notes').addEventListener('click', async () => {
+    setActive('nav-notes');
+    if (bridge?.showNotes) await bridge.showNotes(); // main 切 view → placeholder:notes → section#notes 显示
+    window.__notesRefresh?.(); // 进入即拉索引（notes.js 注册；桥未就绪时为 undefined）
+  });
   document.getElementById('nav-skills').addEventListener('click', async () => {
     setActive('nav-skills');
     if (bridge) await bridge.showSkills(); // main 切 view → placeholder:skills → section#skills 显示
@@ -1613,5 +1694,7 @@
   <script src="depgraph-core.js"></script>
   <script src="depgraph.js"></script>
   <script src="notifs.js"></script>
+  <!-- N2 笔记视图（消费 window.notes 桥——N1 lane 并行落地，桥缺失时视图降级占位不崩溃） -->
+  <script src="notes.js"></script>
 </body>
 </html>
