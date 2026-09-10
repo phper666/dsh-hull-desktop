@@ -78,6 +78,53 @@
     search: (query) => call('search', (a) => a.search(query)),
   };
 
+  /* ── N3 任务关联数据（feishu-n3-notes-api-contract.md v1.0）──
+   * 候选/有效性判定 = kanban:getBoards + getTasks 组合聚合（TBD-1：N+1 次调用，量级可接受）；
+   * 反查映射 = notes 索引 frontmatter.task 派生（无独立存储，CON-R-notes-002 精神）。
+   * taskTickets=null ⇔ 看板数据未就绪 → 徽章中性占位、角标不显示（CON-R-notes-006），不标「未知任务」 */
+  let taskTickets = null;        // TaskPickerItem[] | null
+  let taskTicketsLoading = false;
+  async function loadTaskTickets(force) {
+    if (taskTicketsLoading || (taskTickets && !force)) return;
+    taskTicketsLoading = true;
+    try {
+      const kb = window.kanban;
+      if (!kb?.getBoards || !kb?.getTasks) { taskTickets = null; return; }
+      const rb = await kb.getBoards();
+      if (!rb || !rb.ok || !Array.isArray(rb.data)) { taskTickets = null; return; } // 依赖未就绪 → 降级态
+      const items = [];
+      for (const b of rb.data) {
+        const rt = await kb.getTasks(b.id);
+        if (rt && rt.ok && Array.isArray(rt.data)) {
+          for (const t of rt.data) {
+            // TBD-4 默认：已归档任务入选（id 仍可被 task: 引用且可跳详情），条目标注
+            items.push({ id: t.id, title: t.title || '', boardName: b.name || b.id, updatedAt: t.updatedAt || t.createdAt || '', archived: !!t.archivedAt });
+          }
+        }
+      }
+      items.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))); // updatedAt 倒序
+      taskTickets = items;
+    } catch { taskTickets = null; } // 桥异常 = 依赖未就绪
+    finally {
+      // 就绪/数据到达 → 徽章/角标/相关笔记行统一刷新（CON-R-notes-006 就绪后统一刷新）
+      renderList();
+      if (state.open) renderEditorHead();
+    }
+  }
+  const ticketExists = (tid) => !!taskTickets && taskTickets.some((t) => t.id === tid);
+  /** task → 笔记列表 反查映射（派生自当前索引；值按 updatedAt 倒序）——kanban.js 消费（TBD-3 承接） */
+  function taskNotesMap() {
+    const m = new Map();
+    for (const e of state.entries) {
+      const tid = e.frontmatter?.task;
+      if (!tid) continue; // task 空/解析失败的笔记不参与（契约 §数据结构）
+      if (!m.has(tid)) m.set(tid, []);
+      m.get(tid).push({ path: e.path, title: e.title || basename(e.path), updatedAt: e.updatedAt });
+    }
+    for (const arr of m.values()) arr.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+    return m;
+  }
+
   /* ── 轻提示 ─────────────────────────────────── */
   let toastEl = null, toastTimer = null;
   function toast(msg) {
@@ -104,7 +151,7 @@
     document.addEventListener('keydown', onKey);
     cleanups.push(() => document.removeEventListener('keydown', onKey));
     if (dismissable) wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
-    wrap.querySelector('.nt-modal-box').insertAdjacentHTML('beforeend', '');
+    wrap.kbOnClose = cleanups; // 关闭清理栈（镜像 kanban modal；调用方注册定时器/EasyMDE 清理）
     onOpen?.(wrap, close);
     return { wrap, close };
   }
@@ -116,7 +163,7 @@
         <aside class="nt-side">
           <div class="nt-head">
             <span class="nt-title">笔记<span class="nt-count" id="nt-count"></span></span>
-            <button class="nt-btn" id="nt-new" title="新建笔记（继承当前目录）">＋ 新建</button>
+            <button class="nt-btn" id="nt-new" title="新建笔记（继承当前目录）">＋ 新建笔记</button>
           </div>
           <div class="nt-search">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3" stroke-linecap="round"/></svg>
@@ -166,6 +213,8 @@
       toast('索引加载失败：' + ((r && r.message) || '可重试')); // 索引可重建——提示重试
     }
     renderAll();
+    renderEditorEmptyState(); // N2 遗留修复：就绪且未选中 → 编辑器空态文案（不停留「正在加载」）
+    window.__kanbanOnNotesChanged?.(); // N3：索引变化 → 看板侧徽章/相关笔记行统一重算（drawer 打开时重绘）
   }
   function renderAll() {
     renderCount();
@@ -290,9 +339,14 @@
   }
   function itemHtml(e) {
     const active = state.open && state.open.path === e.path ? 'active' : '';
-    const taskBadge = e.frontmatter?.task
-      ? `<span class="nt-badge task ${state.ready ? '' : 'pending'}" title="关联任务">⧉ ${esc(e.frontmatter.task)}</span>`
-      : '';
+    // N3 徽章三态：有效关联（可点跳看板详情）/ 未知任务（灰色不可点不清洗）/ 未就绪中性占位
+    const tid = e.frontmatter?.task;
+    let taskBadge = '';
+    if (tid) {
+      if (!taskTickets) taskBadge = `<span class="nt-badge task pending" title="看板数据未就绪">⧉ ${esc(tid)}</span>`;
+      else if (ticketExists(tid)) taskBadge = `<span class="nt-badge task jump" data-tid="${esc(tid)}" title="打开看板任务详情">⧉ ${esc(tid)}</span>`;
+      else taskBadge = `<span class="nt-badge task unknown" title="看板中未找到该任务（字段保留不清洗）">⧉ ${esc(tid)} 未知任务</span>`;
+    }
     return `<div class="nt-item ${active}" data-path="${esc(e.path)}">
       <div class="nt-item-top"><div class="nt-item-title">${esc(e.title)}</div></div>
       <div class="nt-item-snippet">${esc(e.snippet || '（无正文）')}</div>
@@ -333,6 +387,9 @@
       else purgeEntry(b.dataset.purge);
       return;
     }
+    // N3：有效关联徽章 → 切看板视图打开 ticket 详情（不触发笔记打开）
+    const badge = e.target.closest('.nt-badge.task.jump');
+    if (badge) { jumpToTask(badge.dataset.tid); return; }
     const item = e.target.closest('.nt-item');
     if (item) openNote(item.dataset.path);
   }
@@ -432,6 +489,7 @@
       path: d.path,
       buffer: d.content ?? '',
       title: d.frontmatter?.title || basename(d.path).replace(/\.md$/, ''),
+      frontmatter: d.frontmatter ?? {}, // N3：type/task chips 与关联回写的数据源（N2 遗留缺口修复）
       mtime: d.mtime,
       dirty: false, titleDirty: false, inflight: false, pendingAfter: false, conflict: null,
       editor: null,
@@ -450,6 +508,8 @@
       ed.codemirror.on('blur', () => flushSave()); // 编辑器失焦 → 立即 flush（CON-R-notes-008）
       ed.codemirror.focus();
     }
+    // 工具栏内置预览/分屏切换 → 头部三态高亮同步（①：保证分屏态随时可经头部切回编辑/预览）
+    $('#nt-editor-body .EasyMDEContainer')?.addEventListener('click', () => setTimeout(syncEditorModeFromEditor, 50));
     applyEditorMode(editorMode);
     renderFoot();
     renderList(); // 列表 active 高亮
@@ -474,9 +534,22 @@
       spellChecker: false,
       autoDownloadFontAwesome: false, // E14/Q-042：禁运行时 FA CDN 注入（CSP）
       status: false,
+      // ① BUG 修复（真机反馈）：sideBySideFullscreen 默认 true → 分屏即全屏接管（fixed 预览盖住头部模式开关，用户被困）。
+      // false → 容器持 sided--no-fullscreen 行内分屏（vendor CSS 既有布局），模式开关常驻可退。
+      sideBySideFullscreen: false,
       toolbar: ['bold', 'italic', 'strikethrough', 'heading', '|', 'unordered-list', 'ordered-list', 'check-list', 'table', '|', 'link', '|', 'preview', 'side-by-side'],
       previewRender: (plainText) => mdRender(plainText),
     });
+  }
+  /** 编辑器工具栏内置 preview/side-by-side 按钮与本头部三态开关的状态同步（用户点工具栏切换时校正高亮） */
+  function syncEditorModeFromEditor() {
+    const ed = state.open?.editor;
+    if (!ed) return;
+    const m = ed.isSideBySideActive() ? 'split' : ed.isPreviewActive() ? 'preview' : 'edit';
+    if (m !== editorMode) {
+      editorMode = m;
+      document.querySelectorAll('.nt-mode-btn').forEach((b) => b.classList.toggle('active', b.dataset.mode === m));
+    }
   }
   let editorMode = 'edit';
   function applyEditorMode(mode) {
@@ -510,8 +583,9 @@
       </div>
       <div class="nt-chips">
         ${o.frontmatter?.type ? `<span class="nt-chip">${esc(o.frontmatter.type)}</span>` : ''}
-        ${o.frontmatter?.task ? `<span class="nt-chip task" title="关联任务（N3 接入跳转）">⧉ ${esc(o.frontmatter.task)}</span>` : ''}
+        ${taskChipHtml(o)}
         <span class="nt-chip" title="相对 notes.dir 的路径">${esc(o.path)}</span>
+        <button class="nt-opbtn" id="nt-link" title="搜索看板任务并关联（写入 frontmatter task:）">＋ 关联任务</button>
         <button class="nt-opbtn" id="nt-move">移动到…</button>
         <button class="nt-opbtn danger" id="nt-del">删除</button>
       </div>`;
@@ -526,8 +600,26 @@
     title.addEventListener('blur', () => flushSave()); // 失焦 flush
     $('#nt-move').addEventListener('click', moveModal);
     $('#nt-del').addEventListener('click', deleteNoteModal);
+    $('#nt-link').addEventListener('click', taskPickerModal);
+  }
+  /** 编辑器任务 chip 三态（N3）：有效关联（可点跳详情 + × 解除）/ 未知任务（灰、仅 ×）/ 未就绪中性占位 */
+  function taskChipHtml(o) {
+    const tid = o.frontmatter?.task;
+    if (!tid) return '';
+    if (!taskTickets) return `<span class="nt-chip task pending" title="看板数据未就绪">⧉ ${esc(tid)}</span>`;
+    if (!ticketExists(tid)) {
+      // CON-R-notes-006：灰色「未知任务」，不可点击跳转、不清洗字段；× 仍可解除关联
+      return `<span class="nt-chip task unknown" title="看板中未找到该任务（字段保留）">⧉ ${esc(tid)} 未知任务<span class="unlink" data-unlink title="解除关联">×</span></span>`;
+    }
+    return `<span class="nt-chip task" data-tid="${esc(tid)}" title="打开看板任务详情">⧉ ${esc(tid)}<span class="unlink" data-unlink title="解除关联">×</span></span>`;
   }
   function onHeadClick(e) {
+    // N3：× 解除关联（含未知任务态——字段清洗仍走保存链，可被再次编辑）
+    const un = e.target.closest('[data-unlink]');
+    if (un) { e.stopPropagation(); setTaskLink(null); return; }
+    // N3：有效关联 chip 点击 → 切看板视图打开 ticket 详情（T3-06；未知任务 chip 无 data-tid 不可点）
+    const chip = e.target.closest('.nt-chip.task[data-tid]');
+    if (chip && !chip.classList.contains('unknown')) { jumpToTask(chip.dataset.tid); return; }
     const b = e.target.closest('.nt-mode-btn');
     if (b) applyEditorMode(b.dataset.mode);
   }
@@ -671,6 +763,7 @@
         o.editor.codemirror.on('change', () => { o.buffer = o.editor.value(); o.dirty = true; renderFoot(); scheduleSave(); });
         o.editor.codemirror.on('blur', () => flushSave());
       }
+      $('#nt-editor-body .EasyMDEContainer')?.addEventListener('click', () => setTimeout(syncEditorModeFromEditor, 50));
       renderEditorHead(); renderFoot();
     } else {
       closeEditor(); // 磁盘上已不存在 → 回列表态
@@ -763,6 +856,102 @@
     });
   }
 
+  /* ── N3 任务关联交互（feishu-n3-notes-api-contract.md v1.0）── */
+
+  /** 笔记 → 任务跳转（T3-06）：hull:showBoard 切视图 → 看板内部入口打开 ticket 详情（TBD-2 承接：window.__kanbanOpenDetail） */
+  async function jumpToTask(tid) {
+    if (!tid) return;
+    try { await window.hull?.showBoard?.(); } catch { /* 桥缺失：高亮本地同步，详情仍尝试打开 */ }
+    try {
+      document.querySelectorAll('.nav-item').forEach((el) => el.classList.remove('active'));
+      document.getElementById('nav-board')?.classList.add('active');
+    } catch {}
+    window.__kanbanOpenDetail?.(tid);
+  }
+
+  /** 关联/解除回写（T3-01/T3-04）：先 flush 编辑器脏内容（契约回写时序）→ notes:save key 级写/清 task:
+   *  冲突 → 002 分流（关联中止，frontmatter 不变）；失败 → 徽章回滚 + 提示 */
+  async function setTaskLink(tid) {
+    const o = state.open;
+    if (!o) return;
+    await flushSave();
+    if (!state.open || state.open !== o) return;
+    if (o.conflict) { toast('存在未处理的保存冲突，请先处理冲突再操作'); return; }
+    o.inflight = true; renderFoot();
+    const input = { path: o.path, content: o.buffer, expectedMtime: o.mtime, frontmatterPatch: { task: tid } };
+    const r = await bridge.save(input);
+    if (!state.open || state.open !== o) return;
+    o.inflight = false;
+    if (r && r.ok) {
+      o.mtime = r.data.mtime;
+      o.frontmatter = { ...(o.frontmatter || {}), task: tid };
+      renderEditorHead(); renderFoot();
+      refreshIndex(); // 索引增量 → 反查映射重建 → 角标/相关笔记行统一重算（经 __kanbanOnNotesChanged）
+      toast(tid ? `已关联 ${tid}` : '已解除关联');
+    } else if (r && (r.code === 'notes-conflict-modified' || r.code === 'notes-conflict-deleted')) {
+      enterConflict(r.code === 'notes-conflict-modified' ? 'modified' : 'deleted');
+    } else {
+      renderEditorHead(); // 失败：徽章回滚到操作前态
+      toast((tid ? '关联失败：' : '解除关联失败：') + ((r && r.message) || '可重试'));
+    }
+  }
+
+  /** 搜索型任务选择器（T3-01/02/03）：输入实时过滤（标题/id、大小写不敏感）+ updatedAt 倒序平铺
+   *  `[看板] id 标题`；Enter 选中首个；Esc/遮罩关闭；打开即刷新候选 */
+  function taskPickerModal() {
+    if (!state.open) return;
+    loadTaskTickets(true);
+    ntModal({
+      title: '关联看板任务',
+      bodyHtml: `<input class="nt-modal-input" id="nt-task-search" placeholder="搜索任务标题或 ID…" autocomplete="off">
+        <div class="nt-picker-list" id="nt-picker-list"></div>`,
+      onOpen(w, close) {
+        const inp = $('#nt-task-search', w);
+        const listEl = $('#nt-picker-list', w);
+        const render = () => {
+          const q = inp.value.trim().toLowerCase();
+          const items = (taskTickets || []).filter((t) => !q || t.id.toLowerCase().includes(q) || t.title.toLowerCase().includes(q));
+          listEl.innerHTML = items.length
+            ? items.map((t, i) => `<div class="nt-picker-item ${i === 0 ? 'top' : ''}" data-tid="${esc(t.id)}" title="${esc(t.title)}">
+                <span class="p-board">[${esc(t.boardName)}]</span><span class="p-id">${esc(t.id)}</span>
+                <span class="p-title">${esc(t.title)}</span>${t.archived ? '<span class="p-arch">已归档</span>' : ''}
+                <span class="p-rel">${relTime(t.updatedAt)}</span>
+              </div>`).join('')
+            : `<div class="nt-picker-empty">${taskTickets ? '没有匹配的任务' : '看板数据加载中…'}</div>`;
+        };
+        render();
+        // 候选异步到达后重绘（首开 loadTaskTickets 在途）；随模态关闭清理轮询
+        const readyTimer = setInterval(() => {
+          if (!w.isConnected || taskTickets) { clearInterval(readyTimer); if (w.isConnected) render(); }
+        }, 200);
+        (w.kbOnClose || []).push(() => clearInterval(readyTimer));
+        const inpKey = (e) => {
+          if (e.key !== 'Enter') return;
+          const top = listEl.querySelector('.nt-picker-item');
+          if (top) { close(); setTaskLink(top.dataset.tid); } // Enter = 选中首个候选
+        };
+        inp.addEventListener('input', render);
+        inp.addEventListener('keydown', inpKey);
+        listEl.addEventListener('click', (e) => {
+          const item = e.target.closest('.nt-picker-item');
+          if (item) { close(); setTaskLink(item.dataset.tid); }
+        });
+        inp.focus();
+      },
+    });
+  }
+
+  /* ── N2 遗留文案修复：索引就绪且未选中笔记 → 编辑器空态（不停留「正在加载」）── */
+  function renderEditorEmptyState() {
+    if (state.open) return;
+    const body = $('#nt-editor-body');
+    if (!body) return;
+    body.innerHTML = state.noBridge
+      ? `<div class="nt-editor-empty"><div class="nt-empty" style="padding:0"><div class="nt-empty-ico">📝</div><p>笔记服务未就绪（存储桥未加载）</p><p class="nt-empty-sub">等待 N1 集成后可用</p></div></div>`
+      : `<div class="nt-editor-empty"><div class="nt-empty" style="padding:0"><div class="nt-empty-ico">📝</div><p>从左侧选择或新建一篇笔记</p></div></div>`;
+    renderFoot();
+  }
+
   /* ── 全局键盘：Cmd/Ctrl+S 强制保存（仅编辑态）；nav 切换/关窗 flush ── */
   function notesViewVisible() { return !document.getElementById('notes')?.classList.contains('hidden'); }
   document.addEventListener('keydown', (e) => {
@@ -808,10 +997,19 @@
     state.noBridge = true; // 桥缺失：列表/编辑器呈现未就绪占位，不假死在「正在扫描」
     renderList();
   }
-  // nav 进入即拉新（shell.html nav-notes 点击调用；桥缺失时为 no-op）
+  // nav 进入即拉新（shell.html nav-notes 点击调用；桥缺失时为 no-op）。
+  // N3 刷新时机③：视图进入拉取最新索引与 boards（反查映射/选择器候选/有效性判定同步）
   window.__notesRefresh = () => {
-    if (!api) { renderAll(); return; }
+    if (!api) { state.noBridge = true; renderAll(); renderEditorEmptyState(); return; }
     refreshIndex();
     refreshTrashCount();
+    loadTaskTickets();
+  };
+  // N3 对外入口（TBD-3 承接）：任务详情相关笔记行 / 看板卡片角标 → 程序化切笔记视图并打开指定笔记
+  window.__notesOpenNote = (path) => { if (path) openNote(path); };
+  // N3 对外入口：task → 关联笔记引用列表（null = 笔记索引未就绪 → 看板侧中性降级，不渲染角标/相关行）
+  window.__notesTaskRefs = (tid) => {
+    if (!loaded || !state.ready || !tid) return null;
+    return taskNotesMap().get(tid) || [];
   };
 })();

@@ -193,6 +193,33 @@ textarea.kb-input { min-height: 56px; resize: vertical; font-family: inherit; }
 .kb-detail-meta { display: flex; align-items: center; gap: 10px; color: var(--hull-text-muted); font-size: var(--text-sm); margin-bottom: 14px; flex-wrap: wrap; padding-bottom: 10px; border-bottom: 1px solid var(--hull-card); }
 .kb-detail-meta .kb-exec { font-size: var(--text-xs); }
 .kb-detail-desc { color: var(--hull-text-dim); font-size: var(--text-md); margin-bottom: 14px; padding: 10px 12px; background: var(--hull-panel); border: 1px solid var(--hull-card); border-radius: var(--radius-md); }
+
+/* ── N3 相关笔记行（详情抽屉；数据 = notes 索引 frontmatter task 反查）── */
+.kb-related-sec { margin-bottom: 4px; }
+.kb-related-sec h4 { font-size: var(--text-xs); color: var(--hull-text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 14px 0 8px; font-weight: 600; }
+.kb-rel-count { font-size: var(--text-sm); color: var(--hull-text-dim); margin-bottom: 6px; }
+.kb-rel-count b, .kb-rel-count strong { color: var(--hull-info); }
+.kb-rel-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 8px; border-radius: var(--radius-sm); cursor: pointer;
+  font-family: var(--font-mono); font-size: var(--text-xs); color: var(--hull-info);
+  transition: background 0.1s;
+}
+.kb-rel-item:hover { background: var(--hull-hover); }
+.kb-rel-item .kb-rel-path { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.kb-rel-empty { font-size: var(--text-xs); color: var(--hull-text-sub); padding: 2px 0 4px; }
+/* N3 卡片 📝 角标（mono 小字 + 弱边框，不抢主信息；仅 N≥1 渲染） */
+.kb-note-badge {
+  display: inline-flex; align-items: center;
+  font-family: var(--font-mono); font-size: var(--text-2xs);
+  color: var(--hull-text-dim);
+  background: var(--hull-bg); border: 1px solid var(--hull-border);
+  border-radius: var(--radius-xs);
+  padding: 0 5px; line-height: 15px;
+  cursor: pointer; flex-shrink: 0;
+  transition: color 0.1s, border-color 0.1s;
+}
+.kb-note-badge:hover { color: var(--hull-info); border-color: var(--hull-info); }
 .kb-sub-list h4, .kb-tl h4, .kb-drawer-section h4 { font-size: var(--text-xs); color: var(--hull-text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 14px 0 8px; font-weight: 600; }
 .kb-sub-list { margin-bottom: var(--space-1); }
 /* Q-回复落盘（2026-09-05）：执行输出区块（详情弹框内、时间线之前）——pre 滚动容器封顶高度 */

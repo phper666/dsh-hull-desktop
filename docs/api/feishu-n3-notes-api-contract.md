@@ -191,6 +191,8 @@ interface TaskPickerItem {
 ## 变更记录
 
 - 2026-09-11：新建契约 v0.1 草稿（待复核冻结）——依据共识 v1.1（CON-R-notes-005/006 + §12 + §7 task 字段）、PRD v0.3 F5、原型 v0.5；不新增 IPC 通道，缺口以 TBD-1~4 登记
+- 2026-09-11：实现回写（N3 落地，契约 v1.0 冻结不变）——TBD-2/3 形态备案：跨模块入口以渲染层内部全局挂载承接（`window.__kanbanOpenDetail(tid)` / `window.__notesOpenNote(path)` / `window.__notesTaskRefs(tid)` / `window.__kanbanOnNotesChanged()`，与既有 `__kanbanOpenTask` 同模式，零新 IPC）；TBD-1 以 getBoards+getTasks 组合承接（N+1 待量级再议 kanban:listAllTasks）；TBD-4 定案：已归档任务入选候选并标注「已归档」，未知任务判定含归档任务防误降级
+- 2026-09-11：共识同步备注——共识 v1.2（CON-R-notes-009 通道集补 notes:mkdir）与 N3 无接口面交集；本契约绑定共识版本升至 v1.2
 
 ## 自检记录
 

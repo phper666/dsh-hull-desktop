@@ -153,7 +153,12 @@
   max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .nt-badge.task { background: var(--hull-accent-soft); border-color: var(--hull-accent-medium); color: var(--hull-accent-hover); }
-/* 就绪态中性占位（CON-R-notes-006）：不标未知、不判灰 */
+/* N3 徽章三态：有效关联可点跳转 / 未知任务灰 / 未就绪中性占位（CON-R-notes-006） */
+.nt-badge.task.jump { cursor: pointer; }
+.nt-badge.task.jump:hover { background: var(--hull-accent-medium); }
+.nt-badge.task.unknown {
+  background: var(--hull-panel); border-color: var(--hull-border); color: var(--hull-text-sub);
+}
 .nt-badge.task.pending { background: var(--hull-neutral-soft); border-color: var(--hull-border); color: var(--hull-text-sub); }
 .nt-empty { padding: 44px 20px; text-align: center; color: var(--hull-text-sub); }
 .nt-empty .nt-empty-ico { font-size: 24px; opacity: 0.5; margin-bottom: 8px; }
@@ -195,6 +200,43 @@
   max-width: 240px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
 .nt-chip.task { background: var(--hull-accent-soft); border-color: var(--hull-accent-medium); color: var(--hull-accent-hover); }
+.nt-chip.task[data-tid] { cursor: pointer; }
+.nt-chip.task[data-tid]:hover { background: var(--hull-accent-medium); }
+/* N3 编辑器任务 chip：未知任务（灰，仅 × 可点）/ 未就绪中性占位 */
+.nt-chip.task.unknown { background: var(--hull-panel); border-color: var(--hull-border); color: var(--hull-text-sub); cursor: default; }
+.nt-chip.task.pending { background: var(--hull-neutral-soft); border-color: var(--hull-border); color: var(--hull-text-sub); }
+/* 解除关联 ×（有效/未知态均可；点击走 notes:save 清 task 键） */
+.nt-chip.task .unlink {
+  color: var(--hull-text-sub); padding: 0 3px; margin-right: -3px;
+  border-radius: 3px; font-size: 11px; cursor: pointer;
+}
+.nt-chip.task .unlink:hover { color: var(--hull-danger); background: var(--hull-danger-soft); }
+
+/* N3 搜索型任务选择器（输入实时过滤 + 平铺候选 + Enter 首个） */
+.nt-picker-list {
+  margin-top: 8px; max-height: 280px; overflow-y: auto;
+  border: 1px solid var(--hull-border); border-radius: var(--radius-sm);
+}
+.nt-picker-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; cursor: pointer;
+  font-family: var(--font-mono); font-size: var(--text-xs);
+  color: var(--hull-text-dim);
+  border-bottom: 1px solid var(--hull-card);
+  transition: background 0.1s;
+}
+.nt-picker-item:last-child { border-bottom: none; }
+.nt-picker-item:hover, .nt-picker-item.top { background: var(--hull-hover); color: var(--hull-text); }
+.nt-picker-item .p-board { color: var(--hull-accent-hover); flex-shrink: 0; }
+.nt-picker-item .p-id { color: var(--hull-text); flex-shrink: 0; }
+.nt-picker-item.top .p-id { color: var(--hull-accent-hover); }
+.nt-picker-item .p-title {
+  flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--text-xs);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.nt-picker-item .p-arch { flex-shrink: 0; font-size: var(--text-2xs); color: var(--hull-text-sub); border: 1px solid var(--hull-border); border-radius: var(--radius-xs); padding: 0 4px; }
+.nt-picker-item .p-rel { flex-shrink: 0; font-size: var(--text-2xs); color: var(--hull-text-sub); }
+.nt-picker-empty { padding: 18px; text-align: center; font-size: var(--text-xs); color: var(--hull-text-sub); }
 .nt-chip.pending { background: var(--hull-neutral-soft); border-color: var(--hull-border); color: var(--hull-text-sub); }
 .nt-title-input {
   flex: 1; min-width: 120px; background: transparent; border: none; outline: none;
@@ -222,7 +264,16 @@
 .nt-opbtn:hover { color: var(--hull-text); background: var(--hull-hover); }
 .nt-opbtn.danger:hover { color: var(--hull-danger); border-color: var(--hull-danger); }
 .nt-editor-body { flex: 1; min-height: 0; display: flex; }
-.nt-editor-body .EasyMDEContainer { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+/* ① 分屏困死修复（真机反馈根因：vendor .editor-preview-side 为 position:fixed top:50px right:0 z-index:9，
+   嵌进笔记面板后盖住窗口右半屏——含头部模式切换按钮，用户被困只能重启）。
+   notes.js 已传 sideBySideFullscreen:false（容器持 sided--no-fullscreen 行内分屏，不再全屏接管）；
+   此处 ①容器定位锚点 ②非 sided 态兜底：fixed 预览改容器内 absolute（不再盖模式开关）。
+   回归口径：进入分屏 → 头部「编辑」可见可点 → 点击退回编辑态。 */
+.nt-editor-body .EasyMDEContainer { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; }
+.nt-editor-body .EasyMDEContainer.sided--no-fullscreen { flex-direction: row; flex-wrap: wrap; align-items: stretch; }
+.nt-editor-body .EasyMDEContainer:not(.sided--no-fullscreen) .editor-preview-side {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 50%;
+}
 .nt-editor-body .EasyMDEContainer .CodeMirror { flex: 1; height: auto; }
 .nt-editor-empty { flex: 1; display: grid; place-items: center; color: var(--hull-text-sub); }
 .nt-editor-foot {
