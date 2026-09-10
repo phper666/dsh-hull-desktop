@@ -34,14 +34,23 @@ function parseTags(val: string): string[] | null {
   return items.length === 0 ? null : items;
 }
 
+/** 块边界统一判定（oracle 🟡6）：起始 `---` 行 + 首个整行 `---` 闭合——`------` 等不算闭合；
+ *  解析面/回写面/正文剥离共用此判定，杜绝 indexOf('\n---') 把 `------` 当闭合的口径分叉 */
+export function findFrontmatterClose(lines: string[]): number {
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].trim() === '---') return i;
+  }
+  return -1;
+}
+
 export function parseNoteFrontmatter(content: string): ParsedNoteFrontmatter {
   const fm: NoteFrontmatter = { title: null, type: null, task: null, tags: null };
   if (typeof content !== 'string') return { fm, hasBlock: false };
-  const text = content.replace(/\r\n/g, '\n');
-  if (!text.startsWith('---\n')) return { fm, hasBlock: false };
-  const end = text.indexOf('\n---', 4);
-  if (end === -1) return { fm, hasBlock: false };
-  for (const line of text.slice(4, end).split('\n')) {
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  if (lines[0]?.trim() !== '---') return { fm, hasBlock: false };
+  const close = findFrontmatterClose(lines);
+  if (close === -1) return { fm, hasBlock: false };
+  for (const line of lines.slice(1, close)) {
     if (line.trim() === '' || /^\s*#/.test(line)) continue;
     if (/^\s/.test(line)) continue; // 缩进行（嵌套结构）跳过——三键为平面标量
     const idx = line.indexOf(':');
@@ -73,28 +82,24 @@ function formatValue(v: string | string[]): string {
 export function applyFrontmatterPatch(content: string, patch: FrontmatterPatch): string {
   const text = content.replace(/\r\n/g, '\n');
   const entries = Object.entries(patch) as Array<[keyof FrontmatterPatch, string | string[] | null | undefined]>;
-  const hasBlock = text.startsWith('---\n') && text.indexOf('\n---', 4) !== -1;
+  const lines = text.split('\n');
+  // hasBlock 判定与解析/剥离同口径（findFrontmatterClose 整行 `---`，oracle 🟡6）
+  const close0 = lines[0]?.trim() === '---' ? findFrontmatterClose(lines) : -1;
+  const hasBlock = close0 !== -1;
   if (!hasBlock) {
     // 头注入：新块 + 空行 + 正文原样
-    const lines = entries
+    const lines2 = entries
       .filter(([, v]) => v !== null && v !== undefined)
       .map(([k, v]) => `${k}: ${formatValue(v as string | string[])}`);
-    if (lines.length === 0) return text;
-    return `---\n${lines.join('\n')}\n---\n\n${text}`;
+    if (lines2.length === 0) return text;
+    return `---\n${lines2.join('\n')}\n---\n\n${text}`;
   }
-  const lines = text.split('\n');
-  let close = -1;
-  for (let i = 1; i < lines.length; i++) {
-    if (lines[i].trim() === '---') {
-      close = i;
-      break;
-    }
-  }
-  if (close === -1) return text; // 防御（hasBlock 已保证，不达）
+  let close = close0;
   const pending: string[] = [];
   for (const [key, value] of entries) {
     if (value === undefined) continue;
-    const keyRe = new RegExp(`^${key}\\s*:`);
+    // key 来自契约 patch 固定四键，仍转义防正则元字符注入（oracle 🟡5）
+    const keyRe = new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:`);
     let found = -1;
     for (let i = 1; i < close; i++) {
       if (!/^\s/.test(lines[i]) && keyRe.test(lines[i])) {

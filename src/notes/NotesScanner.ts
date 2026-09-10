@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { HullError } from '../shared/errors';
 import { NOOP_LOGGER, type RuntimeLogger } from '../shared/types';
 
-import { parseNoteFrontmatter } from './frontmatter';
+import { findFrontmatterClose, parseNoteFrontmatter } from './frontmatter';
 import { NOTES_ERRORS, type NoteIndexEntry } from './types';
 
 /** 全量扫描并发读上限（设计 §4.8） */
@@ -187,13 +187,12 @@ function basenameNoExt(rel: string): string {
   return base.endsWith('.md') ? base.slice(0, -3) : base;
 }
 
-/** 去 frontmatter 块（合法边界剥块含尾随空行；无块/未闭合原文返回） */
+/** 去 frontmatter 块（边界判定与 frontmatter.ts 统一为整行 `---`，oracle 🟡6；无块/未闭合原文返回） */
 function stripFrontmatter(content: string): string {
-  const text = content.replace(/\r\n/g, '\n');
-  if (!text.startsWith('---\n')) return text;
-  const end = text.indexOf('\n---', 4);
-  if (end === -1) return text;
-  let rest = text.slice(end + 4);
-  if (rest.startsWith('\n')) rest = rest.slice(1);
-  return rest;
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  if (lines[0]?.trim() !== '---') return content;
+  const close = findFrontmatterClose(lines);
+  if (close === -1) return content;
+  const rest = lines.slice(close + 1).join('\n');
+  return rest.startsWith('\n') ? rest.slice(1) : rest;
 }

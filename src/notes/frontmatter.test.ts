@@ -1,5 +1,5 @@
 import { test } from 'node:test';
-import { deepEqual, equal } from 'node:assert/strict';
+import { deepEqual, equal, match, ok } from 'node:assert/strict';
 
 import { applyFrontmatterPatch, parseNoteFrontmatter } from './frontmatter';
 
@@ -64,4 +64,24 @@ test('回写：解析失败（未闭合块）→ 头注入新块，原内容原�
 
 test('回写：空 patch 原样返回（仅换行归一）', () => {
   equal(applyFrontmatterPatch('---\ntitle: T\n---\nbody', {}), '---\ntitle: T\n---\nbody');
+});
+
+test('块边界统一：------ 不算闭合（解析面 + 回写面口径一致，oracle 🟡6）', () => {
+  // 解析面：无整行闭合 → hasBlock=false（三键视为空）
+  const r = parseNoteFrontmatter('---\ntitle: x\n------\nbody');
+  equal(r.hasBlock, false);
+  equal(r.fm.title, null);
+  // 回写面：同口径 → 头注入新块而非误改 '------' 块
+  const out = applyFrontmatterPatch('---\ntitle: x\n------\nbody', { task: 'ts_1' });
+  ok(out.startsWith('---\ntask: ts_1\n---\n'));
+  // 正常闭合不受影响
+  equal(parseNoteFrontmatter('---\ntitle: y\n---\nbody').fm.title, 'y');
+});
+
+test('回写 key 正则元字符转义（oracle 🟡5）：键含 . 等不炸不误匹配', () => {
+  const src = '---\ntitle: T\na.b: keepme\n---\nbody';
+  // 'a.b' 键（契约外的防御面）：定位替换应按字面匹配
+  const out = applyFrontmatterPatch(src, { 'a.b': 'newval' } as never);
+  match(out, /^a\.b: newval$/m);
+  match(out, /title: T/);
 });

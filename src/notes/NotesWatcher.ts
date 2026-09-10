@@ -5,6 +5,8 @@
  * 初始化失败/运行中 error/close → onFatal 回调（Service 切 degraded + 30s 重扫）。
  * 仅关注 .md；`.` 开头隐藏目录/文件与 .trash 一律忽略。
  */
+import { relative, sep } from 'node:path';
+
 import { watch, type FSWatcher } from 'chokidar';
 
 import { NOOP_LOGGER, type RuntimeLogger } from '../shared/types';
@@ -93,7 +95,11 @@ export class NotesWatcher {
   private emit(absPath: string, kind: 'add' | 'change' | 'unlink'): void {
     if (this.isSelfEcho(absPath)) return;
     const root = this.opts.root();
-    const rel = absPath.startsWith(root + '/') ? absPath.slice(root.length + 1) : absPath;
+    // path.relative + sep 归一：chokidar win 事件路径含 `\`，startsWith(root+'/') 永不命中（oracle 🟠1）；
+    // 归一为 '/' 与 NotesScanner.walk 相对键一致
+    const relAbs = relative(root, absPath);
+    if (!relAbs || relAbs.startsWith('..')) return; // 根外事件（理论不可达）防御
+    const rel = relAbs.split(sep).join('/');
     if (!rel.endsWith('.md')) return; // 非 .md（trash.json 等）不入索引
     if (kind === 'unlink') this.opts.onRemove(rel);
     else this.opts.onChange(rel);

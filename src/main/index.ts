@@ -52,7 +52,7 @@ import { registerExecIpc } from '../exec/ipc/ExecIpc';
 import { SkillsScanner } from '../skills/SkillsScanner';
 import { SkillsOps } from '../skills/ops/SkillsOps';
 import { registerSkillsIpc } from '../skills/ipc/SkillsIpc';
-import { NotesService } from '../notes/NotesService';
+import { forbiddenNotesDirReason, NotesService } from '../notes/NotesService';
 import { registerNotesIpc, NOTES_PUSH_CHANNEL } from '../notes/NotesIpc';
 import { Logger } from '../log/Logger';
 
@@ -61,7 +61,8 @@ import { Logger } from '../log/Logger';
  * 单实例锁 → 兜底清理（FR-7）→ Logger/Settings → whenReady → ensure() 三态分支
  * （就位：窗口 ∥ start()；首装：自动触发 InstallFlow）→ S3 升级编排（托盘入口/dialog/自动检查）
  * → 退出编排（含升级中退出扩展）。
- * 红线：DSH_HOME 零引用；官方 UI loadURL 不挂 preload（零注入 CON-R001）。
+ * 红线：绝不写 DSH_HOME / <userData>/dsh（notes.dir 域内校验 forbiddenNotesDirReason 强制，CON-R-notes-001）；
+ * 官方 UI loadURL 不挂 preload（零注入 CON-R001）。
  */
 
 // e2e 测试隔离（S7）：HULL_USER_DATA 覆盖 userData 路径（须在单实例锁之前——锁基于 userData 目录）
@@ -126,9 +127,9 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   const applyNotesDir = (dir: string): void => {
     try {
       if (!statSync(dir).isDirectory()) throw new Error('不是目录');
-      const dshHome = process.env.DSH_HOME;
-      if (dshHome && (dir === dshHome || dir.startsWith(dshHome + sep))) {
-        logger.warn(`[notes] 拒绝切换 notes.dir 到 DSH_HOME 内: ${dir}（CON-R-notes-001）`);
+      const forbidden = forbiddenNotesDirReason(dir, userDataPath);
+      if (forbidden) {
+        logger.warn(`[notes] 拒绝切换 notes.dir（${forbidden}）: ${dir}（CON-R-notes-001）`);
         return;
       }
       notesService.setNotesDir(dir);
@@ -141,7 +142,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   // B3+B4：执行引擎门面（ExecutionEngine 组装 Scheduler/Heartbeat/Convergence/VerifyGate）+ ProviderManager
   // + ProviderRegistry（M2 注册 'dsh' ACP）+ ApprovalManager + AcEditor + 执行控制 IPC（B3 10 + B4 3）
   // Q-017-B：ACP overlay 显式注入壳自管 dsh（<userData>/dsh，与 DSH_HOME/dsh 结构同构，
-  // runtime spawnArgs 同源解析）——壳红线 DSH_HOME 零引用（本文件头注），用户环境通常未设，
+  // runtime spawnArgs 同源解析）——壳红线绝不写 DSH_HOME（notes.dir 接线处同型守卫强制），用户环境通常未设，
   // 此前 ACPProvider 硬依赖 env.DSH_HOME → 每任务必然 settleFailure（实测 15:21 卡死根因 B）
   const providerManager = new ProviderManager({
     // nodePath 与 RuntimeManager 同源解析（spawnArgs 单一修改点）：捆绑 node 优先，

@@ -5,7 +5,7 @@
  * indexChanged 推送 500ms 防抖合并（设计 §4.2）；写操作登记回声抑制 + 主动增量更新索引（§4.3）。
  */
 import { existsSync, mkdirSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 
 import { HullError } from '../shared/errors';
 import { NOOP_LOGGER, type RuntimeLogger } from '../shared/types';
@@ -253,4 +253,21 @@ export class NotesService {
       }
     }, PUSH_DEBOUNCE_MS);
   }
+}
+
+/**
+ * notes.dir 禁区判定（oracle 🟡9/🟡10，CON-R-notes-001：绝不写 DSH_HOME / 壳自管 dsh overlay）：
+ * 双侧 resolve 归一（拒尾随 /、/../、分隔符漂移绕过）；DSH_HOME 未设则跳过该禁区。
+ * 返回 null = 允许；字符串 = 禁区原因（main 接线侧拒绝切换维持旧目录）。
+ */
+export function forbiddenNotesDirReason(dir: string, userDataPath: string): string | null {
+  const dirN = resolve(dir);
+  const dshHome = process.env.DSH_HOME;
+  if (dshHome) {
+    const home = resolve(dshHome);
+    if (dirN === home || dirN.startsWith(home + sep)) return 'DSH_HOME 内';
+  }
+  const overlay = resolve(join(userDataPath, 'dsh'));
+  if (dirN === overlay || dirN.startsWith(overlay + sep)) return '壳自管 dsh overlay 内';
+  return null;
 }
