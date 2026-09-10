@@ -441,3 +441,16 @@ test('N1-③ migrate：schemaVersion 3 → 4，旧文件无 notesDir 默认补�
   equal(parsed.schemaVersion, 4);
   equal(parsed.notesDir, join(dir, 'notes'));
 });
+
+test('N1-④ set notesDir 相对路径/空串 → notes-dir-invalid 拒绝写盘（N4 契约 §接口详情 3）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-settings-notesbad-'));
+  tempDirs.push(dir);
+  const provider = new SettingsProvider({ userDataPath: dir });
+  for (const bad of ['relative/path', '']) {
+    throws(
+      () => provider.set({ notesDir: bad }),
+      (e: unknown) => (e as { code: string }).code === 'notes-dir-invalid'
+    );
+  }
+  ok(!existsSync(join(dir, 'settings.json')), '拒绝写盘：settings.json 不产生');
+});

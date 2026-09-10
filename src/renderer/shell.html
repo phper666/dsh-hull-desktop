@@ -616,6 +616,23 @@
           </div>
         </section>
 
+        <!-- N4 笔记存储（feishu-n4-notes-api-contract：目录选择器复用 dialog:pickDirectory、路径复制复用 hull:copyText、
+             读写复用 hull:getSettings/setSettings——零新增通道；notesDir 变更经 SettingsProvider changed 广播 → main applyNotesDir → N1 重扫 + dir-changed 推送） -->
+        <section class="scard" aria-labelledby="sec-notes">
+          <h2 id="sec-notes">笔记</h2>
+          <div class="srow">
+            <div class="info">
+              <div class="label">存储目录</div>
+              <div class="sub" id="notes-dir-path">—</div>
+              <div id="notes-dir-error" class="error-text" role="alert"></div>
+            </div>
+            <div class="control">
+              <button id="notes-pick" class="sbtn">更改目录…</button>
+              <button id="notes-copy" class="sbtn">复制路径</button>
+            </div>
+          </div>
+        </section>
+
         <section class="scard" aria-labelledby="sec-notif">
           <h2 id="sec-notif">通知</h2>
           <div class="srow">
@@ -908,6 +925,8 @@
     autoCheckHull: 'autoCheckHull', hullAlert: 'hull-alert', openLogs: 'open-logs-dir', openDataDir: 'open-data-dir',
     notifPushWorkflow: 'notifPushWorkflow', notifPushBoardExec: 'notifPushBoardExec',
     notifDnd: 'notifDnd', notifDndFrom: 'notifDndFrom', notifDndTo: 'notifDndTo', notifDndTimes: 'notifDndTimes',
+    // N4 笔记区块（存储目录显示/更改/复制）
+    notesDirPath: 'notes-dir-path', notesPick: 'notes-pick', notesCopy: 'notes-copy', notesDirError: 'notes-dir-error',
   };
   for (const k of Object.keys(SETT_IDS)) {
     sett.els[k] = document.getElementById(SETT_IDS[k]);
@@ -960,12 +979,58 @@
   }
   if (sett.els.pkgmgrSeg) {
     sett.els.pkgmgrSeg.addEventListener('click', async (e) => {
-      const btn = e.target.closest('button[data-pkgmgr]');
-      if (!btn) return;
+      const btn = e.target.closest('button[data-theme], button[data-pkgmgr]');
+      if (!btn || !btn.dataset.pkgmgr) return;
       const next = btn.dataset.pkgmgr;
       if (next !== 'npm' && next !== 'pnpm') return;
       const ok = await setSetting({ packageManager: next }, null);
       if (ok) renderPkgMgrButtons(next);
+    });
+  }
+
+  // ── N4 笔记存储区块（feishu-n4-notes-api-contract）：路径显示 / 复制 / 更改目录 ──
+  // 确认弹窗（复用 notes.css .nt-modal 组件样式——同页已加载；CON-R-notes-010 定案文案）
+  function confirmNotesDirChange(nextPath, onConfirm) {
+    const wrap = document.createElement('div');
+    wrap.className = 'nt-modal';
+    wrap.innerHTML = `<div class="nt-modal-box"><h3>更改笔记存储目录</h3>
+      <p class="nt-modal-msg">新目录：<b>${String(nextPath).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</b></p>
+      <p class="nt-modal-msg">新目录将被扫描，旧目录文件不动（不迁移）。打开中的笔记将失效清空回列表。</p>
+      <div class="nt-modal-ops"><button type="button" class="nt-ghost" data-notes-x>取消</button><button type="button" class="nt-primary" data-notes-ok>确认更改</button></div>
+    </div>`;
+    document.body.appendChild(wrap);
+    const close = () => wrap.remove();
+    wrap.querySelector('[data-notes-x]').addEventListener('click', close);
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+    wrap.querySelector('[data-notes-ok]').addEventListener('click', async () => {
+      close();
+      await onConfirm();
+    });
+  }
+  if (sett.els.notesPick) {
+    sett.els.notesPick.addEventListener('click', async () => {
+      // 原生目录选择器（复用 dialog:pickDirectory；createDirectory 已开启——目录不存在可当场创建，W1 定案）
+      let picked = null;
+      try {
+        const r = await bridge.pickDirectory();
+        if (!r || !r.ok || !r.path) return; // 取消 → 流程终止，无改动（幂等）
+        picked = r.path;
+      } catch { return; }
+      if (sett.state.settings && picked === sett.state.settings.notesDir) return; // 同目录 → 无副作用
+      confirmNotesDirChange(picked, async () => {
+        const ok = await setSetting({ notesDir: picked }, sett.els.notesDirError);
+        if (ok) toast('笔记目录已更改，正在扫描新目录…'); // 重扫完成提示由 notes 视图 indexChanged 兜底
+      });
+    });
+  }
+  if (sett.els.notesCopy) {
+    sett.els.notesCopy.addEventListener('click', async () => {
+      const p = sett.state.settings?.notesDir || (sett.els.notesDirPath && sett.els.notesDirPath.textContent) || '';
+      if (!p) { toast('目录尚未就绪'); return; }
+      try {
+        const r = await bridge.copyText(p);
+        toast(r && r.ok === false ? (r.message || '复制失败') : '路径已复制');
+      } catch { toast('复制失败'); }
     });
   }
 
@@ -1070,6 +1135,8 @@
     setTheme(s.theme);
     renderPkgMgrButtons(s.packageManager);
     renderNotifPrefs(s.notifPrefs);
+    // N4：笔记存储目录显示（生效路径——SettingsProvider 读路径已做默认解析 <userData>/notes）
+    if (sett.els.notesDirPath) sett.els.notesDirPath.textContent = s.notesDir || '—';
     if (!sett.state.editing.pinned) {
       sett.els.channel.value = s.channel;
       sett.els.pinnedVersion.value = s.pinnedVersion || '';

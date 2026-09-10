@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 
 import { normalizeNotifPrefs, DEFAULT_NOTIF_PREFS, type NotifPrefs } from '../notifications/prefs';
 
@@ -182,6 +182,14 @@ export class SettingsProvider extends EventEmitter {
     // 校验（SETTINGS_ERRORS）
     if (partial.registry !== undefined && !isValidRegistry(partial.registry)) {
       throw new HullError('registry-invalid', `非法 registry 地址: ${partial.registry}`);
+    }
+    // N4（feishu-n4-notes-api-contract §接口详情 3）：notesDir 非空值必须为绝对路径
+    // （null = 恢复默认；相对/非法 → notes-dir-invalid 拒绝写盘，CON-R-notes-013 精神）
+    if (partial.notesDir !== undefined && partial.notesDir !== null) {
+      const d = partial.notesDir;
+      if (typeof d !== 'string' || d === '' || !isAbsolute(d)) {
+        throw new HullError('notes-dir-invalid', `非法笔记目录: ${String(partial.notesDir)}（须为绝对路径）`);
+      }
     }
     if (partial.pinnedVersion !== undefined && partial.pinnedVersion !== null && !isValidVersion(partial.pinnedVersion)) {
       throw new HullError('version-invalid', `非法版本号: ${partial.pinnedVersion}`);
