@@ -383,8 +383,9 @@
   function onTreeClick(e) {
     const chev = e.target.closest('[data-chev]');
     if (chev) {
+      // 根节点 data-chev=""（空串）：必须用 !== undefined 判别，if (p) 会把根节点折叠静默跳过
       const p = chev.dataset.chev;
-      if (p) state.collapsed.has(p) ? state.collapsed.delete(p) : state.collapsed.add(p);
+      if (p !== undefined) state.collapsed.has(p) ? state.collapsed.delete(p) : state.collapsed.add(p);
       renderTree();
       return;
     }
@@ -392,9 +393,10 @@
     if (!r) return;
     const dir = r.dataset.dir || '';
     const now = Date.now();
-    const dbl = dir && lastTreeClick.dir === dir && now - lastTreeClick.t < 350;
+    // 根节点 dir='' 同样参与双击手势（空串是合法键；折叠语义由 chev 非 empty 守卫）
+    const dbl = lastTreeClick.dir === dir && now - lastTreeClick.t < 350;
     lastTreeClick = dbl ? { t: 0, dir: '' } : { t: now, dir };
-    if (dir && dbl) {
+    if (dbl) {
       // 双击手势：切换折叠（仅含子目录的行有折叠语义，平铺目录行 chev empty 直接跳过）
       const chev = r.querySelector('.nt-chev');
       if (chev && !chev.classList.contains('empty')) {

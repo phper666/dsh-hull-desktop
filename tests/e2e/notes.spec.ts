@@ -187,6 +187,43 @@ test.describe('N2/N1 笔记主链路', () => {
     tmp.cleanup();
   });
 
+  test('根节点「全部笔记」折叠/展开（chevron 真实点击 + 双击两条路径）', async () => {
+    const tmp = makeTempUserData();
+    seedFakeDsh(tmp.dir);
+    seedSettings(tmp.dir);
+    seedNotes(tmp.dir);
+    const app = await launchApp({ userData: tmp.dir, fakeDshMode: 'ready' });
+    const shell = await openNotesView(app);
+    await expect(shell.locator('#nt-items .nt-item')).toHaveCount(2, { timeout: 20_000 });
+    const root = shell.locator('#nt-tree .nt-trow[data-dir=""]');
+    const rowCount = () => shell.evaluate(() => document.querySelectorAll('#nt-tree .nt-trow').length);
+    // 展开态：根行 + 工作 + 经验 = 3 行
+    await expect(shell.locator('#nt-tree .nt-trow')).toHaveCount(3, { timeout: 20_000 });
+    // 路径 ①：真实点击根 chevron → 所有一级目录行消失（根行保留）
+    await root.locator('.nt-chev').click();
+    await shell.waitForTimeout(200);
+    ok(await rowCount() === 1, `折叠后树行数应为 1（仅根行），实际 ${await rowCount()}`);
+    await shell.screenshot({ path: '/tmp/notes-root-collapsed.png' });
+    // 再点 → 恢复
+    await root.locator('.nt-chev').click();
+    await shell.waitForTimeout(200);
+    const dirsAfterExpand = await shell.evaluate(() => [...document.querySelectorAll('#nt-tree .nt-trow')].map((r) => (r as HTMLElement).dataset.dir));
+    ok(await rowCount() === 2 && dirsAfterExpand.join(',') === ',工作', `展开后应为 [根,工作]，实际 ${JSON.stringify(dirsAfterExpand)}`);
+    // 路径 ②：双击根行（350ms 内两击）→ 折叠
+    await root.click();
+    await root.click();
+    await shell.waitForTimeout(200);
+    ok(await rowCount() === 1, `双击折叠后树行数应为 1，实际 ${await rowCount()}`);
+    // 双击 → 展开
+    await root.click();
+    await root.click();
+    await shell.waitForTimeout(200);
+    const dirsAfterDblExpand = await shell.evaluate(() => [...document.querySelectorAll('#nt-tree .nt-trow')].map((r) => (r as HTMLElement).dataset.dir));
+    ok(await rowCount() === 2 && dirsAfterDblExpand.join(',') === ',工作', `双击展开后应为 [根,工作]，实际 ${JSON.stringify(dirsAfterDblExpand)}`);
+    await app.close();
+    tmp.cleanup();
+  });
+
   test('搜索关键词 → 列表过滤；清空恢复', async () => {
     const tmp = makeTempUserData();
     seedFakeDsh(tmp.dir);
