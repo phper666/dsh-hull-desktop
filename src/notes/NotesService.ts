@@ -4,7 +4,7 @@
  * setNotesDir 幂等（同目录重复设置无副作用，契约 §接口详情 11）；
  * indexChanged 推送 500ms 防抖合并（设计 §4.2）；写操作登记回声抑制 + 主动增量更新索引（§4.3）。
  */
-import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmdirSync, statSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 
 import { HullError } from '../shared/errors';
@@ -162,6 +162,39 @@ export class NotesService {
       mkdirSync(abs, { recursive: true });
     } catch (err) {
       throw new HullError(NOTES_ERRORS.ioError, `目录创建失败: ${relDir} ${(err as Error).message}`);
+    }
+    return { path: relDir };
+  }
+
+  /**
+   * notes:rmdir（v1.2，CON-R-notes-015）：仅空目录可删——无子目录且无任何条目；
+   * 非空 → notes-dir-not-empty（提示「先移空再删」）；空目录直接 rmdirSync，不进回收站
+   * （目录非笔记实体，回收站只管 .md）；根目录/`.trash`/遍历/隐藏段由 pathGuard 拒（同 mkdir 守卫面）。
+   */
+  rmdir(relDir: string): { path: string } {
+    if (relDir === '' || relDir === '.') {
+      throw new HullError(NOTES_ERRORS.pathInvalid, '根目录不可删除');
+    }
+    const abs = resolveSafeNotePath(this.notesDir, relDir);
+    let st;
+    try {
+      st = statSync(abs);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new HullError(NOTES_ERRORS.notFound, `目录不存在: ${relDir}`);
+      }
+      throw new HullError(NOTES_ERRORS.ioError, `目录读取失败: ${relDir} ${(err as Error).message}`);
+    }
+    if (!st.isDirectory()) {
+      throw new HullError(NOTES_ERRORS.notFound, `不是目录: ${relDir}`);
+    }
+    if (readdirSync(abs).length > 0) {
+      throw new HullError(NOTES_ERRORS.dirNotEmpty, `目录非空，先移空再删: ${relDir}`);
+    }
+    try {
+      rmdirSync(abs);
+    } catch (err) {
+      throw new HullError(NOTES_ERRORS.ioError, `目录删除失败: ${relDir} ${(err as Error).message}`);
     }
     return { path: relDir };
   }

@@ -76,7 +76,8 @@ export const SKILLS_IPC_CHANNELS = [
   'skills:getOperationLog',
 ] as const;
 
-/** N1 notes 11 invoke + 1 推送 + hull:showNotes 壳导航（feishu-n1-notes-api-contract §接口清单；notes:mkdir 为 v1.1 集成期补获 Q-075） */
+/** N1 notes 12 invoke + 1 推送 + hull:showNotes 壳导航（feishu-n1-notes-api-contract §接口清单；
+ *  notes:mkdir 为 v1.1 集成期补获 Q-075；notes:rmdir 为 v1.2 补获 CON-R-notes-015 仅空目录删除） */
 export const NOTES_IPC_CHANNELS = [
   'hull:showNotes',
   'notes:index',
@@ -84,6 +85,7 @@ export const NOTES_IPC_CHANNELS = [
   'notes:save',
   'notes:create',
   'notes:mkdir',
+  'notes:rmdir',
   'notes:move',
   'notes:delete',
   'notes:trashList',

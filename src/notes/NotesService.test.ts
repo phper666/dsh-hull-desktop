@@ -131,3 +131,67 @@ test('forbiddenNotesDirReason：<userData>/dsh overlay 禁区；DSH_HOME 未设�
     if (oldHome !== undefined) process.env.DSH_HOME = oldHome;
   }
 });
+
+// ── v1.2 CON-R-notes-015：rmdir 仅空目录 ──
+
+test('rmdir：空目录删除成功（不进回收站，直接移除）', () => {
+  const { service } = makeService();
+  service.mkdir('emptydir');
+  ok(existsSync(join(service.getNotesDir(), 'emptydir')));
+  deepEqual(service.rmdir('emptydir'), { path: 'emptydir' });
+  ok(!existsSync(join(service.getNotesDir(), 'emptydir')), '目录已移除');
+});
+
+test('rmdir：非空（含笔记）→ notes-dir-not-empty「先移空再删」', () => {
+  const { service } = makeService();
+  service.mkdir('withnote');
+  const out = service.create('withnote', 'x');
+  void out;
+  throws(
+    () => service.rmdir('withnote'),
+    (e: unknown) => (e as { code: string }).code === 'notes-dir-not-empty'
+  );
+  ok(existsSync(join(service.getNotesDir(), 'withnote')), '非空目录保留');
+});
+
+test('rmdir：非空（含子目录）→ notes-dir-not-empty；空子目录树则可删', () => {
+  const { service } = makeService();
+  service.mkdir('a/b');
+  throws(
+    () => service.rmdir('a'),
+    (e: unknown) => (e as { code: string }).code === 'notes-dir-not-empty'
+  );
+  deepEqual(service.rmdir('a/b'), { path: 'a/b' });
+  deepEqual(service.rmdir('a'), { path: 'a' });
+});
+
+test("rmdir：根目录（空串/`.`）拒绝；.trash / 遍历 / 隐藏段 → notes-path-invalid", () => {
+  const { service } = makeService();
+  for (const bad of ['', '.', '.trash', 'a/../b', '../x', '.hidden']) {
+    throws(
+      () => service.rmdir(bad),
+      (e: unknown) => (e as { code: string }).code === 'notes-path-invalid',
+      `应拒 ${JSON.stringify(bad)}`
+    );
+  }
+});
+
+test('rmdir：不存在 → notes-not-found', () => {
+  const { service } = makeService();
+  throws(
+    () => service.rmdir('ghost'),
+    (e: unknown) => (e as { code: string }).code === 'notes-not-found'
+  );
+});
+
+test('rmdir：目标实为文件 → 拒绝（不误删笔记文件）', () => {
+  const { service } = makeService();
+  const out = service.create(undefined, '文件目录');
+  const fileRel = out.path;
+  ok(fileRel.endsWith('.md'));
+  throws(
+    () => service.rmdir(fileRel),
+    (e: unknown) => (e as { code: string }).code === 'notes-not-found'
+  );
+  ok(existsSync(join(service.getNotesDir(), fileRel)), '文件保留');
+});

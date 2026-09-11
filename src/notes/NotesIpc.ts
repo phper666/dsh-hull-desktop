@@ -18,6 +18,7 @@ export const NOTES_IPC_HANDLERS = [
   'notes:save',
   'notes:create',
   'notes:mkdir',
+  'notes:rmdir',
   'notes:move',
   'notes:delete',
   'notes:trashList',
@@ -89,6 +90,15 @@ export function registerNotesIpc(service: NotesService): void {
         throw new HullError(NOTES_ERRORS.pathInvalid, `目录名非法: ${String(dir)}`);
       }
       return service.mkdir(dir);
+    })
+  );
+  // 4c notes:rmdir（v1.2，CON-R-notes-015：仅空目录可删，不进回收站）
+  ipcMain.handle('notes:rmdir', (_e, dir: unknown) =>
+    toResult(() => {
+      if (typeof dir !== 'string' || dir === '' || dir === '.') {
+        throw new HullError(NOTES_ERRORS.pathInvalid, `目录名非法: ${String(dir)}`);
+      }
+      return service.rmdir(dir);
     })
   );
   // 5 notes:move（targetDir 须为已存在真实子目录，Service 内复核存在性）

@@ -187,6 +187,54 @@ test.describe('N2/N1 笔记主链路', () => {
     tmp.cleanup();
   });
 
+  test('目录删除（CON-R-notes-015）：空目录 hover × 确认删除；非空目录拒绝', async () => {
+    const tmp = makeTempUserData();
+    seedFakeDsh(tmp.dir);
+    seedSettings(tmp.dir);
+    seedNotes(tmp.dir);
+    const app = await launchApp({ userData: tmp.dir, fakeDshMode: 'ready' });
+    const shell = await openNotesView(app);
+    await expect(shell.locator('#nt-items .nt-item')).toHaveCount(2, { timeout: 20_000 });
+    const hasRmdir = await shell.evaluate(() => typeof (window as unknown as { notes?: { rmdir?: unknown } }).notes?.rmdir === 'function');
+    const toast = shell.locator('.nt-toast');
+
+    // A) 非空拒绝（渲染层预检，不依赖 rmdir 通道时序）：「工作」含 meeting.md
+    await shell.locator('#nt-tree .nt-trow[data-dir="工作"]').hover();
+    await shell.locator('#nt-tree .nt-trow[data-dir="工作"] [data-deldir]').click();
+    const confirmA = shell.locator('.nt-modal');
+    await expect(confirmA).toBeVisible();
+    await expect(confirmA.locator('.nt-modal-msg')).toContainText('仅空目录可删');
+    await confirmA.locator('[data-ok]').click();
+    await expect(toast).toContainText('目录非空：先移空笔记/子目录再删');
+    await expect(shell.locator('#nt-tree .nt-trow[data-dir="工作"]')).toBeVisible();
+    ok(existsSync(join(tmp.dir, 'notes', '工作')), '非空目录磁盘保留');
+
+    // B) 空目录：UI 新建「临时」→ hover × → 确认 → 目录消失（+ 通道就绪时磁盘删除）
+    await shell.locator('#nt-newdir').click();
+    await shell.locator('#nt-newdir-input').fill('临时');
+    await shell.keyboard.press('Enter');
+    await expect(shell.locator('#nt-tree .nt-trow[data-dir="临时"]')).toBeVisible({ timeout: 20_000 });
+    await shell.locator('#nt-tree .nt-trow[data-dir="临时"]').hover();
+    await shell.locator('#nt-tree .nt-trow[data-dir="临时"] [data-deldir]').click();
+    const confirmB = shell.locator('.nt-modal');
+    await expect(confirmB.locator('.nt-modal-msg')).toContainText('删除目录 临时/');
+    await confirmB.locator('[data-ok]').click();
+    if (hasRmdir) {
+      await expect(shell.locator('#nt-tree .nt-trow[data-dir="临时"]')).toHaveCount(0, { timeout: 20_000 });
+      await expect(toast).toContainText('已删除目录 临时/');
+      ok(!existsSync(join(tmp.dir, 'notes', '临时')), '空目录已从磁盘删除');
+    } else {
+      // rmdir 通道未落地（N1 并行）→ 降级提示，目录保留；N1 落地后本分支自动消失
+      await expect(toast).toContainText('通道未就绪');
+      await expect(shell.locator('#nt-tree .nt-trow[data-dir="临时"]')).toBeVisible();
+    }
+    // 根「全部笔记」行无删除按钮
+    await shell.locator('#nt-tree .nt-trow[data-dir=""]').hover();
+    await expect(shell.locator('#nt-tree .nt-trow[data-dir=""] [data-deldir]')).toHaveCount(0);
+    await app.close();
+    tmp.cleanup();
+  });
+
   test('根节点「全部笔记」折叠/展开（chevron 真实点击 + 双击两条路径）', async () => {
     const tmp = makeTempUserData();
     seedFakeDsh(tmp.dir);
@@ -197,8 +245,8 @@ test.describe('N2/N1 笔记主链路', () => {
     await expect(shell.locator('#nt-items .nt-item')).toHaveCount(2, { timeout: 20_000 });
     const root = shell.locator('#nt-tree .nt-trow[data-dir=""]');
     const rowCount = () => shell.evaluate(() => document.querySelectorAll('#nt-tree .nt-trow').length);
-    // 展开态：根行 + 工作 + 经验 = 3 行
-    await expect(shell.locator('#nt-tree .nt-trow')).toHaveCount(3, { timeout: 20_000 });
+    // 展开态：根行 + 工作 = 2 行（seedNotes 仅 一个子目录）
+    await expect(shell.locator('#nt-tree .nt-trow')).toHaveCount(2, { timeout: 20_000 });
     // 路径 ①：真实点击根 chevron → 所有一级目录行消失（根行保留）
     await root.locator('.nt-chev').click();
     await shell.waitForTimeout(200);

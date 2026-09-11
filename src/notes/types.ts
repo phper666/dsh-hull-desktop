@@ -12,6 +12,7 @@ export const NOTES_ERRORS = {
   nameConflict: 'notes-name-conflict',
   ioError: 'notes-io-error',
   scanError: 'notes-scan-error',
+  dirNotEmpty: 'notes-dir-not-empty',
 } as const;
 
 /** frontmatter 三键 + title（契约 NoteIndexEntry.frontmatter；title 并入顶层） */

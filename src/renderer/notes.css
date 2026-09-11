@@ -154,6 +154,17 @@ body.nt-resizing .nt-editor-body .EasyMDEContainer .CodeMirror { pointer-events:
 .nt-tname { font-size: var(--text-xs); color: var(--hull-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nt-trow:hover .nt-tname, .nt-trow.active .nt-tname { color: var(--hull-text); }
 .nt-tcount { margin-left: auto; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--hull-text-sub); }
+/* CON-R-notes-015 目录删除 ×：hover 才显，不起眼不抢主交互 */
+.nt-deldir {
+  display: none; flex-shrink: 0;
+  width: 16px; height: 16px; align-items: center; justify-content: center;
+  background: transparent; border: none; cursor: pointer;
+  color: var(--hull-text-sub); font-size: 12px; line-height: 1;
+  border-radius: var(--radius-xs); padding: 0;
+  transition: color 0.1s, background 0.1s;
+}
+.nt-trow:hover .nt-deldir { display: inline-flex; }
+.nt-deldir:hover { color: var(--hull-danger); background: var(--hull-danger-soft); }
 .nt-newdir-input {
   width: 100%; background: var(--hull-panel); border: 1px solid var(--hull-accent-medium);
   border-radius: var(--radius-xs); color: var(--hull-text); font-size: var(--text-xs);

@@ -70,6 +70,7 @@
     save: (input) => call('save', (a) => a.save(input)),
     create: (dir, title) => call('create', (a) => a.create(dir, title)), // 位置参数对齐 N1 通道表 dir/title（wire 形态 TBD-1，联调对齐点）
     mkdir: (dir) => call('mkdir', (a) => a.mkdir(dir)), // Q-075「+ 新建目录」（v1.1 集成期补获 notes:mkdir）
+    rmdir: (dir) => call('rmdir', (a) => a.rmdir(dir)), // CON-R-notes-015 目录删除（仅空目录；N1 并行落地，未就绪走降级提示）
     move: (path, targetDir) => call('move', (a) => a.move(path, targetDir)),
     del: (path) => call('delete', (a) => (a.delete ?? a.del ?? a.deleteTask).call(a, path)),
     trashList: () => call('trashList', (a) => a.trashList()),
@@ -367,11 +368,14 @@
     const dirs = deriveDirs();
     const row = (path, name, depth, hasKids) => {
       const isOpen = !state.collapsed.has(path);
+      // CON-R-notes-015：目录行 hover × 删除（仅空目录）；根「全部笔记」行除外
+      const delBtn = path === '' ? '' : `<button class="nt-deldir" data-deldir="${esc(path)}" title="删除目录（仅空目录）">×</button>`;
       return `<div class="nt-trow ${state.selectedDir === path ? 'active' : ''}" data-dir="${esc(path)}" style="padding-left:${8 + depth * 14}px">
         <span class="nt-chev ${hasKids ? (isOpen ? 'open' : '') : 'empty'}" data-chev="${esc(path)}">▸</span>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.5a1 1 0 0 1 1-1h3.2l1.4 1.5H13a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4.5z"/></svg>
         <span class="nt-tname">${esc(name)}</span>
         <span class="nt-tcount">${path === '' ? state.entries.length : subtreeCount(path)}</span>
+        ${delBtn}
       </div>` + (hasKids && isOpen ? [...dirs.get(path).children].sort().map((k) => row(k, dirs.get(k).name, depth + 1, dirs.get(k).children.size > 0)).join('') : '');
     };
     $('#nt-tree').innerHTML = row('', '全部笔记', 0, dirs.get('').children.size > 0);
@@ -381,6 +385,9 @@
    *  不用原生 dblclick：单击处理器会重建树 DOM，原生 dblclick 因两击目标节点不同而不再合成（实测） */
   let lastTreeClick = { t: 0, dir: '' };
   function onTreeClick(e) {
+    // CON-R-notes-015：目录行 × 删除（仅空目录；不进回收站，直接删）
+    const delBtn = e.target.closest('[data-deldir]');
+    if (delBtn) { deleteDirModal(delBtn.dataset.deldir); return; }
     const chev = e.target.closest('[data-chev]');
     if (chev) {
       // 根节点 data-chev=""（空串）：必须用 !== undefined 判别，if (p) 会把根节点折叠静默跳过
@@ -421,6 +428,37 @@
       head.innerHTML = `<span class="nt-treehead-label">目录</span><button class="nt-newdir" id="nt-newdir">＋ 新建目录</button>`;
       $('#nt-newdir').addEventListener('click', () => { state.addingDir = true; renderTreeHeadArea(); });
     }
+  }
+
+  /** CON-R-notes-015 目录删除（仅空目录）：一次确认 → bridge.rmdir。
+   *  非空拒绝用渲染层预检（subtreeCount 可判定，不依赖 rmdir 通道时序）；通道未就绪 → 降级提示。
+   *  被删目录为当前选中目录 → 选中回退根 */
+  function deleteDirModal(dir) {
+    if (!dir) return;
+    ntModal({
+      title: '删除目录',
+      bodyHtml: `<p class="nt-modal-msg">删除目录 <b>${esc(dir)}/</b>？<b>仅空目录可删</b>，删除后不可恢复（不含回收站）。</p>
+        <div class="nt-modal-ops"><button class="nt-ghost" data-x>取消</button><button class="nt-primary danger" data-ok>删除</button></div>`,
+      onOpen(w, close) {
+        $('[data-x]', w).addEventListener('click', close);
+        $('[data-ok]', w).addEventListener('click', async () => {
+          close();
+          if (subtreeCount(dir) > 0) { toast('目录非空：先移空笔记/子目录再删'); return; }
+          if (typeof api?.rmdir !== 'function') { toast('目录删除通道未就绪（等待 N1 rmdir 落地）'); return; }
+          const r = await bridge.rmdir(dir);
+          if (r && r.ok) {
+            state.extraDirs.delete(dir);
+            if (state.selectedDir === dir || state.selectedDir.startsWith(dir + '/')) state.selectedDir = ''; // 选中回退根
+            refreshIndex();
+            toast('已删除目录 ' + dir + '/');
+          } else if (r && (r.code === 'notes-dir-not-empty' || /非空|not-empty/i.test(r.message || ''))) {
+            toast('目录非空：先移空笔记/子目录再删'); // N1 校验兜底（预检与落地间隙有新笔记时）
+          } else {
+            toast('删除目录失败：' + ((r && r.message) || '可重试'));
+          }
+        });
+      },
+    });
   }
 
   async function submitNewDir(raw) {

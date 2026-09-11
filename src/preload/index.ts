@@ -184,6 +184,8 @@ contextBridge.exposeInMainWorld('notes', {
   create: (dir?: string, title?: string) => invoke('notes:create', dir, title),
   /** 新建目录（v1.1 集成期补获 Q-075；幂等，已存在目录 ok） */
   mkdir: (dir: string) => invoke('notes:mkdir', dir),
+  /** 删除空目录（v1.2 CON-R-notes-015：仅空目录可删，不进回收站；非空 → notes-dir-not-empty） */
+  rmdir: (dir: string) => invoke('notes:rmdir', dir),
   move: (path: string, targetDir: string) => invoke('notes:move', path, targetDir),
   delete: (path: string) => invoke('notes:delete', path),
   trashList: () => invoke('notes:trashList'),

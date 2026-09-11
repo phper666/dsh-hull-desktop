@@ -14,12 +14,12 @@ import {
   SKILLS_IPC_CHANNELS,
 } from './ipc-channels';
 
-test('白名单计数：B1 21（含 getExecutionLog + updateComment），B3 10，B4 5，S1+S2 12，dialog/shell 2，N1 notes 13，共面 63', () => {
+test('白名单计数：B1 21（含 getExecutionLog + updateComment），B3 10，B4 5，S1+S2 12，dialog/shell 2，N1 notes 14，共面 64', () => {
   equal(KANBAN_IPC_CHANNELS.length, 21, 'B1 16 数据原语 + createColumn（BUG-1 修复）+ B5 2 导出/导入 + getExecutionLog（Q-回复落盘）+ Q-026 updateComment');
   equal(KANBAN_EXEC_IPC_CHANNELS.length, 10, 'B3 10 执行控制');
   equal(SKILLS_IPC_CHANNELS.length, 12, 'S1 4 skills:* + S2 7 操作 + hull:showSkills 导航');
-  equal(NOTES_IPC_CHANNELS.length, 13, 'N1 11 invoke（含 v1.1 mkdir）+ notes:indexChanged 推送 + hull:showNotes 导航');
-  equal(ALL_IPC_CHANNELS.length, 63);
+  equal(NOTES_IPC_CHANNELS.length, 14, 'N1 12 invoke（含 v1.1 mkdir + v1.2 rmdir）+ notes:indexChanged 推送 + hull:showNotes 导航');
+  equal(ALL_IPC_CHANNELS.length, 64);
 });
 
 test('唯一性：全部 channel 无重复', () => {
@@ -41,7 +41,7 @@ test('前缀规约：kanban: | skills: | hull:showSkills | hull:openPath（壳�
   }
 });
 
-test('N1 notes channel 完整（feishu-n1-notes-api-contract §接口清单：11 invoke + 1 推送 + 壳导航）', () => {
+test('N1 notes channel 完整（feishu-n1-notes-api-contract §接口清单：12 invoke + 1 推送 + 壳导航）', () => {
   const names = NOTES_IPC_CHANNELS.join(',');
   for (const expected of [
     'hull:showNotes',
@@ -50,6 +50,7 @@ test('N1 notes channel 完整（feishu-n1-notes-api-contract §接口清单：11
     'notes:save',
     'notes:create',
     'notes:mkdir',
+    'notes:rmdir',
     'notes:move',
     'notes:delete',
     'notes:trashList',
@@ -123,5 +124,5 @@ test('B1/B3 交集为空（数据原语与执行控制不重叠）', () => {
 
 test('Q-026 kanban:updateComment 通道入白名单（B1 → 21）', () => {
   ok(KANBAN_IPC_CHANNELS.includes('kanban:updateComment' as never), '通道存在');
-  equal(ALL_IPC_CHANNELS.length, 63);
+  equal(ALL_IPC_CHANNELS.length, 64);
 });

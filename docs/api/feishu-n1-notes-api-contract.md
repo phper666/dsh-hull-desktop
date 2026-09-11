@@ -3,8 +3,8 @@
 ## 契约信息
 
 - 工作项：N1 存储与索引服务（飞书 dsh-hull-desktop 清单 Todo 列，ticket guid `198bcd7a-cf20-4a22-9919-c2e8ed35834b`）
-- 契约状态：已冻结（2026-09-11 复核通过；v1.1 集成期补获 mkdir）
-- 版本：v1.1
+- 契约状态：已冻结（2026-09-11 复核通过；v1.1 补 mkdir / v1.2 补 rmdir）
+- 版本：v1.2
 - 适用需求：notes（共识 [共识-Hull桌面壳-笔记.md](../spec/共识-Hull桌面壳-笔记.md) v1.1）
 - 最后更新：2026-09-11
 - 说明：桌面壳内部模块契约（Electron，无 HTTP API 面）；本契约 = notes 主进程服务（Store/Scanner/Watch/Trash/路径安全）的 IPC 接口面与模块行为。IPC 封装、通道命名沿用 [feishu-s1-m1-api-contract.md](feishu-s1-m1-api-contract.md) 既有约定（`<module>:<verb><Noun>` + toResult 包裹）。
@@ -89,6 +89,7 @@
 | 3 | NEW | notes:save | R→M | `SaveInput` | `{ path: string; mtime: string }` | notes-path-invalid / notes-not-found / notes-conflict-modified / notes-conflict-deleted / notes-name-conflict / notes-io-error |
 | 4 | NEW | notes:create | R→M | `dir?: string; title?: string` | `{ path: string; mtime: string }` | notes-path-invalid / notes-name-conflict / notes-io-error |
 | 4b | NEW（v1.1） | notes:mkdir | R→M | `dir: string` | `{ path: string }` | notes-path-invalid / notes-io-error |
+| 4c | NEW（v1.2） | notes:rmdir | R→M | `dir: string` | `{ path: string }` | notes-path-invalid / notes-not-found / notes-dir-not-empty / notes-io-error |
 | 5 | NEW | notes:move | R→M | `path: string; targetDir: string` | `{ path: string; mtime: string }` | notes-path-invalid / notes-not-found / notes-name-conflict / notes-io-error |
 | 6 | NEW | notes:delete | R→M | `path: string` | `{ trashId: string }` | notes-path-invalid / notes-not-found / notes-io-error |
 | 7 | NEW | notes:trashList | R→M | 无 | `{ entries: TrashEntry[]; totalSizeBytes: number }` | notes-io-error |
@@ -98,7 +99,7 @@
 | 11 | NEW | notes:indexChanged | M→R（推送） | — | `IndexChangedPayload` | —（单向推送） |
 
 - 接线：主进程 `registerNotesIpc(...)`，对齐 `registerKanbanIpc` 装配模式（src/main/index.ts:98）；preload `contextBridge.exposeInMainWorld('notes', {...})` 薄封装（对齐 src/preload/index.ts:134 `window.kanban` 模式）+ `onIndexChanged` 订阅。
-- 通道集口径：v1.0 = 10 invoke + 1 推送；**v1.1 起 = 11 invoke（+notes:mkdir，Q-075）+ 1 推送**。
+- 通道集口径：v1.0 = 10 invoke + 1 推送；v1.1 = 11 invoke（+notes:mkdir，Q-075）；**v1.2 起 = 12 invoke（+notes:rmdir，CON-R-notes-015）+ 1 推送**。
 - 幂等：save/create/move/delete/restore/purge 均按「当前磁盘态 + 参数」求值，重复调用语义由错误码表达（如二次 delete → notes-not-found），无独立幂等态；mkdir 已存在目录 → 幂等 ok。
 
 ## 数据结构（Schema）
@@ -179,6 +180,7 @@
 | notes-name-conflict | create 同目录同名 / move 目标同名 | `targetPath` | 共识 §7「同目录同名冲突 UI 拦截」 |
 | notes-io-error | 文件系统读写失败（rename/删除/manifest 写盘等） | `path`（若有） | — |
 | notes-scan-error | notes.dir 不可读等扫描失败 | `path`（notes.dir） | 对齐 src/skills/errors.ts:7 scan-error 命名 |
+| notes-dir-not-empty | notes:rmdir 目标目录非空（含子目录或任何条目） | `path` | v1.2 CON-R-notes-015「先移空再删」 |
 | unknown | 非 HullError 异常兜底 | — | toResult 惯例 |
 
 ## 接口详情
@@ -220,6 +222,15 @@
 - 幂等：目标已是目录 → ok 返回 `{ path }`；同名文件占位 → notes-io-error（不覆盖）。
 - 响应：`{ path }`（回传规整后的相对路径）。
 - 错误码：notes-path-invalid / notes-io-error。
+
+### 4c. notes:rmdir（v1.2 补获，CON-R-notes-015）
+
+- 语义：删除**空目录**（无子目录且无任何条目）。目录不是笔记实体，空目录直接 `rmdirSync` 移除，**不进回收站**（回收站仅收 `.md`，CON-R-notes-007）。
+- 参数：`dir`（相对 notes.dir 的目录路径，`/` 分隔）。
+- 守卫：根目录（'' / '.'）拒绝；`../` / 绝对路径 / 隐藏段 / `.trash` 由 pathGuard 拒（同 mkdir 守卫面，CON-R-notes-013）；不存在 → notes-not-found；目标实为文件 → notes-not-found。
+- 非空 → `notes-dir-not-empty`（渲染层提示「先移空再删」）。
+- 响应：`{ path }`（回传相对路径）。
+- 错误码：notes-path-invalid / notes-not-found / notes-dir-not-empty / notes-io-error。
 
 ### 5. notes:move
 
@@ -315,5 +326,6 @@
 
 ## 变更记录
 
+- 2026-09-11：v1.2（小版本补获）——新增 `notes:rmdir` 通道（§接口清单 4c + §接口详情 4c + 错误表 `notes-dir-not-empty`）：共识 v1.3 CON-R-notes-015「仅空目录可删」（非空拒绝提示「先移空再删」；空目录直接删除不进回收站）；通道集 11 invoke → 12 invoke。
 - 2026-09-11：v1.1（wave-1 集成期补获）——新增 `notes:mkdir` 通道（§接口清单 4b + §接口详情 4b）：§12「+ 新建目录」（Q-075）需主进程建目录能力，v1.0 通道集闭合遗漏；通道集 10 invoke → 11 invoke。
 - 2026-09-11：新建契约（v0.1 草稿，待复核冻结）——N1 存储与索引服务：10 IPC 通道（闭合，CON-R-notes-009）+ notes:indexChanged 推送；Store（原子写 + mtime 乐观锁 + 冲突分流，CON-R-notes-002）；Scanner/Watch（chokidar 首选 + 30s 降级 + 1s 回声抑制，§13）；Trash（固定 .trash + trash.json manifest + TTL 30d/500MB，CON-R-notes-007）；路径安全（CON-R-notes-013）；settings 接线（notesDir + schemaVersion 3→4 无迁移，CON-R-notes-001/010）；性能验收 300 篇 <2s（CON-R-notes-012）。

@@ -96,6 +96,7 @@
 | I16 | NEW | 编辑标题 | 写 frontmatter `title:` 键，不改文件名 | `notes:save` | 是 |
 | I17 | NEW | 就绪态刷新 | boards/索引就绪后统一刷新徽章 | `notes:indexChanged`（事件） | 无 |
 | I18 | NEW | 外部变更感知 | 收到事件刷新树/列表；打开中文件被外部删除 → 保持缓冲，保存走 I7 二选 | `notes:indexChanged`（事件） | 无 |
+| I19 | NEW | 目录删除（仅空目录，CON-R-notes-015） | 目录行 hover × → 一次确认弹窗（「删除目录 X/？仅空目录可删，删除后不可恢复（不含回收站）」）→ `notes:rmdir`；非空拒绝提示「目录非空：先移空笔记/子目录再删」（渲染层预检 + N1 校验双保险）；被删目录为选中目录 → 选中回退根；根「全部笔记」行无删除入口 | `notes:rmdir`（N1 并行落地，未就绪 → 降级提示「通道未就绪」） | 是（重复删已删目录按 notes-not-found 提示） |
 
 注记 ①：壳 nav→view 切换通道命名沿用既有 `hull:showBoard`/`hull:showSkills` 模式（见 `src/preload/index.ts`）；`hull:showNotes` 属壳 nav 通道（非 N1 notes:* 通道集），其登记与 N1/preload 契约合并收口——见 TBD-2。
 
@@ -235,6 +236,7 @@
 | `notes:purge` | invoke | I13 彻底删除 |
 | `notes:search` | invoke | I8 搜索 |
 | `notes:indexChanged` | 事件（主→渲染） | I17 就绪刷新 / I18 外部变更感知（fs.watch 推送，不轮询） |
+| `notes:rmdir` | invoke | I19 目录删除（仅空目录；N1 并行落地——通道未就绪时渲染层降级提示，落地后自动打通） |
 | `hull:showNotes` | invoke | I1 nav 切 view（壳 nav 通道，见 TBD-2） |
 
 - preload 暴露形态：`window.notes` 桥，模式对齐 `window.skills`/`window.kanban`（contextBridge 薄封装、白名单固定、不透传任意通道）
@@ -269,6 +271,7 @@
 
 ## 变更记录
 
+- 2026-09-11：v1.1 增补——新增 **I19 目录删除（仅空目录，CON-R-notes-015）**：目录行 hover × + 一次确认 + `notes:rmdir`（N1 并行落地，未就绪降级提示）；非空拒绝双保险（渲染层 subtreeCount 预检 + N1 校验）；被删选中目录回退根。共识 v1.2 §12 口径。
 - 2026-09-11：新建契约 v0.1 草稿（待复核冻结）。依据：共识-Hull桌面壳-笔记 v1.1（§5/§7/§8/§12/§14）+ PRD v0.3 + 原型 v0.5 + S1-M1 契约格式；代码参照 src/renderer/shell.html / kanban.js / skills.js / src/preload/index.ts
 
 ## 自检记录
