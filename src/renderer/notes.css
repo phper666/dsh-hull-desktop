@@ -28,23 +28,26 @@
 body.nt-resizing { user-select: none; cursor: col-resize; }
 body.nt-resizing .nt-editor-body .EasyMDEContainer .CodeMirror { pointer-events: none; }
 /* ③ 折叠态恢复把手（窄条竖排，点击展开对应栏） */
+/* ③ 折叠后恢复把手：≥20px 宽命中区 + 双箭头（明显可辨），hover accent */
 .nt-ghost-strip {
-  width: 16px; flex-shrink: 0; align-self: stretch;
+  width: 20px; flex-shrink: 0; align-self: stretch;
   background: var(--hull-panel); border: none; cursor: pointer;
-  color: var(--hull-text-sub); font-size: var(--text-xs);
+  color: var(--hull-text-dim); font-size: 14px; font-weight: 700; line-height: 1;
   border-right: 1px solid var(--hull-border);
-  padding: 0; line-height: 1;
+  padding: 0;
   transition: color 0.1s, background 0.1s;
 }
-.nt-ghost-strip:hover { color: var(--hull-accent-hover); background: var(--hull-hover); }
-/* ③ 栏头折叠 chevron（收起本栏） */
+.nt-ghost-strip:hover { color: var(--hull-accent-hover); background: var(--hull-accent-soft); }
+/* ③ 栏头折叠按钮：20px 高显眼小按钮（边框 + hover 底色 + 双箭头 ≥14px），位置保持栏头部 */
 .nt-collapse {
-  background: transparent; border: none; cursor: pointer;
-  color: var(--hull-text-sub); font-size: var(--text-xs); line-height: 1;
-  padding: 2px 4px; border-radius: var(--radius-xs);
-  transition: color 0.1s, background 0.1s;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 20px; flex-shrink: 0;
+  background: transparent; border: 1px solid var(--hull-border); cursor: pointer;
+  color: var(--hull-text-dim); font-size: 14px; font-weight: 700; line-height: 1;
+  border-radius: var(--radius-xs);
+  transition: color 0.1s, background 0.1s, border-color 0.1s;
 }
-.nt-collapse:hover { color: var(--hull-text); background: var(--hull-hover); }
+.nt-collapse:hover { color: var(--hull-accent-hover); background: var(--hull-accent-soft); border-color: var(--hull-accent-medium); }
 
 /* ── 左栏：搜索 + type 过滤 + 目录树 + 回收站入口 ── */
 .nt-side {

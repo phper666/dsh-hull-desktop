@@ -162,7 +162,7 @@
       <div class="notes-app">
         <aside class="nt-side">
           <div class="nt-head">
-            <button class="nt-collapse" id="nt-collapse-tree" title="收起目录栏">‹</button>
+            <button class="nt-collapse" id="nt-collapse-tree" title="收起目录栏">«</button>
             <span class="nt-title">笔记<span class="nt-count" id="nt-count"></span></span>
             <button class="nt-btn" id="nt-new" title="新建笔记（继承当前目录）">＋ 新建笔记</button>
           </div>
@@ -183,7 +183,7 @@
         <div class="nt-resizer" id="nt-rz-tree" title="拖拽调整目录栏宽度"></div>
         <section class="nt-list">
           <div class="nt-list-head">
-            <button class="nt-collapse" id="nt-collapse-list" title="收起列表栏">‹</button>
+            <button class="nt-collapse" id="nt-collapse-list" title="收起列表栏">«</button>
             <div class="nt-list-head-main" id="nt-list-head-main"></div>
           </div>
           <div class="nt-items" id="nt-items"></div>
@@ -208,8 +208,8 @@
     $('#nt-strip-tree').addEventListener('click', () => { ui.treeCollapsed = false; applyUi(); saveUi(); });
     $('#nt-collapse-list').addEventListener('click', () => { ui.listCollapsed = true; applyUi(); saveUi(); });
     $('#nt-strip-list').addEventListener('click', () => { ui.listCollapsed = false; applyUi(); saveUi(); });
-    bindResizer('#nt-rz-tree', '.nt-side', 180, 480, 'treeW', 'treeCollapsed');
-    bindResizer('#nt-rz-list', '.nt-list', 240, 520, 'listW', 'listCollapsed');
+    bindResizer('#nt-rz-tree', '.nt-side', 120, 480, 'treeW', 'treeCollapsed');
+    bindResizer('#nt-rz-list', '.nt-list', 150, 520, 'listW', 'listCollapsed');
     bindSplitDrag();
     applyUi();
     // #nt-newdir 绑定在 renderTreeHeadArea()——按钮态/内联输入态互切重渲染，绑定随渲染走
@@ -224,8 +224,8 @@
     try {
       const v = JSON.parse(localStorage.getItem(UI_KEY) || '{}');
       return {
-        treeW: clampW(Number(v.treeW) || d.treeW, 180, 480),
-        listW: clampW(Number(v.listW) || d.listW, 240, 520),
+        treeW: clampW(Number(v.treeW) || d.treeW, 120, 480),
+        listW: clampW(Number(v.listW) || d.listW, 150, 520),
         treeCollapsed: !!v.treeCollapsed,
         listCollapsed: !!v.listCollapsed,
         // ② 分屏比例（写侧占比）记忆：25%~75%
