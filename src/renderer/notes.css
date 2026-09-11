@@ -87,6 +87,24 @@ body.nt-resizing .nt-editor-body .EasyMDEContainer .CodeMirror { pointer-events:
 }
 .nt-search input:focus { border: none; }
 .nt-search input::placeholder { color: var(--hull-text-sub); }
+/* ① 二次加固（真机反馈双圈仍在）：高特异性兜底——防 shell/后续样式同权重后到覆盖（notes.css link 先于 shell <style> 加载，
+   同权重时 shell 后到者胜，故用 #notes 前缀抬高）。实测探针：border 0/none、box-shadow none、outline none、bg transparent。 */
+#notes .nt-search input,
+#notes .nt-search input:focus {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+/* ①③ 真凶反制（探针定位）：notifs.css L13 也定义 .nt-search（通知中心搜索框）—— width:240px 固定宽 +
+   padding:6px 10px + :focus accent 边框泄漏到本视图容器（width:240 即「拖宽不回流」根因；10px padding 即双圈间距）。
+   notifs.css 非本车道，用 #notes 前缀压制泄漏属性 */
+#notes .nt-search {
+  width: auto;           /* 抵消 notifs width:240px → 随树栏回流 */
+  padding: 0;            /* 抵消 notifs padding:6px 10px → 消除框内 10px 间隙（双圈观感来源） */
+  margin: 0 12px;
+}
+#notes .nt-search:focus { border-color: var(--hull-accent-medium); } /* 压 notifs :focus 的 accent 色，统一 focus-within 口径 */
 .nt-hint { padding: 5px 12px 0; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--hull-text-sub); }
 .nt-typebar { display: flex; gap: 4px; flex-wrap: wrap; padding: 8px 12px 0; }
 .nt-typechip {
