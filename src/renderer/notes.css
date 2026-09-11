@@ -43,6 +43,7 @@ body.nt-resizing .nt-editor-body .EasyMDEContainer .CodeMirror { pointer-events:
 .nt-collapse {
   display: inline-flex; align-items: center; justify-content: center;
   width: 22px; height: 20px; flex-shrink: 0;
+  box-sizing: border-box; padding: 0; /* 防泄漏：shell 全局 button { padding:8px 22px }（content-box 下 width 22 + 44 padding = 66px 宽） */
   background: transparent; border: 1px solid var(--hull-border); cursor: pointer;
   color: var(--hull-text-dim); font-size: 14px; font-weight: 700; line-height: 1;
   border-radius: var(--radius-xs);
