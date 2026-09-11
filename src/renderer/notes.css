@@ -69,7 +69,7 @@ body.nt-resizing .nt-editor-body .EasyMDEContainer .CodeMirror { pointer-events:
 .nt-btn:hover { background: var(--hull-accent-medium); }
 /* ① 搜索框单圈：边框/背景收到外容器，input 透明融入（此前容器内 input 自带边框 → 双圈） */
 .nt-search {
-  position: relative; margin: 0 12px;
+  position: relative; margin: 0 12px; min-width: 0;
   background: var(--hull-panel); border: 1px solid var(--hull-border);
   border-radius: var(--radius-sm);
   transition: border-color 0.12s;
@@ -80,7 +80,8 @@ body.nt-resizing .nt-editor-body .EasyMDEContainer .CodeMirror { pointer-events:
   width: 12px; height: 12px; color: var(--hull-text-sub); pointer-events: none;
 }
 .nt-search input {
-  width: 100%; background: transparent; border: none; outline: none;
+  width: 100%; box-sizing: border-box; min-width: 0;
+  background: transparent; border: none; outline: none;
   color: var(--hull-text);
   font-size: var(--text-xs); padding: 6px 8px 6px 26px;
 }
@@ -309,18 +310,34 @@ body.nt-resizing .nt-editor-body .EasyMDEContainer .CodeMirror { pointer-events:
    notes.js 已传 sideBySideFullscreen:false（容器持 sided--no-fullscreen 行内分屏，不再全屏接管）；
    此处 ①容器定位锚点 ②非 sided 态兜底：fixed 预览改容器内 absolute（不再盖模式开关）。
    回归口径：进入分屏 → 头部「编辑」可见可点 → 点击退回编辑态。 */
+.nt-editor-body { flex: 1; min-height: 0; display: flex; }
+/* ③ 分屏填满修复：原 flex-wrap 布局下 align-content:stretch 把工具栏行撑到 197px（上方大空白）。
+   分屏态改显式 grid：工具栏行 auto、编辑|预览行 1fr 吃满剩余高度；列宽 = --nt-split-ratio 可拖。
+   （非分屏态仍为 column flex；grid 仅由 JS 在 split 模式加 .nt-split-on 启用） */
 .nt-editor-body .EasyMDEContainer { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; }
-.nt-editor-body .EasyMDEContainer.sided--no-fullscreen { flex-direction: row; flex-wrap: wrap; align-items: stretch; }
+.nt-editor-body .EasyMDEContainer .CodeMirror { flex: 1; height: auto; }
+.nt-editor-body .EasyMDEContainer.nt-split-on {
+  display: grid;
+  grid-template-columns: calc(var(--nt-split-ratio, 0.57) * 100%) 1fr;
+  grid-template-rows: auto 1fr;
+}
+.nt-split-on .editor-toolbar { grid-column: 1 / 3; grid-row: 1; }
+.nt-split-on .CodeMirror-sided { grid-column: 1; grid-row: 2; width: 100% !important; height: 100%; }
+.nt-split-on .editor-preview-active-side {
+  grid-column: 2; grid-row: 2; width: 100% !important; height: 100%;
+  position: relative;
+  border-left: 1px solid var(--hull-border); border-top: none; border-right: none; border-bottom: none;
+}
+/* ② 可拖分隔线命中区：预览左缘 8px 竖条（hover 高亮 + col-resize；pointer 拖拽调 --nt-split-ratio） */
+.nt-split-on .editor-preview-active-side::before {
+  content: ''; position: absolute; left: -4px; top: 0; bottom: 0; width: 8px;
+  cursor: col-resize; z-index: 5; background: transparent;
+  transition: background 0.12s;
+}
+.nt-split-on .editor-preview-active-side:hover::before { background: var(--hull-accent-soft); }
+/* 非 sided 兜底（sideBySideFullscreen 缺席的旧构建）：fixed 预览改容器内 absolute，不再盖模式开关 */
 .nt-editor-body .EasyMDEContainer:not(.sided--no-fullscreen) .editor-preview-side {
   position: absolute; top: 0; right: 0; bottom: 0; width: 50%;
-}
-.nt-editor-body .EasyMDEContainer .CodeMirror { flex: 1; height: auto; }
-/* ④ 分屏比例与分隔线：写侧为主（CodeMirror-sided 57%），预览 43%；可见分隔线对齐整体边线。
-   vendor .CodeMirror-sided { width:50% !important } → 同权 !important 覆盖（sided--no-fullscreen flex 行内布局） */
-.nt-editor-body .EasyMDEContainer.sided--no-fullscreen .CodeMirror-sided { width: 57% !important; flex: 0 0 57%; }
-.nt-editor-body .EasyMDEContainer.sided--no-fullscreen .editor-preview-side {
-  width: 43% !important; flex: 1 1 auto;
-  border-left: 1px solid var(--hull-border); border-right: none; border-top: none; border-bottom: none;
 }
 /* ④ frontmatter 弱化（编辑/分屏态）：块级 markText 淡色——像 IDE frontmatter，不抢正文 */
 .nt-editor-body .EasyMDEContainer .CodeMirror .nt-fm { color: var(--hull-text-sub); }

@@ -210,6 +210,7 @@
     $('#nt-strip-list').addEventListener('click', () => { ui.listCollapsed = false; applyUi(); saveUi(); });
     bindResizer('#nt-rz-tree', '.nt-side', 180, 480, 'treeW', 'treeCollapsed');
     bindResizer('#nt-rz-list', '.nt-list', 240, 520, 'listW', 'listCollapsed');
+    bindSplitDrag();
     applyUi();
     // #nt-newdir 绑定在 renderTreeHeadArea()——按钮态/内联输入态互切重渲染，绑定随渲染走
   }
@@ -219,7 +220,7 @@
   const UI_KEY = 'notes:ui';
   const clampW = (w, min, max) => Math.min(Math.max(w, min), Math.max(min, Math.min(max, Math.floor(window.innerWidth * 0.45))));
   function loadUi() {
-    const d = { treeW: 264, listW: 296, treeCollapsed: false, listCollapsed: false };
+    const d = { treeW: 264, listW: 296, treeCollapsed: false, listCollapsed: false, splitRatio: 0.57 };
     try {
       const v = JSON.parse(localStorage.getItem(UI_KEY) || '{}');
       return {
@@ -227,6 +228,8 @@
         listW: clampW(Number(v.listW) || d.listW, 240, 520),
         treeCollapsed: !!v.treeCollapsed,
         listCollapsed: !!v.listCollapsed,
+        // ② 分屏比例（写侧占比）记忆：25%~75%
+        splitRatio: Math.min(0.75, Math.max(0.25, Number(v.splitRatio) || d.splitRatio)),
       };
     } catch { return d; } // localStorage 不可用：默认宽度，功能不缺
   }
@@ -273,6 +276,37 @@
       document.addEventListener('pointermove', move);
       document.addEventListener('pointerup', up);
     });
+  }
+  /** ② 分屏分隔线拖拽：预览左缘 8px 命中区（CSS ::before）→ 实时调 --nt-split-ratio（25%~75%），记忆 localStorage */
+  function bindSplitDrag() {
+    $('#nt-editor-body').addEventListener('pointerdown', (e) => {
+      const cont = $('#nt-editor-body .EasyMDEContainer');
+      if (!cont || !cont.classList.contains('nt-split-on')) return;
+      const preview = e.target.closest('.editor-preview-side');
+      if (!preview) return;
+      const pr = preview.getBoundingClientRect();
+      if (e.clientX - pr.left > 12) return; // 仅左缘命中区触发，预览区交互不受影响
+      e.preventDefault();
+      const rect = cont.getBoundingClientRect();
+      document.body.classList.add('nt-resizing'); // 拖拽中禁文本选中
+      const move = (ev) => {
+        ui.splitRatio = Math.min(0.75, Math.max(0.25, (ev.clientX - rect.left) / rect.width));
+        cont.style.setProperty('--nt-split-ratio', String(ui.splitRatio));
+      };
+      const up = () => {
+        document.removeEventListener('pointermove', move);
+        document.removeEventListener('pointerup', up);
+        document.body.classList.remove('nt-resizing');
+        saveUi();
+      };
+      document.addEventListener('pointermove', move);
+      document.addEventListener('pointerup', up);
+    });
+  }
+  /** 分屏比例变量落到容器（打开笔记/拖拽后调用；未打开为 no-op） */
+  function applySplitRatio() {
+    const cont = $('#nt-editor-body .EasyMDEContainer');
+    if (cont) cont.style.setProperty('--nt-split-ratio', String(ui.splitRatio ?? 0.57));
   }
 
   /* ── 索引拉取（一次取数：树/列表/类型徽章全部由 entries 派生）── */
@@ -587,6 +621,7 @@
     }
     // 工具栏内置预览/分屏切换 → 头部三态高亮同步（①：保证分屏态随时可经头部切回编辑/预览）
     $('#nt-editor-body .EasyMDEContainer')?.addEventListener('click', () => setTimeout(syncEditorModeFromEditor, 50));
+    applySplitRatio(); // ② 分屏比例变量落容器（grid 列宽用）
     applyEditorMode(editorMode);
     applyFrontmatterFade();
     renderFoot();
@@ -643,18 +678,26 @@
       editorMode = m;
       document.querySelectorAll('.nt-mode-btn').forEach((b) => b.classList.toggle('active', b.dataset.mode === m));
     }
+    updateSplitClass();
+    applySplitRatio();
   }
   let editorMode = 'edit';
+  function updateSplitClass() {
+    // ②/③：grid 分屏布局仅 split 态启用（JS 切换类，避免 :has 依赖与编辑态误入 grid）
+    $('#nt-editor-body .EasyMDEContainer')?.classList.toggle('nt-split-on', editorMode === 'split');
+  }
   function applyEditorMode(mode) {
     editorMode = mode;
     document.querySelectorAll('.nt-mode-btn').forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
     const ed = state.open?.editor;
-    if (!ed) return;
+    if (!ed) { updateSplitClass(); return; }
     const isPreview = !!ed.isPreviewActive();
     const isSplit = !!ed.isSideBySideActive();
     if (mode === 'preview') { if (isSplit) ed.toggleSideBySide(); if (!isPreview) ed.togglePreview(); }
     else if (mode === 'split') { if (isPreview) ed.togglePreview(); if (!isSplit) ed.toggleSideBySide(); }
     else { if (isPreview) ed.togglePreview(); if (isSplit) ed.toggleSideBySide(); }
+    updateSplitClass();
+    applySplitRatio();
   }
 
   function renderEditorHead() {
