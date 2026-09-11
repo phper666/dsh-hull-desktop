@@ -126,7 +126,7 @@ test.describe('N2/N1 笔记主链路', () => {
     tmp.cleanup();
   });
 
-  test('「+ 新建目录」→ 树出现新目录（notes:mkdir 链路）', async () => {
+  test('「+ 新建目录」→ 选中「工作」→ 只输名称建在选中目录下（notes:mkdir 链路）', async () => {
     const tmp = makeTempUserData();
     seedFakeDsh(tmp.dir);
     seedSettings(tmp.dir);
@@ -134,12 +134,55 @@ test.describe('N2/N1 笔记主链路', () => {
     const app = await launchApp({ userData: tmp.dir, fakeDshMode: 'ready' });
     const shell = await openNotesView(app);
     await expect(shell.locator('#nt-items .nt-item')).toHaveCount(2, { timeout: 20_000 });
+    // ② 交互改版：先选中父目录「工作」→ 新建只填名称 → 建在 工作/ 下
+    await shell.locator('#nt-tree .nt-trow[data-dir="工作"]').click();
     await shell.locator('#nt-newdir').click();
+    await expect(shell.locator('#nt-newdir-input')).toHaveAttribute('placeholder', /工作\//);
     await shell.locator('#nt-newdir-input').fill('资料库');
     await shell.keyboard.press('Enter');
-    // 树出现新目录行 + 磁盘目录已创建（notes:mkdir 真建目录而非笔记文件）
-    await expect(shell.locator('#nt-tree .nt-trow[data-dir="资料库"]')).toBeVisible({ timeout: 20_000 });
-    ok(existsSync(join(tmp.dir, 'notes', '资料库')), '磁盘目录已创建');
+    // 树出现嵌套新目录行 + 磁盘目录已创建（notes:mkdir 真建目录而非笔记文件）
+    await expect(shell.locator('#nt-tree .nt-trow[data-dir="工作/资料库"]')).toBeVisible({ timeout: 20_000 });
+    ok(existsSync(join(tmp.dir, 'notes', '工作', '资料库')), '磁盘目录已创建于选中目录下');
+    // 名称含 / → UI 拦截（不发起创建）
+    await shell.locator('#nt-newdir').click();
+    await shell.locator('#nt-newdir-input').fill('a/b');
+    await shell.keyboard.press('Enter');
+    await expect(shell.locator('#nt-tree .nt-trow[data-dir="工作/a"]')).toHaveCount(0);
+    await app.close();
+    tmp.cleanup();
+  });
+
+  test('双击目录行 → 切换折叠；再双击 → 展开（N3 反馈补充手势）', async () => {
+    const tmp = makeTempUserData();
+    seedFakeDsh(tmp.dir);
+    seedSettings(tmp.dir);
+    seedNotes(tmp.dir);
+    // 补充种子：工作/ 需含子目录才有折叠语义；经验/ 平铺目录（无子目录）供「双击无折叠语义」断言
+    mkdirSync(join(tmp.dir, 'notes', '工作', '子'), { recursive: true });
+    mkdirSync(join(tmp.dir, 'notes', '经验'), { recursive: true });
+    writeFileSync(join(tmp.dir, 'notes', '工作', '子', 'deep.md'), '---\ntitle: 深层\n---\n\nx\n', 'utf8');
+    writeFileSync(join(tmp.dir, 'notes', '经验', 'exp.md'), '---\ntitle: 经验一则\n---\n\nx\n', 'utf8');
+    const app = await launchApp({ userData: tmp.dir, fakeDshMode: 'ready' });
+    const shell = await openNotesView(app);
+    await expect(shell.locator('#nt-items .nt-item')).toHaveCount(4, { timeout: 20_000 }); // 种子 2 + 补种 2
+    const kidRows = () => shell.evaluate(() =>
+      [...document.querySelectorAll('#nt-tree .nt-trow')].filter((r) => (r as HTMLElement).dataset.dir!.startsWith('工作/')).length);
+    // 「工作」有子目录 → 折叠点在；双击行（350ms 内两击）→ 子目录行收起
+    await expect(shell.locator('#nt-tree .nt-trow[data-dir="工作/子"]')).toBeVisible({ timeout: 20_000 });
+    await shell.locator('#nt-tree .nt-trow[data-dir="工作"]').click();
+    await shell.locator('#nt-tree .nt-trow[data-dir="工作"]').click();
+    await shell.waitForTimeout(200);
+    ok(await kidRows() === 0, '双击折叠后「工作/」子行数应为 0');
+    // 再双击 → 展开
+    await shell.locator('#nt-tree .nt-trow[data-dir="工作"]').click();
+    await shell.locator('#nt-tree .nt-trow[data-dir="工作"]').click();
+    await shell.waitForTimeout(200);
+    ok((await kidRows()) >= 1, '再双击后「工作/」子行数应 ≥1');
+    // 平铺目录（经验 无子目录）双击：无折叠语义，行保持可见
+    await shell.locator('#nt-tree .nt-trow[data-dir="经验"]').click();
+    await shell.locator('#nt-tree .nt-trow[data-dir="经验"]').click();
+    await shell.waitForTimeout(150);
+    await expect(shell.locator('#nt-tree .nt-trow[data-dir="经验"]')).toBeVisible();
     await app.close();
     tmp.cleanup();
   });

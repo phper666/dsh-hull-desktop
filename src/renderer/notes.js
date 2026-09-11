@@ -376,6 +376,10 @@
     };
     $('#nt-tree').innerHTML = row('', '全部笔记', 0, dirs.get('').children.size > 0);
   }
+  /** 树点击：chevron 单击 = 折叠切换；行单击 = 选中筛选；
+   *  ② 双击手势 = 同一行 350ms 内两次点击 → 切换折叠。
+   *  不用原生 dblclick：单击处理器会重建树 DOM，原生 dblclick 因两击目标节点不同而不再合成（实测） */
+  let lastTreeClick = { t: 0, dir: '' };
   function onTreeClick(e) {
     const chev = e.target.closest('[data-chev]');
     if (chev) {
@@ -386,14 +390,26 @@
     }
     const r = e.target.closest('.nt-trow');
     if (!r) return;
-    state.selectedDir = r.dataset.dir || '';
+    const dir = r.dataset.dir || '';
+    const now = Date.now();
+    const dbl = dir && lastTreeClick.dir === dir && now - lastTreeClick.t < 350;
+    lastTreeClick = dbl ? { t: 0, dir: '' } : { t: now, dir };
+    if (dir && dbl) {
+      // 双击手势：切换折叠（仅含子目录的行有折叠语义，平铺目录行 chev empty 直接跳过）
+      const chev = r.querySelector('.nt-chev');
+      if (chev && !chev.classList.contains('empty')) {
+        state.collapsed.has(dir) ? state.collapsed.delete(dir) : state.collapsed.add(dir);
+      }
+    }
+    state.selectedDir = dir;
     renderTree(); renderList();
   }
   function renderTreeHeadArea() {
-    // 「+ 新建目录」内联输入（原型行为）：输入行替换按钮行；Enter 提交 / Esc 取消
+    // 「+ 新建目录」内联输入（②改版：只填名称，建在当前选中目录下；Enter 提交 / Esc 取消）
     const head = $('.nt-treehead');
+    const parent = state.selectedDir || '';
     if (state.addingDir) {
-      head.innerHTML = `<input class="nt-newdir-input" id="nt-newdir-input" placeholder="目录名，可用 / 建子目录" autocomplete="off">`;
+      head.innerHTML = `<input class="nt-newdir-input" id="nt-newdir-input" placeholder="在 ${parent ? parent + '/' : '根目录'} 下新建，只填名称" autocomplete="off">`;
       $('#nt-newdir-input').addEventListener('keydown', (e) => {
         if (e.key === 'Escape') { state.addingDir = false; renderTreeHeadArea(); }
         if (e.key === 'Enter') submitNewDir(e.target.value);
@@ -406,19 +422,22 @@
   }
 
   async function submitNewDir(raw) {
-    const name = String(raw || '').trim().replace(/^\/+|\/+$/g, '');
-    if (!name) { state.addingDir = false; renderTreeHeadArea(); return; }
-    const r = await bridge.mkdir(name);
+    // ② 交互改版：名称单段（禁 /），创建位置 = 当前选中目录（未选中 → 根目录）；多级用「选中父目录后逐级建」
+    const name = String(raw || '').trim();
     state.addingDir = false;
-    renderTreeHeadArea(); // ① 修复：成功分支此前漏渲染——按钮停留在输入态不重现（「点一次就消失」根因）
+    renderTreeHeadArea();
+    if (!name) return;
+    if (name.includes('/')) { toast('目录名不能包含 /——先选中父目录，再只填名称'); renderTreeHeadArea(); return; }
+    const parent = state.selectedDir || '';
+    const fullPath = parent ? parent + '/' + name : name;
+    const r = await bridge.mkdir(fullPath);
     if (r && r.ok) {
-      toast('已创建目录 ' + name + '/');
-      state.extraDirs.add(name); // 树由 entries 派生：空目录补挂保证可见
-      state.selectedDir = name; // 建完选中，便于直接新建笔记进去
+      toast('已在 ' + (parent ? parent + '/' : '根目录') + ' 创建 ' + name + '/');
+      state.extraDirs.add(fullPath); // 空目录补挂保证可见（Q-075）
+      state.selectedDir = fullPath;  // 建完选中，便于直接新建笔记进去
       refreshIndex();
     } else {
       toast('创建目录失败：' + ((r && r.message) || (r && r.code) || '未知错误'));
-      renderTreeHeadArea();
     }
   }
 
