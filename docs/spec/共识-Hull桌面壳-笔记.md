@@ -1,11 +1,12 @@
 # 共识-Hull桌面壳-笔记（notes）
 
-> 版本：v1.2（已发布） · 更新：2026-09-11 · 维护者：PM · 状态：已发布
+> 版本：v1.3（已发布） · 更新：2026-09-11 · 维护者：PM · 状态：已发布
 > 数据来源：PRD `docs/prd/2026-09-07-notes-prd.md`（v0.3）+ 原型 `docs/prototype/2026-09-07-notes-prototype.html`（v0.5）+ 评审讨论（2026-09-07~09-10）+ 扫描闭环（Q-061~076，2026-09-11）
 > 需求标识：`notes`（来自 PRD slug）
 > v1.0 基线：内容经用户确认（2026-09-10）；U-001 nav 顺序按推荐定案（笔记放任务看板后）；扫描通知已发（BE/FE/QA）
 > v1.1：扫描 Q-061~076 全数闭环回写——新增 CON-R-notes-013（路径安全）/014（标题与文件名）；002/005/006/007/008/009/010/012 修订；自动保存策略与冲突分流定案（业界实践调研背书）
 > v1.2：集成期补获——009 通道集补 `notes:mkdir`（§12「+ 新建目录」需主进程建目录能力，契约冻结时遗漏、实现联调发现）
+> v1.3：目录删除补齐（用户反馈）——仅空目录可删（CON-R-notes-015），通道集补 `notes:rmdir`
 
 ## 1. 文档元信息
 
@@ -87,12 +88,13 @@
 | CON-R-notes-006 | `task:` 指向不存在 ticketId → 徽章灰色「未知任务」降级展示，不可点击不报错，**不自动清洗字段**（任务可能重建/跨机同步场景）；判定依赖（boards/索引）未就绪时徽章中性占位（不标「未知」）、📝 角标不显示，数据就绪后统一刷新（v1.1 Q-070） | PRD §F5④ + Q4 讨论 + Q-070 闭环 | 定案 | 稳定 |
 | CON-R-notes-007 | 删除 = 移 `<userData>/notes/.trash/`——**回收站固定 userData、独立于 notes.dir**（改址不跟随；避免污染用户 git 仓库），扫描/树/搜索/反查跳过隐藏目录（v1.1 Q-063）；恢复保留原相对路径，**原路径被占用 → 冲突提示不覆盖**（对齐 CON-R-skills-003，v1.1 Q-072）；TTL 细则（v1.1 Q-073）：age 基准=删除记录时间戳、≥30 天即清（恰好 30 天算过期）、超容量循环删最旧至 <500MB、检查=启动时+每 24h | PRD §4 + Q4 + Q-063/072/073 闭环 | 定案 | 稳定 |
 | CON-R-notes-008 | 编辑链路沿用编辑器共识：EasyMDE vendoring + markdown-it 锁 v14.1.0 + DOMPurify 全量消毒 + destroy 纪律（CON-R-editor-001~006 直接适用于笔记）；**保存策略**（v1.1 Q-069，业界笔记应用惯例）：自动保存为主（debounce ~2s + 失焦/关窗 flush + Cmd/Ctrl+S 显式强制）；切换/关窗静默（autosave 已落盘）；仅冲突/失败走 002 分流；冲突副本命名 `xxx (冲突副本 YYYY-MM-DD).md` | PRD §6 + Q-069 闭环 | 定案 | 稳定 |
-| CON-R-notes-009 | IPC 沿用 `<module>:<verb><Noun>` 约定，v1 通道集闭合（v1.1 Q-064）：`notes:index/get/save/create/mkdir/move/delete/trashList/restore/purge/search` + 推送事件 `notes:indexChanged`（fs.watch 增量后推 renderer，不轮询）；preload contextBridge 薄封装（v1.2 补 mkdir：§12「+ 新建目录」需主进程建目录能力，集成联调发现） | PRD §5.4 + Q-064 闭环 + v1.2 集成补获 | 定案 | 稳定 |
+| CON-R-notes-009 | IPC 沿用 `<module>:<verb><Noun>` 约定，v1 通道集闭合（v1.1 Q-064）：`notes:index/get/save/create/mkdir/move/delete/trashList/restore/purge/search` + 推送事件 `notes:indexChanged`（fs.watch 增量后推 renderer，不轮询）；preload contextBridge 薄封装（v1.2 补 mkdir；v1.3 补 rmdir——目录删除能力 CON-R-notes-015） | PRD §5.4 + Q-064 闭环 + v1.2/v1.3 补获 | 定案 | 稳定 |
 | CON-R-notes-010 | 修改 `notes.dir` 不自动迁移文件：提示「新目录将被扫描，旧目录文件不动」；换目录后重扫索引；**切换前置**（v1.1 Q-065）：切换前若有脏笔记 → 先走保存/放弃流程，切换后打开中的笔记失效清空回列表（提示「存储目录已更改」） | Q4 讨论 + Q-065 闭环 | 定案 | 稳定 |
 | CON-R-notes-011 | 视图接入壳 nav——入口插在「任务看板」之后（dsh web / 任务看板 / 笔记 / … / 设置）；view 机制新增 notes 态（态序按 shell 现状，非计数。v1.1 契约复核修正「4→5 态」表述：shell 实际 nav 已 8 入口） | PRD §F1 + Q1 + N2 契约复核 | 笔记放任务看板后（v1.0 定案） | 稳定 |
 | CON-R-notes-012 | 性能与搜索验收口径（v1.1 Q-067 具体化）：种子 300 篇（含子目录、平均 ~10KB）冷启动后点 nav「笔记」→ 列表首行渲染 <2s（e2e 计时断言，CI 抖动降级手动）；搜索 v1 = 标题+内容子串、大小写不敏感、updatedAt 倒序、无分词/模糊；扫描异步 + 增量，对齐 CON-R-skills-009 精神 | PRD §F4 + Q-067 闭环 | 定案 | 稳定 |
 | CON-R-notes-013 | **路径安全**（v1.1 新增，对齐 CON-R-skills-007）：所有路径参数经 resolve 后必须位于 notes.dir（或 .trash）内；拒绝 `..`、绝对路径、隐藏目录段；文件名 slug 经 basename(realpath) 校验 | Q-071 闭环 | 定案 | 稳定 |
 | CON-R-notes-014 | **标题与文件名**（v1.1 新增，业界惯例调研背书）：标题 = frontmatter `title:` 单源（缺失回退文件名基名）；文件名 = 创建时 slug，**稳定不随标题自动改**；另提供手动「重命名文件」动作（可选）；快速捕捉命名 `YYYY-MM-DD-<slug>.md`（slug 空则时间戳序号） | Q-062 闭环 | 定案 | 稳定 |
+| CON-R-notes-015 | **目录删除**（v1.3 新增，用户反馈补齐）：仅允许删除**空目录**（无子目录且无笔记文件）；非空目录拒绝并提示「先移空再删」；空目录直接删除（rmdir）**不进回收站**（无可恢复内容）；删除入口 = 目录行 hover 删除按钮 + 一次确认 | 用户反馈 2026-09-11 | 定案 | 稳定 |
 
 ## 9. 枚举值与常量
 
