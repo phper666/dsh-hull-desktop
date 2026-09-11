@@ -166,7 +166,7 @@ test.describe('N2/N1 笔记主链路', () => {
     const shell = await openNotesView(app);
     await expect(shell.locator('#note-items .note-item')).toHaveCount(4, { timeout: 20_000 }); // 种子 2 + 补种 2
     const kidRows = () => shell.evaluate(() =>
-      [...document.querySelectorAll('#note-tree .note-trow')].filter((r) => (r as HTMLElement).dataset.dir!.startsWith('工作/')).length);
+      Array.from(document.querySelectorAll('#note-tree .note-trow')).filter((r) => (r as HTMLElement).dataset.dir!.startsWith('工作/')).length);
     // 「工作」有子目录 → 折叠点在；双击行（350ms 内两击）→ 子目录行收起
     await expect(shell.locator('#note-tree .note-trow[data-dir="工作/子"]')).toBeVisible({ timeout: 20_000 });
     await shell.locator('#note-tree .note-trow[data-dir="工作"]').click();
@@ -255,7 +255,7 @@ test.describe('N2/N1 笔记主链路', () => {
     // 再点 → 恢复
     await root.locator('.note-chev').click();
     await shell.waitForTimeout(200);
-    const dirsAfterExpand = await shell.evaluate(() => [...document.querySelectorAll('#note-tree .note-trow')].map((r) => (r as HTMLElement).dataset.dir));
+    const dirsAfterExpand = await shell.evaluate(() => Array.from(document.querySelectorAll('#note-tree .note-trow')).map((r) => (r as HTMLElement).dataset.dir));
     ok(await rowCount() === 2 && dirsAfterExpand.join(',') === ',工作', `展开后应为 [根,工作]，实际 ${JSON.stringify(dirsAfterExpand)}`);
     // 路径 ②：双击根行（350ms 内两击）→ 折叠
     await root.click();
@@ -266,7 +266,7 @@ test.describe('N2/N1 笔记主链路', () => {
     await root.click();
     await root.click();
     await shell.waitForTimeout(200);
-    const dirsAfterDblExpand = await shell.evaluate(() => [...document.querySelectorAll('#note-tree .note-trow')].map((r) => (r as HTMLElement).dataset.dir));
+    const dirsAfterDblExpand = await shell.evaluate(() => Array.from(document.querySelectorAll('#note-tree .note-trow')).map((r) => (r as HTMLElement).dataset.dir));
     ok(await rowCount() === 2 && dirsAfterDblExpand.join(',') === ',工作', `双击展开后应为 [根,工作]，实际 ${JSON.stringify(dirsAfterDblExpand)}`);
     await app.close();
     tmp.cleanup();
