@@ -33,6 +33,16 @@ test('capture notes view', async () => {
     await shell.locator('#nav-notes').click();
     await shell.waitForTimeout(2500);
     await shell.screenshot({ path: '/tmp/notes-view-fixed.png' });
+    // ④ 反馈回归：编辑态（frontmatter 淡化）+ 分屏态（57/43 + 分隔线，模式开关可退）
+    await shell.locator('#nt-items .nt-item', { hasText: 'M2 看板踩坑记录' }).click();
+    await shell.waitForTimeout(800);
+    await shell.screenshot({ path: '/tmp/notes-edit-fixed.png' });
+    await shell.locator('.nt-mode-btn[data-mode="split"]').click();
+    await shell.waitForTimeout(800);
+    await shell.screenshot({ path: '/tmp/notes-split-fixed.png' });
+    // 分屏可退：点「编辑」能回到编辑态（① 困死修复回归）
+    await shell.locator('.nt-mode-btn[data-mode="edit"]').click();
+    await shell.waitForTimeout(300);
     // 看板视图对照：确认全壳未被笔记样式影响
     await shell.locator('#nav-board').click();
     await shell.waitForTimeout(800);

@@ -162,6 +162,7 @@
       <div class="notes-app">
         <aside class="nt-side">
           <div class="nt-head">
+            <button class="nt-collapse" id="nt-collapse-tree" title="收起目录栏">‹</button>
             <span class="nt-title">笔记<span class="nt-count" id="nt-count"></span></span>
             <button class="nt-btn" id="nt-new" title="新建笔记（继承当前目录）">＋ 新建笔记</button>
           </div>
@@ -178,10 +179,17 @@
           <div class="nt-tree" id="nt-tree"></div>
           <button class="nt-trash-entry" id="nt-trash-entry">🗑 回收站<span class="nt-trash-count" id="nt-trash-count" hidden></span></button>
         </aside>
+        <button class="nt-ghost-strip" id="nt-strip-tree" title="展开目录栏" hidden>»</button>
+        <div class="nt-resizer" id="nt-rz-tree" title="拖拽调整目录栏宽度"></div>
         <section class="nt-list">
-          <div class="nt-list-head" id="nt-list-head"></div>
+          <div class="nt-list-head">
+            <button class="nt-collapse" id="nt-collapse-list" title="收起列表栏">‹</button>
+            <div class="nt-list-head-main" id="nt-list-head-main"></div>
+          </div>
           <div class="nt-items" id="nt-items"></div>
         </section>
+        <button class="nt-ghost-strip" id="nt-strip-list" title="展开列表栏" hidden>«</button>
+        <div class="nt-resizer" id="nt-rz-list" title="拖拽调整列表栏宽度"></div>
         <section class="nt-editor">
           <div class="nt-editor-head" id="nt-editor-head"></div>
           <div class="nt-editor-body" id="nt-editor-body"></div>
@@ -195,9 +203,77 @@
     $('#nt-tree').addEventListener('click', onTreeClick);
     $('#nt-items').addEventListener('click', onListClick);
     $('#nt-editor-head').addEventListener('click', onHeadClick);
+    // ③ 折叠/展开/拖宽（宽度记忆 localStorage；拖拽中 body.nt-resizing 禁文本选中）
+    $('#nt-collapse-tree').addEventListener('click', () => { ui.treeCollapsed = true; applyUi(); saveUi(); });
+    $('#nt-strip-tree').addEventListener('click', () => { ui.treeCollapsed = false; applyUi(); saveUi(); });
+    $('#nt-collapse-list').addEventListener('click', () => { ui.listCollapsed = true; applyUi(); saveUi(); });
+    $('#nt-strip-list').addEventListener('click', () => { ui.listCollapsed = false; applyUi(); saveUi(); });
+    bindResizer('#nt-rz-tree', '.nt-side', 180, 480, 'treeW', 'treeCollapsed');
+    bindResizer('#nt-rz-list', '.nt-list', 240, 520, 'listW', 'listCollapsed');
+    applyUi();
     // #nt-newdir 绑定在 renderTreeHeadArea()——按钮态/内联输入态互切重渲染，绑定随渲染走
   }
   const $ = (sel, el) => (el || root).querySelector(sel);
+
+  /* ── ③ 栏宽/折叠状态（localStorage 记忆；纯前端，无 IPC）── */
+  const UI_KEY = 'notes:ui';
+  const clampW = (w, min, max) => Math.min(Math.max(w, min), Math.max(min, Math.min(max, Math.floor(window.innerWidth * 0.45))));
+  function loadUi() {
+    const d = { treeW: 264, listW: 296, treeCollapsed: false, listCollapsed: false };
+    try {
+      const v = JSON.parse(localStorage.getItem(UI_KEY) || '{}');
+      return {
+        treeW: clampW(Number(v.treeW) || d.treeW, 180, 480),
+        listW: clampW(Number(v.listW) || d.listW, 240, 520),
+        treeCollapsed: !!v.treeCollapsed,
+        listCollapsed: !!v.listCollapsed,
+      };
+    } catch { return d; } // localStorage 不可用：默认宽度，功能不缺
+  }
+  const ui = loadUi();
+  function saveUi() { try { localStorage.setItem(UI_KEY, JSON.stringify(ui)); } catch { /* 隐私模式：仅会话内生效 */ } }
+  function applyUi() {
+    const side = $('.nt-side'), list = $('.nt-list');
+    if (side) {
+      side.style.display = ui.treeCollapsed ? 'none' : 'flex';
+      side.style.width = ui.treeW + 'px';
+    }
+    if (list) {
+      list.style.display = ui.listCollapsed ? 'none' : 'flex';
+      list.style.width = ui.listW + 'px';
+    }
+    const rt = $('#nt-rz-tree'), rl = $('#nt-rz-list');
+    if (rt) rt.style.display = ui.treeCollapsed ? 'none' : 'block';
+    if (rl) rl.style.display = ui.listCollapsed ? 'none' : 'block';
+    const st = $('#nt-strip-tree'), sl = $('#nt-strip-list');
+    if (st) st.hidden = !ui.treeCollapsed;
+    if (sl) sl.hidden = !ui.listCollapsed;
+  }
+  function bindResizer(rzSel, paneSel, min, max, wKey, collapseKey) {
+    $(rzSel)?.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      const pane = $(paneSel);
+      if (!pane) return;
+      const startX = e.clientX;
+      const startW = pane.getBoundingClientRect().width;
+      document.body.classList.add('nt-resizing'); // 拖拽中禁文本选中
+      $(rzSel).classList.add('dragging');
+      const move = (ev) => {
+        pane.style.width = clampW(startW + (ev.clientX - startX), min, max) + 'px';
+      };
+      const up = () => {
+        document.removeEventListener('pointermove', move);
+        document.removeEventListener('pointerup', up);
+        document.body.classList.remove('nt-resizing');
+        $(rzSel).classList.remove('dragging');
+        ui[wKey] = pane.getBoundingClientRect().width; // 拖拽即视为展开
+        ui[collapseKey] = false;
+        applyUi(); saveUi();
+      };
+      document.addEventListener('pointermove', move);
+      document.addEventListener('pointerup', up);
+    });
+  }
 
   /* ── 索引拉取（一次取数：树/列表/类型徽章全部由 entries 派生）── */
   let loaded = false;
@@ -359,7 +435,7 @@
     </div>`;
   }
   function renderList() {
-    const head = $('#nt-list-head');
+    const head = $('#nt-list-head-main');
     if (state.trashMode) return; // 回收站态由 renderTrash 接管
     if (!loaded) { head.innerHTML = `<span class="nt-list-title">笔记</span>`; $('#nt-items').innerHTML = `<div class="nt-empty"><div class="nt-empty-ico">⌛</div><p>${state.noBridge ? '笔记服务未就绪（存储桥未加载）' : '正在扫描笔记…'}</p><p class="nt-empty-sub">${state.noBridge ? '等待 N1 集成后可用' : '就绪后自动刷新'}</p></div>`; return; }
     const list = visibleEntries();
@@ -427,7 +503,7 @@
     renderAll();
   }
   function renderTrash() {
-    $('#nt-list-head').innerHTML = `<span class="nt-list-title">回收站</span><button class="nt-back" id="nt-trash-back">← 返回列表</button>`;
+    $('#nt-list-head-main').innerHTML = `<span class="nt-list-title">回收站</span><button class="nt-back" id="nt-trash-back">← 返回列表</button>`;
     $('#nt-trash-back').addEventListener('click', () => { state.trashMode = false; renderAll(); });
     const list = state.trashEntries || [];
     $('#nt-items').innerHTML = list.length
@@ -503,6 +579,7 @@
         if (!state.open) return;
         state.open.buffer = ed.value();
         state.open.dirty = true;
+        applyFrontmatterFade(); // ④ frontmatter 块随输入保持淡化
         renderFoot(); scheduleSave();
       });
       ed.codemirror.on('blur', () => flushSave()); // 编辑器失焦 → 立即 flush（CON-R-notes-008）
@@ -511,6 +588,7 @@
     // 工具栏内置预览/分屏切换 → 头部三态高亮同步（①：保证分屏态随时可经头部切回编辑/预览）
     $('#nt-editor-body .EasyMDEContainer')?.addEventListener('click', () => setTimeout(syncEditorModeFromEditor, 50));
     applyEditorMode(editorMode);
+    applyFrontmatterFade();
     renderFoot();
     renderList(); // 列表 active 高亮
   }
@@ -538,8 +616,23 @@
       // false → 容器持 sided--no-fullscreen 行内分屏（vendor CSS 既有布局），模式开关常驻可退。
       sideBySideFullscreen: false,
       toolbar: ['bold', 'italic', 'strikethrough', 'heading', '|', 'unordered-list', 'ordered-list', 'check-list', 'table', '|', 'link', '|', 'preview', 'side-by-side'],
-      previewRender: (plainText) => mdRender(plainText),
+      // ④ 预览态：frontmatter 不进预览（头部 chips 已承载其信息）；空正文给淡提示
+      previewRender: (plainText) => {
+        const body = stripFm(plainText);
+        return body.trim() ? mdRender(body) : '<p class="nt-preview-empty">（无正文）</p>';
+      },
     });
+  }
+  /** ④ 编辑/分屏态 frontmatter 弱化：块内文本 markText 淡色（IDE frontmatter 观感；行级操作，随输入重打） */
+  function applyFrontmatterFade() {
+    const o = state.open;
+    if (!o?.editor) return;
+    const cm = o.editor.codemirror;
+    if (o.fmMark) { try { o.fmMark.clear(); } catch {} o.fmMark = null; }
+    const m = o.buffer.match(/^---\n[\s\S]*?\n---/);
+    if (!m) return;
+    const endLine = m[0].split('\n').length; // 含首尾 ---，标记至块尾行首
+    try { o.fmMark = cm.markText({ line: 0, ch: 0 }, { line: endLine, ch: 0 }, { className: 'nt-fm' }); } catch { /* 越界防御 */ }
   }
   /** 编辑器工具栏内置 preview/side-by-side 按钮与本头部三态开关的状态同步（用户点工具栏切换时校正高亮） */
   function syncEditorModeFromEditor() {
@@ -760,10 +853,11 @@
       o.dirty = false; o.titleDirty = false; o.conflict = null;
       o.editor = createEditor($('#nt-editor-text'), o.buffer);
       if (o.editor) {
-        o.editor.codemirror.on('change', () => { o.buffer = o.editor.value(); o.dirty = true; renderFoot(); scheduleSave(); });
+        o.editor.codemirror.on('change', () => { o.buffer = o.editor.value(); o.dirty = true; applyFrontmatterFade(); renderFoot(); scheduleSave(); });
         o.editor.codemirror.on('blur', () => flushSave());
       }
       $('#nt-editor-body .EasyMDEContainer')?.addEventListener('click', () => setTimeout(syncEditorModeFromEditor, 50));
+      applyFrontmatterFade();
       renderEditorHead(); renderFoot();
     } else {
       closeEditor(); // 磁盘上已不存在 → 回列表态

@@ -12,7 +12,39 @@
   overflow: hidden; background: var(--hull-bg); color: var(--hull-text); font-size: var(--text-md);
 }
 
-.notes-app { display: flex; height: 100%; min-height: 0; }
+.notes-app { display: flex; height: 100%; min-height: 0; position: relative; }
+
+/* ② 修复：shell.html 全局 button { margin: var(--space-1) var(--space-2); border-radius: var(--radius-md); padding: 8px 22px; font-size: var(--text-md) }
+   泄漏进笔记视图——分段控件按钮各自圆角+外边距 → 相邻双线缝/怪异边线。统一清零（各组件类自带 radius/padding/font-size） */
+.notes-app button, .nt-modal-box button { margin: 0; }
+
+/* 拖拽调宽分隔条（③：树/列表栏 pointer 拖拽；拖拽中 body.nt-resizing 禁文本选中） */
+.nt-resizer {
+  width: 5px; flex-shrink: 0; cursor: col-resize;
+  background: transparent; touch-action: none;
+  transition: background 0.12s;
+}
+.nt-resizer:hover, .nt-resizer.dragging { background: var(--hull-accent-soft); }
+body.nt-resizing { user-select: none; cursor: col-resize; }
+body.nt-resizing .nt-editor-body .EasyMDEContainer .CodeMirror { pointer-events: none; }
+/* ③ 折叠态恢复把手（窄条竖排，点击展开对应栏） */
+.nt-ghost-strip {
+  width: 16px; flex-shrink: 0; align-self: stretch;
+  background: var(--hull-panel); border: none; cursor: pointer;
+  color: var(--hull-text-sub); font-size: var(--text-xs);
+  border-right: 1px solid var(--hull-border);
+  padding: 0; line-height: 1;
+  transition: color 0.1s, background 0.1s;
+}
+.nt-ghost-strip:hover { color: var(--hull-accent-hover); background: var(--hull-hover); }
+/* ③ 栏头折叠 chevron（收起本栏） */
+.nt-collapse {
+  background: transparent; border: none; cursor: pointer;
+  color: var(--hull-text-sub); font-size: var(--text-xs); line-height: 1;
+  padding: 2px 4px; border-radius: var(--radius-xs);
+  transition: color 0.1s, background 0.1s;
+}
+.nt-collapse:hover { color: var(--hull-text); background: var(--hull-hover); }
 
 /* ── 左栏：搜索 + type 过滤 + 目录树 + 回收站入口 ── */
 .nt-side {
@@ -35,18 +67,24 @@
   transition: background 0.12s;
 }
 .nt-btn:hover { background: var(--hull-accent-medium); }
-.nt-search { position: relative; padding: 0 12px; }
+/* ① 搜索框单圈：边框/背景收到外容器，input 透明融入（此前容器内 input 自带边框 → 双圈） */
+.nt-search {
+  position: relative; margin: 0 12px;
+  background: var(--hull-panel); border: 1px solid var(--hull-border);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.12s;
+}
+.nt-search:focus-within { border-color: var(--hull-accent-medium); }
 .nt-search svg {
-  position: absolute; left: 21px; top: 50%; transform: translateY(-50%);
+  position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
   width: 12px; height: 12px; color: var(--hull-text-sub); pointer-events: none;
 }
 .nt-search input {
-  width: 100%; background: var(--hull-panel); border: 1px solid var(--hull-border);
-  border-radius: var(--radius-sm); color: var(--hull-text);
-  font-size: var(--text-xs); padding: 6px 8px 6px 26px; outline: none;
-  transition: border-color 0.12s;
+  width: 100%; background: transparent; border: none; outline: none;
+  color: var(--hull-text);
+  font-size: var(--text-xs); padding: 6px 8px 6px 26px;
 }
-.nt-search input:focus { border-color: var(--hull-accent-medium); }
+.nt-search input:focus { border: none; }
 .nt-search input::placeholder { color: var(--hull-text-sub); }
 .nt-hint { padding: 5px 12px 0; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--hull-text-sub); }
 .nt-typebar { display: flex; gap: 4px; flex-wrap: wrap; padding: 8px 12px 0; }
@@ -244,18 +282,20 @@
   font-family: inherit; padding: 2px 0;
 }
 .nt-title-input::placeholder { color: var(--hull-text-sub); }
+/* ② 分段控件：单一外框胶囊 + 内部按钮无边框（分隔线区分），active 用 accent 系底色 */
 .nt-mode-switch {
   display: flex; border: 1px solid var(--hull-border); border-radius: var(--radius-sm);
   overflow: hidden; flex-shrink: 0; margin-left: auto;
+  background: var(--hull-panel);
 }
 .nt-mode-btn {
-  background: transparent; border: none; color: var(--hull-text-sub);
-  font-size: var(--text-2xs); padding: 4px 11px; cursor: pointer;
-  border-right: 1px solid var(--hull-border); transition: background 0.1s, color 0.1s;
+  background: transparent; border: none; border-radius: 0; color: var(--hull-text-sub);
+  font-size: var(--text-2xs); padding: 4px 12px; cursor: pointer;
+  border-right: 1px solid var(--hull-card); transition: background 0.1s, color 0.1s;
 }
 .nt-mode-btn:last-child { border-right: none; }
-.nt-mode-btn:hover { color: var(--hull-text); }
-.nt-mode-btn.active { background: var(--hull-panel); color: var(--hull-accent-hover); }
+.nt-mode-btn:hover { color: var(--hull-text); background: var(--hull-hover); }
+.nt-mode-btn.active { background: var(--hull-accent-soft); color: var(--hull-accent-hover); }
 .nt-opbtn {
   background: transparent; border: 1px solid var(--hull-border); color: var(--hull-text-dim);
   font-size: var(--text-2xs); padding: 4px 10px; border-radius: var(--radius-sm); cursor: pointer;
@@ -275,6 +315,17 @@
   position: absolute; top: 0; right: 0; bottom: 0; width: 50%;
 }
 .nt-editor-body .EasyMDEContainer .CodeMirror { flex: 1; height: auto; }
+/* ④ 分屏比例与分隔线：写侧为主（CodeMirror-sided 57%），预览 43%；可见分隔线对齐整体边线。
+   vendor .CodeMirror-sided { width:50% !important } → 同权 !important 覆盖（sided--no-fullscreen flex 行内布局） */
+.nt-editor-body .EasyMDEContainer.sided--no-fullscreen .CodeMirror-sided { width: 57% !important; flex: 0 0 57%; }
+.nt-editor-body .EasyMDEContainer.sided--no-fullscreen .editor-preview-side {
+  width: 43% !important; flex: 1 1 auto;
+  border-left: 1px solid var(--hull-border); border-right: none; border-top: none; border-bottom: none;
+}
+/* ④ frontmatter 弱化（编辑/分屏态）：块级 markText 淡色——像 IDE frontmatter，不抢正文 */
+.nt-editor-body .EasyMDEContainer .CodeMirror .nt-fm { color: var(--hull-text-sub); }
+/* ④ 预览空正文提示 */
+.nt-preview-empty { color: var(--hull-text-sub); font-size: var(--text-sm); }
 .nt-editor-empty { flex: 1; display: grid; place-items: center; color: var(--hull-text-sub); }
 .nt-editor-foot {
   display: flex; align-items: center; gap: 14px;
