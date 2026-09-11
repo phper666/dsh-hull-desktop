@@ -16,21 +16,21 @@
 
 /* ② 修复：shell.html 全局 button { margin: var(--space-1) var(--space-2); border-radius: var(--radius-md); padding: 8px 22px; font-size: var(--text-md) }
    泄漏进笔记视图——分段控件按钮各自圆角+外边距 → 相邻双线缝/怪异边线。统一清零（各组件类自带 radius/padding/font-size） */
-.notes-app button, .nt-modal-box button { margin: 0; }
+.notes-app button, .note-modal-box button { margin: 0; }
 
-/* 拖拽调宽分隔条（③：树/列表栏 pointer 拖拽；拖拽中 body.nt-resizing 禁文本选中） */
-.nt-resizer {
+/* 拖拽调宽分隔条（③：树/列表栏 pointer 拖拽；拖拽中 body.note-resizing 禁文本选中） */
+.note-resizer {
   width: 5px; flex-shrink: 0; cursor: col-resize;
   background: transparent; touch-action: none;
   transition: background 0.12s;
 }
-.nt-resizer:hover, .nt-resizer.dragging { background: var(--hull-accent-soft); }
-body.nt-resizing { user-select: none; cursor: col-resize; }
-body.nt-resizing .nt-editor-body .EasyMDEContainer .CodeMirror { pointer-events: none; }
+.note-resizer:hover, .note-resizer.dragging { background: var(--hull-accent-soft); }
+body.note-resizing { user-select: none; cursor: col-resize; }
+body.note-resizing .note-editor-body .EasyMDEContainer .CodeMirror { pointer-events: none; }
 /* ③ 折叠态恢复把手（窄条竖排，点击展开对应栏） */
 /* ③ 折叠后恢复把手：≥20px 宽命中区 + 双箭头（明显可辨），hover accent */
 /* ③ 折叠后恢复把手：不再 stretch 拉满整栏（几百 px 长条突兀）——居中 64px 短条 + 右缘圆角，形似收起的标签页 */
-.nt-ghost-strip {
+.note-ghost-strip {
   width: 20px; height: 64px; flex-shrink: 0; align-self: center;
   background: var(--hull-panel); border: none; cursor: pointer;
   color: var(--hull-text-dim); font-size: 14px; font-weight: 700; line-height: 1;
@@ -38,9 +38,9 @@ body.nt-resizing .nt-editor-body .EasyMDEContainer .CodeMirror { pointer-events:
   padding: 0;
   transition: color 0.1s, background 0.1s;
 }
-.nt-ghost-strip:hover { color: var(--hull-accent-hover); background: var(--hull-accent-soft); }
+.note-ghost-strip:hover { color: var(--hull-accent-hover); background: var(--hull-accent-soft); }
 /* ③ 栏头折叠按钮：20px 高显眼小按钮（边框 + hover 底色 + 双箭头 ≥14px），位置保持栏头部 */
-.nt-collapse {
+.note-collapse {
   display: inline-flex; align-items: center; justify-content: center;
   width: 22px; height: 20px; flex-shrink: 0;
   box-sizing: border-box; padding: 0; /* 防泄漏：shell 全局 button { padding:8px 22px }（content-box 下 width 22 + 44 padding = 66px 宽） */
@@ -49,113 +49,96 @@ body.nt-resizing .nt-editor-body .EasyMDEContainer .CodeMirror { pointer-events:
   border-radius: var(--radius-xs);
   transition: color 0.1s, background 0.1s, border-color 0.1s;
 }
-.nt-collapse:hover { color: var(--hull-accent-hover); background: var(--hull-accent-soft); border-color: var(--hull-accent-medium); }
+.note-collapse:hover { color: var(--hull-accent-hover); background: var(--hull-accent-soft); border-color: var(--hull-accent-medium); }
 
 /* ── 左栏：搜索 + type 过滤 + 目录树 + 回收站入口 ── */
-.nt-side {
+.note-side {
   width: 264px; flex-shrink: 0; min-width: 0;
   border-right: 1px solid var(--hull-border);
   background: color-mix(in srgb, var(--hull-bg) 60%, transparent);
   display: flex; flex-direction: column; min-height: 0;
 }
-.nt-head {
+.note-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 12px 8px;
 }
-.nt-title { font-size: var(--text-md); font-weight: 600; color: var(--hull-text); }
-.nt-count { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--hull-text-sub); margin-left: 6px; font-weight: 400; }
-.nt-btn {
+.note-title { font-size: var(--text-md); font-weight: 600; color: var(--hull-text); }
+.note-count { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--hull-text-sub); margin-left: 6px; font-weight: 400; }
+.note-btn {
   display: inline-flex; align-items: center; gap: 4px;
   background: var(--hull-accent-soft); border: 1px solid var(--hull-accent-medium);
   color: var(--hull-accent-hover); font-size: var(--text-xs);
   padding: 3px 10px; border-radius: var(--radius-sm); cursor: pointer;
   transition: background 0.12s;
 }
-.nt-btn:hover { background: var(--hull-accent-medium); }
+.note-btn:hover { background: var(--hull-accent-medium); }
 /* ① 搜索框单圈：边框/背景收到外容器，input 透明融入（此前容器内 input 自带边框 → 双圈） */
-.nt-search {
+.note-search {
   position: relative; margin: 0 12px; min-width: 0;
   background: var(--hull-panel); border: 1px solid var(--hull-border);
   border-radius: var(--radius-sm);
   transition: border-color 0.12s;
 }
-.nt-search:focus-within { border-color: var(--hull-accent-medium); }
-.nt-search svg {
+.note-search:focus-within { border-color: var(--hull-accent-medium); }
+.note-search svg {
   position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
   width: 12px; height: 12px; color: var(--hull-text-sub); pointer-events: none;
 }
-.nt-search input {
+.note-search input {
   width: 100%; box-sizing: border-box; min-width: 0;
   background: transparent; border: none; outline: none;
   color: var(--hull-text);
   font-size: var(--text-xs); padding: 6px 8px 6px 26px;
 }
-.nt-search input:focus { border: none; }
-.nt-search input::placeholder { color: var(--hull-text-sub); }
-/* ① 二次加固（真机反馈双圈仍在）：高特异性兜底——防 shell/后续样式同权重后到覆盖（notes.css link 先于 shell <style> 加载，
-   同权重时 shell 后到者胜，故用 #notes 前缀抬高）。实测探针：border 0/none、box-shadow none、outline none、bg transparent。 */
-#notes .nt-search input,
-#notes .nt-search input:focus {
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  outline: none !important;
-}
-/* ①③ 真凶反制（探针定位）：notifs.css L13 也定义 .nt-search（通知中心搜索框）—— width:240px 固定宽 +
-   padding:6px 10px + :focus accent 边框泄漏到本视图容器（width:240 即「拖宽不回流」根因；10px padding 即双圈间距）。
-   notifs.css 非本车道，用 #notes 前缀压制泄漏属性 */
-#notes .nt-search {
-  width: auto;           /* 抵消 notifs width:240px → 随树栏回流 */
-  padding: 0;            /* 抵消 notifs padding:6px 10px → 消除框内 10px 间隙（双圈观感来源） */
-  margin: 0 12px;
-}
-#notes .nt-search:focus { border-color: var(--hull-accent-medium); } /* 压 notifs :focus 的 accent 色，统一 focus-within 口径 */
-.nt-hint { padding: 5px 12px 0; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--hull-text-sub); }
-.nt-typebar { display: flex; gap: 4px; flex-wrap: wrap; padding: 8px 12px 0; }
-.nt-typechip {
+.note-search input:focus { border: none; }
+.note-search input::placeholder { color: var(--hull-text-sub); }
+/* ③ 前缀重命名后撞车面已根除（notifs 的 .note-search 不存在）：原 #notes 前缀压制/兜底创可贴规则整体移除 */
+.note-hint { padding: 5px 12px 0; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--hull-text-sub); }
+.note-typebar { display: flex; gap: 4px; flex-wrap: wrap; padding: 8px 12px 0; }
+.note-typechip {
   background: var(--hull-panel); border: 1px solid var(--hull-border);
   color: var(--hull-text-dim); font-size: var(--text-2xs);
   padding: 1px 9px; border-radius: var(--radius-pill); cursor: pointer;
   max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   transition: color 0.1s, border-color 0.1s;
 }
-.nt-typechip:hover { color: var(--hull-text); }
-.nt-typechip.active {
+.note-typechip:hover { color: var(--hull-text); }
+.note-typechip.active {
   background: var(--hull-accent-soft); border-color: var(--hull-accent-medium); color: var(--hull-accent-hover);
 }
-.nt-treehead {
+.note-treehead {
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 12px 2px;
 }
-.nt-treehead-label { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--hull-text-sub); }
-.nt-newdir {
+.note-treehead-label { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--hull-text-sub); }
+.note-newdir {
   background: transparent; border: none; color: var(--hull-text-sub);
   font-size: var(--text-2xs); cursor: pointer; padding: 1px 5px; border-radius: var(--radius-xs);
   transition: color 0.1s, background 0.1s;
 }
-.nt-newdir:hover { color: var(--hull-accent-hover); background: var(--hull-panel); }
-.nt-tree { flex: 1; overflow-y: auto; padding: 4px 6px; min-height: 0; }
-.nt-trow {
+.note-newdir:hover { color: var(--hull-accent-hover); background: var(--hull-panel); }
+.note-tree { flex: 1; overflow-y: auto; padding: 4px 6px; min-height: 0; }
+.note-trow {
   display: flex; align-items: center; gap: 5px;
   padding: 3px 8px; border-radius: var(--radius-sm); cursor: pointer; user-select: none;
   border: 1px solid transparent; transition: background 0.1s;
 }
-.nt-trow:hover { background: var(--hull-hover); }
-.nt-trow.active { background: var(--hull-accent-soft); border-color: var(--hull-accent-medium); }
-.nt-chev {
+.note-trow:hover { background: var(--hull-hover); }
+.note-trow.active { background: var(--hull-accent-soft); border-color: var(--hull-accent-medium); }
+.note-chev {
   width: 14px; flex-shrink: 0; text-align: center; font-size: 9px; line-height: 1;
   padding: 4px 0; /* 命中区加大到 ~22px 高（反馈：11px 裸 span 易点偏 → 「点击无反应」观感） */
   color: var(--hull-text-sub); transition: transform 0.12s;
 }
-.nt-chev.open { transform: rotate(90deg); }
-.nt-chev.empty { visibility: hidden; }
-.nt-trow svg { width: 13px; height: 13px; flex-shrink: 0; color: var(--hull-text-dim); }
-.nt-trow.active svg { color: var(--hull-accent-hover); }
-.nt-tname { font-size: var(--text-xs); color: var(--hull-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.nt-trow:hover .nt-tname, .nt-trow.active .nt-tname { color: var(--hull-text); }
-.nt-tcount { margin-left: auto; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--hull-text-sub); }
+.note-chev.open { transform: rotate(90deg); }
+.note-chev.empty { visibility: hidden; }
+.note-trow svg { width: 13px; height: 13px; flex-shrink: 0; color: var(--hull-text-dim); }
+.note-trow.active svg { color: var(--hull-accent-hover); }
+.note-tname { font-size: var(--text-xs); color: var(--hull-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.note-trow:hover .note-tname, .note-trow.active .note-tname { color: var(--hull-text); }
+.note-tcount { margin-left: auto; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--hull-text-sub); }
 /* CON-R-notes-015 目录删除 ×：hover 才显，不起眼不抢主交互 */
-.nt-deldir {
+.note-deldir {
   display: none; flex-shrink: 0;
   width: 16px; height: 16px; align-items: center; justify-content: center;
   background: transparent; border: none; cursor: pointer;
@@ -163,270 +146,274 @@ body.nt-resizing .nt-editor-body .EasyMDEContainer .CodeMirror { pointer-events:
   border-radius: var(--radius-xs); padding: 0;
   transition: color 0.1s, background 0.1s;
 }
-.nt-trow:hover .nt-deldir { display: inline-flex; }
-.nt-deldir:hover { color: var(--hull-danger); background: var(--hull-danger-soft); }
-.nt-newdir-input {
+.note-trow:hover .note-deldir { display: inline-flex; }
+.note-deldir:hover { color: var(--hull-danger); background: var(--hull-danger-soft); }
+.note-newdir-input {
   width: 100%; background: var(--hull-panel); border: 1px solid var(--hull-accent-medium);
   border-radius: var(--radius-xs); color: var(--hull-text); font-size: var(--text-xs);
   padding: 3px 8px; outline: none;
 }
-.nt-trash-entry {
-  margin: 6px 8px 8px; padding: 7px 10px;
-  display: flex; align-items: center; gap: 6px;
-  background: transparent; border: 1px dashed var(--hull-border); border-radius: var(--radius-sm);
-  color: var(--hull-text-dim); font-size: var(--text-xs); cursor: pointer;
-  transition: color 0.1s, border-color 0.1s;
+/* ① 回收站入口显眼化：顶部实线分隔 + 字号 text-md + hover 底色（位置保持目录树下方） */
+.note-trash-entry {
+  margin: 8px 0 0; padding: 9px 14px;
+  display: flex; align-items: center; gap: 8px;
+  background: transparent; border: none; border-top: 1px solid var(--hull-border);
+  color: var(--hull-text-dim); font-size: var(--text-md); cursor: pointer;
+  transition: background 0.1s, color 0.1s;
 }
-.nt-trash-entry:hover { color: var(--hull-text); border-color: var(--hull-accent-medium); }
-.nt-trash-count {
+.note-trash-entry:hover { background: var(--hull-hover); color: var(--hull-text); }
+.note-trash-count {
   margin-left: auto; font-family: var(--font-mono); font-size: var(--text-2xs);
   background: var(--hull-neutral-soft); border-radius: var(--radius-pill); padding: 0 7px; line-height: 16px;
 }
 
 /* ── 中栏：笔记列表 / 回收站内联视图 ── */
-.nt-list {
+.note-list {
   width: 296px; flex-shrink: 0; min-width: 0;
   border-right: 1px solid var(--hull-border);
   display: flex; flex-direction: column; min-height: 0;
 }
-.nt-list-head {
+.note-list-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 12px 6px; flex-shrink: 0;
 }
-.nt-list-title { font-size: var(--text-sm); font-weight: 600; color: var(--hull-text); }
-.nt-back { background: none; border: none; color: var(--hull-accent-hover); font-size: var(--text-xs); cursor: pointer; padding: 2px 4px; border-radius: var(--radius-xs); }
-.nt-back:hover { background: var(--hull-accent-soft); }
-.nt-items { flex: 1; overflow-y: auto; padding: 4px 6px 8px; min-height: 0; }
-.nt-item {
+.note-list-title { font-size: var(--text-sm); font-weight: 600; color: var(--hull-text); }
+.note-back { background: none; border: none; color: var(--hull-accent-hover); font-size: var(--text-xs); cursor: pointer; padding: 2px 4px; border-radius: var(--radius-xs); }
+.note-back:hover { background: var(--hull-accent-soft); }
+.note-items { flex: 1; overflow-y: auto; padding: 4px 6px 8px; min-height: 0; }
+.note-item {
   padding: 9px 11px; border-radius: var(--radius-sm); cursor: pointer;
   border: 1px solid transparent; margin-bottom: 2px; transition: background 0.1s;
 }
-.nt-item:hover { background: var(--hull-hover); }
-.nt-item.active { background: var(--hull-panel); border-color: var(--hull-border); }
-.nt-item-top { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
-.nt-item-title {
+.note-item:hover { background: var(--hull-hover); }
+.note-item.active { background: var(--hull-panel); border-color: var(--hull-border); }
+.note-item-top { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+.note-item-title {
   font-weight: 600; font-size: var(--text-xs); color: var(--hull-text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0;
 }
-.nt-item-snippet {
+.note-item-snippet {
   font-size: var(--text-2xs); color: var(--hull-text-dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 5px;
 }
-.nt-item-meta {
+.note-item-meta {
   display: flex; align-items: center; gap: 8px;
   font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--hull-text-sub);
 }
-.nt-item-meta .nt-path {
+.note-item-meta .note-path {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex-shrink: 1;
 }
-.nt-badge {
+.note-badge {
   flex-shrink: 0; display: inline-flex; align-items: center; gap: 3px;
   font-family: var(--font-mono); font-size: var(--text-2xs);
   border-radius: var(--radius-xs); padding: 0 5px; line-height: 15px;
   background: var(--hull-panel); border: 1px solid var(--hull-border); color: var(--hull-text-dim);
   max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.nt-badge.task { background: var(--hull-accent-soft); border-color: var(--hull-accent-medium); color: var(--hull-accent-hover); }
+.note-badge.task { background: var(--hull-accent-soft); border-color: var(--hull-accent-medium); color: var(--hull-accent-hover); }
 /* N3 徽章三态：有效关联可点跳转 / 未知任务灰 / 未就绪中性占位（CON-R-notes-006） */
-.nt-badge.task.jump { cursor: pointer; }
-.nt-badge.task.jump:hover { background: var(--hull-accent-medium); }
-.nt-badge.task.unknown {
+.note-badge.task.jump { cursor: pointer; }
+.note-badge.task.jump:hover { background: var(--hull-accent-medium); }
+.note-badge.task.unknown {
   background: var(--hull-panel); border-color: var(--hull-border); color: var(--hull-text-sub);
 }
-.nt-badge.task.pending { background: var(--hull-neutral-soft); border-color: var(--hull-border); color: var(--hull-text-sub); }
-.nt-empty { padding: 44px 20px; text-align: center; color: var(--hull-text-sub); }
-.nt-empty .nt-empty-ico { font-size: 24px; opacity: 0.5; margin-bottom: 8px; }
-.nt-empty p { font-size: var(--text-xs); margin: 2px 0; }
-.nt-empty .nt-empty-sub { font-size: var(--text-2xs); color: var(--hull-text-sub); }
-.nt-empty .nt-btn { margin-top: 10px; }
+.note-badge.task.pending { background: var(--hull-neutral-soft); border-color: var(--hull-border); color: var(--hull-text-sub); }
+.note-empty { padding: 44px 20px; text-align: center; color: var(--hull-text-sub); }
+.note-empty .note-empty-ico { font-size: 24px; opacity: 0.5; margin-bottom: 8px; }
+.note-empty p { font-size: var(--text-xs); margin: 2px 0; }
+.note-empty .note-empty-sub { font-size: var(--text-2xs); color: var(--hull-text-sub); }
+.note-empty .note-btn { margin-top: 10px; }
 
 /* 回收站行 */
-.nt-trash-item {
+.note-trash-item {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 10px; border-radius: var(--radius-sm); margin-bottom: 2px;
   border: 1px solid transparent;
 }
-.nt-trash-item:hover { background: var(--hull-hover); }
-.nt-trash-info { flex: 1; min-width: 0; }
-.nt-trash-path { font-size: var(--text-xs); color: var(--hull-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.nt-trash-meta { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--hull-text-sub); margin-top: 2px; }
-.nt-trash-ops { display: flex; gap: 4px; flex-shrink: 0; }
-.nt-mini {
+.note-trash-item:hover { background: var(--hull-hover); }
+.note-trash-info { flex: 1; min-width: 0; }
+.note-trash-path { font-size: var(--text-xs); color: var(--hull-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.note-trash-meta { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--hull-text-sub); margin-top: 2px; }
+.note-trash-ops { display: flex; gap: 4px; flex-shrink: 0; }
+.note-mini {
   background: transparent; border: 1px solid var(--hull-border); color: var(--hull-text-dim);
   font-size: var(--text-2xs); padding: 2px 8px; border-radius: var(--radius-xs); cursor: pointer;
   transition: color 0.1s, border-color 0.1s;
 }
-.nt-mini:hover { color: var(--hull-text); border-color: var(--hull-accent-medium); }
-.nt-mini.danger:hover { color: var(--hull-danger); border-color: var(--hull-danger); }
+.note-mini:hover { color: var(--hull-text); border-color: var(--hull-accent-medium); }
+.note-mini.danger:hover { color: var(--hull-danger); border-color: var(--hull-danger); }
 
 /* ── 右栏：编辑器 ── */
-.nt-editor { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.nt-editor-head {
+.note-editor { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.note-editor-head {
   padding: 10px 16px; border-bottom: 1px solid var(--hull-card);
   display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;
 }
-.nt-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.nt-chip {
+.note-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.note-chip {
   display: inline-flex; align-items: center; gap: 4px;
   font-family: var(--font-mono); font-size: var(--text-2xs);
   padding: 1px 8px; line-height: 17px; border-radius: var(--radius-pill);
   background: var(--hull-panel); border: 1px solid var(--hull-border); color: var(--hull-text-dim);
   max-width: 240px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
-.nt-chip.task { background: var(--hull-accent-soft); border-color: var(--hull-accent-medium); color: var(--hull-accent-hover); }
-.nt-chip.task[data-tid] { cursor: pointer; }
-.nt-chip.task[data-tid]:hover { background: var(--hull-accent-medium); }
+.note-chip.task { background: var(--hull-accent-soft); border-color: var(--hull-accent-medium); color: var(--hull-accent-hover); }
+.note-chip.task[data-tid] { cursor: pointer; }
+.note-chip.task[data-tid]:hover { background: var(--hull-accent-medium); }
 /* N3 编辑器任务 chip：未知任务（灰，仅 × 可点）/ 未就绪中性占位 */
-.nt-chip.task.unknown { background: var(--hull-panel); border-color: var(--hull-border); color: var(--hull-text-sub); cursor: default; }
-.nt-chip.task.pending { background: var(--hull-neutral-soft); border-color: var(--hull-border); color: var(--hull-text-sub); }
+.note-chip.task.unknown { background: var(--hull-panel); border-color: var(--hull-border); color: var(--hull-text-sub); cursor: default; }
+.note-chip.task.pending { background: var(--hull-neutral-soft); border-color: var(--hull-border); color: var(--hull-text-sub); }
 /* 解除关联 ×（有效/未知态均可；点击走 notes:save 清 task 键） */
-.nt-chip.task .unlink {
+.note-chip.task .unlink {
   color: var(--hull-text-sub); padding: 0 3px; margin-right: -3px;
   border-radius: 3px; font-size: 11px; cursor: pointer;
 }
-.nt-chip.task .unlink:hover { color: var(--hull-danger); background: var(--hull-danger-soft); }
+.note-chip.task .unlink:hover { color: var(--hull-danger); background: var(--hull-danger-soft); }
 
 /* N3 搜索型任务选择器（输入实时过滤 + 平铺候选 + Enter 首个） */
-.nt-picker-list {
+.note-picker-list {
   margin-top: 8px; max-height: 280px; overflow-y: auto;
   border: 1px solid var(--hull-border); border-radius: var(--radius-sm);
 }
-.nt-picker-item {
+/* ② 选择器行：标题为主（正常字重/主色前置），[看板]+id 缩略尾随淡色 */
+.note-picker-item {
   display: flex; align-items: center; gap: 8px;
   padding: 7px 10px; cursor: pointer;
-  font-family: var(--font-mono); font-size: var(--text-xs);
-  color: var(--hull-text-dim);
   border-bottom: 1px solid var(--hull-card);
   transition: background 0.1s;
 }
-.nt-picker-item:last-child { border-bottom: none; }
-.nt-picker-item:hover, .nt-picker-item.top { background: var(--hull-hover); color: var(--hull-text); }
-.nt-picker-item .p-board { color: var(--hull-accent-hover); flex-shrink: 0; }
-.nt-picker-item .p-id { color: var(--hull-text); flex-shrink: 0; }
-.nt-picker-item.top .p-id { color: var(--hull-accent-hover); }
-.nt-picker-item .p-title {
-  flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--text-xs);
+.note-picker-item:last-child { border-bottom: none; }
+.note-picker-item:hover, .note-picker-item.top { background: var(--hull-hover); }
+.note-picker-item .p-title {
+  flex: 1; min-width: 0; font-family: inherit; font-size: var(--text-sm); font-weight: 500;
+  color: var(--hull-text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.nt-picker-item .p-arch { flex-shrink: 0; font-size: var(--text-2xs); color: var(--hull-text-sub); border: 1px solid var(--hull-border); border-radius: var(--radius-xs); padding: 0 4px; }
-.nt-picker-item .p-rel { flex-shrink: 0; font-size: var(--text-2xs); color: var(--hull-text-sub); }
-.nt-picker-empty { padding: 18px; text-align: center; font-size: var(--text-xs); color: var(--hull-text-sub); }
-.nt-chip.pending { background: var(--hull-neutral-soft); border-color: var(--hull-border); color: var(--hull-text-sub); }
-.nt-title-input {
+.note-picker-item .p-meta {
+  flex-shrink: 0; display: inline-flex; gap: 5px; align-items: center;
+  font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--hull-text-sub);
+}
+.note-picker-item .p-board { color: var(--hull-text-sub); }
+.note-picker-item .p-id { color: var(--hull-text-sub); }
+.note-picker-item .p-arch { flex-shrink: 0; font-size: var(--text-2xs); color: var(--hull-text-sub); border: 1px solid var(--hull-border); border-radius: var(--radius-xs); padding: 0 4px; }
+.note-picker-item .p-rel { flex-shrink: 0; font-size: var(--text-2xs); color: var(--hull-text-sub); }
+.note-picker-empty { padding: 18px; text-align: center; font-size: var(--text-xs); color: var(--hull-text-sub); }
+.note-chip.pending { background: var(--hull-neutral-soft); border-color: var(--hull-border); color: var(--hull-text-sub); }
+.note-title-input {
   flex: 1; min-width: 120px; background: transparent; border: none; outline: none;
   color: var(--hull-text); font-size: var(--text-lg); font-weight: 600;
   font-family: inherit; padding: 2px 0;
 }
-.nt-title-input::placeholder { color: var(--hull-text-sub); }
+.note-title-input::placeholder { color: var(--hull-text-sub); }
 /* ② 分段控件：单一外框胶囊 + 内部按钮无边框（分隔线区分），active 用 accent 系底色 */
-.nt-mode-switch {
+.note-mode-switch {
   display: flex; border: 1px solid var(--hull-border); border-radius: var(--radius-sm);
   overflow: hidden; flex-shrink: 0; margin-left: auto;
   background: var(--hull-panel);
 }
-.nt-mode-btn {
+.note-mode-btn {
   background: transparent; border: none; border-radius: 0; color: var(--hull-text-sub);
   font-size: var(--text-2xs); padding: 4px 12px; cursor: pointer;
   border-right: 1px solid var(--hull-card); transition: background 0.1s, color 0.1s;
 }
-.nt-mode-btn:last-child { border-right: none; }
-.nt-mode-btn:hover { color: var(--hull-text); background: var(--hull-hover); }
-.nt-mode-btn.active { background: var(--hull-accent-soft); color: var(--hull-accent-hover); }
-.nt-opbtn {
+.note-mode-btn:last-child { border-right: none; }
+.note-mode-btn:hover { color: var(--hull-text); background: var(--hull-hover); }
+.note-mode-btn.active { background: var(--hull-accent-soft); color: var(--hull-accent-hover); }
+.note-opbtn {
   background: transparent; border: 1px solid var(--hull-border); color: var(--hull-text-dim);
   font-size: var(--text-2xs); padding: 4px 10px; border-radius: var(--radius-sm); cursor: pointer;
   transition: color 0.1s, background 0.1s;
 }
-.nt-opbtn:hover { color: var(--hull-text); background: var(--hull-hover); }
-.nt-opbtn.danger:hover { color: var(--hull-danger); border-color: var(--hull-danger); }
-.nt-editor-body { flex: 1; min-height: 0; display: flex; }
+.note-opbtn:hover { color: var(--hull-text); background: var(--hull-hover); }
+.note-opbtn.danger:hover { color: var(--hull-danger); border-color: var(--hull-danger); }
+.note-editor-body { flex: 1; min-height: 0; display: flex; }
 /* ① 分屏困死修复（真机反馈根因：vendor .editor-preview-side 为 position:fixed top:50px right:0 z-index:9，
    嵌进笔记面板后盖住窗口右半屏——含头部模式切换按钮，用户被困只能重启）。
    notes.js 已传 sideBySideFullscreen:false（容器持 sided--no-fullscreen 行内分屏，不再全屏接管）；
    此处 ①容器定位锚点 ②非 sided 态兜底：fixed 预览改容器内 absolute（不再盖模式开关）。
    回归口径：进入分屏 → 头部「编辑」可见可点 → 点击退回编辑态。 */
-.nt-editor-body { flex: 1; min-height: 0; display: flex; }
+.note-editor-body { flex: 1; min-height: 0; display: flex; }
 /* ③ 分屏填满修复：原 flex-wrap 布局下 align-content:stretch 把工具栏行撑到 197px（上方大空白）。
-   分屏态改显式 grid：工具栏行 auto、编辑|预览行 1fr 吃满剩余高度；列宽 = --nt-split-ratio 可拖。
-   （非分屏态仍为 column flex；grid 仅由 JS 在 split 模式加 .nt-split-on 启用） */
-.nt-editor-body .EasyMDEContainer { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; }
-.nt-editor-body .EasyMDEContainer .CodeMirror { flex: 1; height: auto; }
-.nt-editor-body .EasyMDEContainer.nt-split-on {
+   分屏态改显式 grid：工具栏行 auto、编辑|预览行 1fr 吃满剩余高度；列宽 = --note-split-ratio 可拖。
+   （非分屏态仍为 column flex；grid 仅由 JS 在 split 模式加 .note-split-on 启用） */
+.note-editor-body .EasyMDEContainer { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; }
+.note-editor-body .EasyMDEContainer .CodeMirror { flex: 1; height: auto; }
+.note-editor-body .EasyMDEContainer.note-split-on {
   display: grid;
-  grid-template-columns: calc(var(--nt-split-ratio, 0.57) * 100%) 1fr;
+  grid-template-columns: calc(var(--note-split-ratio, 0.57) * 100%) 1fr;
   grid-template-rows: auto 1fr;
 }
-.nt-split-on .editor-toolbar { grid-column: 1 / 3; grid-row: 1; }
-.nt-split-on .CodeMirror-sided { grid-column: 1; grid-row: 2; width: 100% !important; height: 100%; }
-.nt-split-on .editor-preview-active-side {
+.note-split-on .editor-toolbar { grid-column: 1 / 3; grid-row: 1; }
+.note-split-on .CodeMirror-sided { grid-column: 1; grid-row: 2; width: 100% !important; height: 100%; }
+.note-split-on .editor-preview-active-side {
   grid-column: 2; grid-row: 2; width: 100% !important; height: 100%;
   position: relative;
   border-left: 1px solid var(--hull-border); border-top: none; border-right: none; border-bottom: none;
 }
-/* ② 可拖分隔线命中区：预览左缘 8px 竖条（hover 高亮 + col-resize；pointer 拖拽调 --nt-split-ratio） */
-.nt-split-on .editor-preview-active-side::before {
+/* ② 可拖分隔线命中区：预览左缘 8px 竖条（hover 高亮 + col-resize；pointer 拖拽调 --note-split-ratio） */
+.note-split-on .editor-preview-active-side::before {
   content: ''; position: absolute; left: -4px; top: 0; bottom: 0; width: 8px;
   cursor: col-resize; z-index: 5; background: transparent;
   transition: background 0.12s;
 }
-.nt-split-on .editor-preview-active-side:hover::before { background: var(--hull-accent-soft); }
+.note-split-on .editor-preview-active-side:hover::before { background: var(--hull-accent-soft); }
 /* 非 sided 兜底（sideBySideFullscreen 缺席的旧构建）：fixed 预览改容器内 absolute，不再盖模式开关 */
-.nt-editor-body .EasyMDEContainer:not(.sided--no-fullscreen) .editor-preview-side {
+.note-editor-body .EasyMDEContainer:not(.sided--no-fullscreen) .editor-preview-side {
   position: absolute; top: 0; right: 0; bottom: 0; width: 50%;
 }
 /* ④ frontmatter 弱化（编辑/分屏态）：块级 markText 淡色——像 IDE frontmatter，不抢正文 */
-.nt-editor-body .EasyMDEContainer .CodeMirror .nt-fm { color: var(--hull-text-sub); }
+.note-editor-body .EasyMDEContainer .CodeMirror .note-fm { color: var(--hull-text-sub); }
 /* ④ 预览空正文提示 */
-.nt-preview-empty { color: var(--hull-text-sub); font-size: var(--text-sm); }
-.nt-editor-empty { flex: 1; display: grid; place-items: center; color: var(--hull-text-sub); }
-.nt-editor-foot {
+.note-preview-empty { color: var(--hull-text-sub); font-size: var(--text-sm); }
+.note-editor-empty { flex: 1; display: grid; place-items: center; color: var(--hull-text-sub); }
+.note-editor-foot {
   display: flex; align-items: center; gap: 14px;
   padding: 6px 16px; border-top: 1px solid var(--hull-card);
   font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--hull-text-sub);
   flex-shrink: 0;
 }
-.nt-editor-foot .nt-right { margin-left: auto; }
-.nt-saved { color: var(--hull-success); }
-.nt-dirty { color: var(--hull-warning-alt); }
+.note-editor-foot .note-right { margin-left: auto; }
+.note-saved { color: var(--hull-success); }
+.note-dirty { color: var(--hull-warning-alt); }
 
 /* ── 模态（冲突分流/确认/输入；Esc/遮罩/✕ 关闭，模式对齐 kanban.js modal）── */
-.nt-modal {
+.note-modal {
   position: fixed; inset: 0; z-index: 100;
   background: var(--hull-overlay);
   display: flex; align-items: center; justify-content: center;
 }
-.nt-modal-box {
+.note-modal-box {
   width: 420px; max-width: 92vw; max-height: 84vh; overflow-y: auto;
   background: var(--hull-panel); border: 1px solid var(--hull-border);
   border-radius: var(--radius-lg); padding: 16px 18px;
   box-shadow: var(--hull-shadow);
 }
-.nt-modal-box h3 { font-size: var(--text-md); color: var(--hull-text); margin-bottom: 10px; }
-.nt-modal-box .nt-modal-msg { font-size: var(--text-xs); color: var(--hull-text-dim); line-height: 1.7; margin-bottom: 8px; }
-.nt-modal-box .nt-modal-input {
+.note-modal-box h3 { font-size: var(--text-md); color: var(--hull-text); margin-bottom: 10px; }
+.note-modal-box .note-modal-msg { font-size: var(--text-xs); color: var(--hull-text-dim); line-height: 1.7; margin-bottom: 8px; }
+.note-modal-box .note-modal-input {
   width: 100%; background: var(--hull-bg); border: 1px solid var(--hull-border);
   border-radius: var(--radius-sm); color: var(--hull-text); font-size: var(--text-xs);
   padding: 6px 9px; outline: none; margin: 6px 0 2px;
 }
-.nt-modal-box .nt-modal-input:focus { border-color: var(--hull-accent-medium); }
-.nt-modal-box select.nt-modal-input { padding: 6px 8px; }
-.nt-modal-ops { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
-.nt-primary {
+.note-modal-box .note-modal-input:focus { border-color: var(--hull-accent-medium); }
+.note-modal-box select.note-modal-input { padding: 6px 8px; }
+.note-modal-ops { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.note-primary {
   background: var(--hull-accent-soft); border: 1px solid var(--hull-accent-medium);
   color: var(--hull-accent-hover); font-size: var(--text-xs);
   padding: 5px 14px; border-radius: var(--radius-sm); cursor: pointer;
 }
-.nt-primary:hover { background: var(--hull-accent-medium); }
-.nt-primary.danger { background: var(--hull-danger-soft); border-color: var(--hull-danger); color: var(--hull-danger); }
-.nt-ghost {
+.note-primary:hover { background: var(--hull-accent-medium); }
+.note-primary.danger { background: var(--hull-danger-soft); border-color: var(--hull-danger); color: var(--hull-danger); }
+.note-ghost {
   background: transparent; border: 1px solid var(--hull-border);
   color: var(--hull-text-dim); font-size: var(--text-xs);
   padding: 5px 14px; border-radius: var(--radius-sm); cursor: pointer;
 }
-.nt-ghost:hover { color: var(--hull-text); background: var(--hull-hover); }
+.note-ghost:hover { color: var(--hull-text); background: var(--hull-hover); }
 
 /* 就绪态占位 toast（复用壳右下角 toast-root 之外的轻提示） */
-.nt-toast {
+.note-toast {
   position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(16px);
   background: var(--hull-panel); border: 1px solid var(--hull-accent-medium);
   color: var(--hull-text); font-size: var(--text-xs);
@@ -435,8 +422,8 @@ body.nt-resizing .nt-editor-body .EasyMDEContainer .CodeMirror { pointer-events:
   transition: opacity 0.18s, transform 0.18s;
   box-shadow: var(--hull-shadow);
 }
-.nt-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.note-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 /* 滚动条（对齐壳） */
-.nt-items::-webkit-scrollbar, .nt-tree::-webkit-scrollbar { width: 8px; }
-.nt-items::-webkit-scrollbar-thumb, .nt-tree::-webkit-scrollbar-thumb { background: var(--hull-border); border-radius: 4px; }
+.note-items::-webkit-scrollbar, .note-tree::-webkit-scrollbar { width: 8px; }
+.note-items::-webkit-scrollbar-thumb, .note-tree::-webkit-scrollbar-thumb { background: var(--hull-border); border-radius: 4px; }

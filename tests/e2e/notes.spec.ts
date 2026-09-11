@@ -1,7 +1,7 @@
 /**
  * N2/N1 notes 主链路 e2e 冒烟（wave-1 联合集成）：fake dsh 环境 + <userData>/notes/*.md 种子。
  * 场景：nav 进入 → 列表/树渲染 → 新建+自动保存落盘 → 删除→回收站→恢复 → 新建目录 → 搜索 → 外部改动冲突弹窗。
- * 选择器全部取自 src/renderer/notes.js 真实 DOM（#nt-new/#nt-items/.nt-item/.CodeMirror/#nt-newdir-input/...）。
+ * 选择器全部取自 src/renderer/notes.js 真实 DOM（#note-new/#note-items/.note-item/.CodeMirror/#note-newdir-input/...）。
  */
 import { test, expect } from '@playwright/test';
 import type { ElectronApplication } from '@playwright/test';
@@ -61,11 +61,11 @@ test.describe('N2/N1 笔记主链路', () => {
     const app = await launchApp({ userData: tmp.dir, fakeDshMode: 'ready' });
     const shell = await openNotesView(app);
     // 列表 2 行（种子两篇）
-    await expect(shell.locator('#nt-items .nt-item')).toHaveCount(2, { timeout: 20_000 });
-    await expect(shell.locator('#nt-items .nt-item', { hasText: 'Alpha 计划' })).toBeVisible();
-    await expect(shell.locator('#nt-items .nt-item', { hasText: '每周例会' })).toBeVisible();
+    await expect(shell.locator('#note-items .note-item')).toHaveCount(2, { timeout: 20_000 });
+    await expect(shell.locator('#note-items .note-item', { hasText: 'Alpha 计划' })).toBeVisible();
+    await expect(shell.locator('#note-items .note-item', { hasText: '每周例会' })).toBeVisible();
     // 树含子目录「工作」
-    await expect(shell.locator('#nt-tree .nt-trow[data-dir="工作"]')).toBeVisible();
+    await expect(shell.locator('#note-tree .note-trow[data-dir="工作"]')).toBeVisible();
     await app.close();
     tmp.cleanup();
   });
@@ -77,13 +77,13 @@ test.describe('N2/N1 笔记主链路', () => {
     const app = await launchApp({ userData: tmp.dir, fakeDshMode: 'ready' });
     const shell = await openNotesView(app);
     // 空态 → 新建第一篇（或右上角 ＋ 新建）
-    await shell.locator('#nt-new').click();
-    const modal = shell.locator('.nt-modal');
+    await shell.locator('#note-new').click();
+    const modal = shell.locator('.note-modal');
     await expect(modal).toBeVisible();
-    await shell.locator('#nt-new-title').fill('自动保存测试');
+    await shell.locator('#note-new-title').fill('自动保存测试');
     await modal.locator('[data-ok]').click();
     // 编辑器出现（EasyMDE CodeMirror），输入内容
-    const cm = shell.locator('#nt-editor-body .CodeMirror');
+    const cm = shell.locator('#note-editor-body .CodeMirror');
     await expect(cm).toBeVisible({ timeout: 20_000 });
     await cm.click();
     await shell.keyboard.type('hello autosave 正文 unique-token-7f3d');
@@ -101,26 +101,26 @@ test.describe('N2/N1 笔记主链路', () => {
     seedNotes(tmp.dir);
     const app = await launchApp({ userData: tmp.dir, fakeDshMode: 'ready' });
     const shell = await openNotesView(app);
-    await expect(shell.locator('#nt-items .nt-item')).toHaveCount(2, { timeout: 20_000 });
+    await expect(shell.locator('#note-items .note-item')).toHaveCount(2, { timeout: 20_000 });
     // 打开 alpha → 删除 → 确认弹窗
-    await shell.locator('#nt-items .nt-item', { hasText: 'Alpha 计划' }).click();
-    await expect(shell.locator('#nt-del')).toBeVisible();
-    await shell.locator('#nt-del').click();
-    const modal = shell.locator('.nt-modal');
+    await shell.locator('#note-items .note-item', { hasText: 'Alpha 计划' }).click();
+    await expect(shell.locator('#note-del')).toBeVisible();
+    await shell.locator('#note-del').click();
+    const modal = shell.locator('.note-modal');
     await expect(modal).toBeVisible();
     await modal.locator('[data-ok]').click();
     // 列表消失（剩 1 行）
-    await expect(shell.locator('#nt-items .nt-item')).toHaveCount(1);
+    await expect(shell.locator('#note-items .note-item')).toHaveCount(1);
     // 回收站入口出现该条
-    await expect(shell.locator('#nt-trash-count')).not.toBeHidden();
-    await shell.locator('#nt-trash-entry').click();
-    await expect(shell.locator('#nt-items .nt-trash-item')).toHaveCount(1);
-    await expect(shell.locator('#nt-items .nt-trash-path')).toHaveText(/alpha\.md/);
+    await expect(shell.locator('#note-trash-count')).not.toBeHidden();
+    await shell.locator('#note-trash-entry').click();
+    await expect(shell.locator('#note-items .note-trash-item')).toHaveCount(1);
+    await expect(shell.locator('#note-items .note-trash-path')).toHaveText(/alpha\.md/);
     // 恢复 → 列表回来
-    await shell.locator('#nt-items [data-restore]').click();
-    await shell.locator('#nt-trash-back').click();
-    await expect(shell.locator('#nt-items .nt-item', { hasText: 'Alpha 计划' })).toBeVisible({ timeout: 20_000 });
-    await expect(shell.locator('#nt-items .nt-item')).toHaveCount(2);
+    await shell.locator('#note-items [data-restore]').click();
+    await shell.locator('#note-trash-back').click();
+    await expect(shell.locator('#note-items .note-item', { hasText: 'Alpha 计划' })).toBeVisible({ timeout: 20_000 });
+    await expect(shell.locator('#note-items .note-item')).toHaveCount(2);
     ok(existsSync(join(tmp.dir, 'notes', 'alpha.md')), '恢复后磁盘文件回原路径');
     await app.close();
     tmp.cleanup();
@@ -133,21 +133,21 @@ test.describe('N2/N1 笔记主链路', () => {
     seedNotes(tmp.dir);
     const app = await launchApp({ userData: tmp.dir, fakeDshMode: 'ready' });
     const shell = await openNotesView(app);
-    await expect(shell.locator('#nt-items .nt-item')).toHaveCount(2, { timeout: 20_000 });
+    await expect(shell.locator('#note-items .note-item')).toHaveCount(2, { timeout: 20_000 });
     // ② 交互改版：先选中父目录「工作」→ 新建只填名称 → 建在 工作/ 下
-    await shell.locator('#nt-tree .nt-trow[data-dir="工作"]').click();
-    await shell.locator('#nt-newdir').click();
-    await expect(shell.locator('#nt-newdir-input')).toHaveAttribute('placeholder', /工作\//);
-    await shell.locator('#nt-newdir-input').fill('资料库');
+    await shell.locator('#note-tree .note-trow[data-dir="工作"]').click();
+    await shell.locator('#note-newdir').click();
+    await expect(shell.locator('#note-newdir-input')).toHaveAttribute('placeholder', /工作\//);
+    await shell.locator('#note-newdir-input').fill('资料库');
     await shell.keyboard.press('Enter');
     // 树出现嵌套新目录行 + 磁盘目录已创建（notes:mkdir 真建目录而非笔记文件）
-    await expect(shell.locator('#nt-tree .nt-trow[data-dir="工作/资料库"]')).toBeVisible({ timeout: 20_000 });
+    await expect(shell.locator('#note-tree .note-trow[data-dir="工作/资料库"]')).toBeVisible({ timeout: 20_000 });
     ok(existsSync(join(tmp.dir, 'notes', '工作', '资料库')), '磁盘目录已创建于选中目录下');
     // 名称含 / → UI 拦截（不发起创建）
-    await shell.locator('#nt-newdir').click();
-    await shell.locator('#nt-newdir-input').fill('a/b');
+    await shell.locator('#note-newdir').click();
+    await shell.locator('#note-newdir-input').fill('a/b');
     await shell.keyboard.press('Enter');
-    await expect(shell.locator('#nt-tree .nt-trow[data-dir="工作/a"]')).toHaveCount(0);
+    await expect(shell.locator('#note-tree .note-trow[data-dir="工作/a"]')).toHaveCount(0);
     await app.close();
     tmp.cleanup();
   });
@@ -164,25 +164,25 @@ test.describe('N2/N1 笔记主链路', () => {
     writeFileSync(join(tmp.dir, 'notes', '经验', 'exp.md'), '---\ntitle: 经验一则\n---\n\nx\n', 'utf8');
     const app = await launchApp({ userData: tmp.dir, fakeDshMode: 'ready' });
     const shell = await openNotesView(app);
-    await expect(shell.locator('#nt-items .nt-item')).toHaveCount(4, { timeout: 20_000 }); // 种子 2 + 补种 2
+    await expect(shell.locator('#note-items .note-item')).toHaveCount(4, { timeout: 20_000 }); // 种子 2 + 补种 2
     const kidRows = () => shell.evaluate(() =>
-      [...document.querySelectorAll('#nt-tree .nt-trow')].filter((r) => (r as HTMLElement).dataset.dir!.startsWith('工作/')).length);
+      [...document.querySelectorAll('#note-tree .note-trow')].filter((r) => (r as HTMLElement).dataset.dir!.startsWith('工作/')).length);
     // 「工作」有子目录 → 折叠点在；双击行（350ms 内两击）→ 子目录行收起
-    await expect(shell.locator('#nt-tree .nt-trow[data-dir="工作/子"]')).toBeVisible({ timeout: 20_000 });
-    await shell.locator('#nt-tree .nt-trow[data-dir="工作"]').click();
-    await shell.locator('#nt-tree .nt-trow[data-dir="工作"]').click();
+    await expect(shell.locator('#note-tree .note-trow[data-dir="工作/子"]')).toBeVisible({ timeout: 20_000 });
+    await shell.locator('#note-tree .note-trow[data-dir="工作"]').click();
+    await shell.locator('#note-tree .note-trow[data-dir="工作"]').click();
     await shell.waitForTimeout(200);
     ok(await kidRows() === 0, '双击折叠后「工作/」子行数应为 0');
     // 再双击 → 展开
-    await shell.locator('#nt-tree .nt-trow[data-dir="工作"]').click();
-    await shell.locator('#nt-tree .nt-trow[data-dir="工作"]').click();
+    await shell.locator('#note-tree .note-trow[data-dir="工作"]').click();
+    await shell.locator('#note-tree .note-trow[data-dir="工作"]').click();
     await shell.waitForTimeout(200);
     ok((await kidRows()) >= 1, '再双击后「工作/」子行数应 ≥1');
     // 平铺目录（经验 无子目录）双击：无折叠语义，行保持可见
-    await shell.locator('#nt-tree .nt-trow[data-dir="经验"]').click();
-    await shell.locator('#nt-tree .nt-trow[data-dir="经验"]').click();
+    await shell.locator('#note-tree .note-trow[data-dir="经验"]').click();
+    await shell.locator('#note-tree .note-trow[data-dir="经验"]').click();
     await shell.waitForTimeout(150);
-    await expect(shell.locator('#nt-tree .nt-trow[data-dir="经验"]')).toBeVisible();
+    await expect(shell.locator('#note-tree .note-trow[data-dir="经验"]')).toBeVisible();
     await app.close();
     tmp.cleanup();
   });
@@ -194,43 +194,43 @@ test.describe('N2/N1 笔记主链路', () => {
     seedNotes(tmp.dir);
     const app = await launchApp({ userData: tmp.dir, fakeDshMode: 'ready' });
     const shell = await openNotesView(app);
-    await expect(shell.locator('#nt-items .nt-item')).toHaveCount(2, { timeout: 20_000 });
+    await expect(shell.locator('#note-items .note-item')).toHaveCount(2, { timeout: 20_000 });
     const hasRmdir = await shell.evaluate(() => typeof (window as unknown as { notes?: { rmdir?: unknown } }).notes?.rmdir === 'function');
-    const toast = shell.locator('.nt-toast');
+    const toast = shell.locator('.note-toast');
 
     // A) 非空拒绝（渲染层预检，不依赖 rmdir 通道时序）：「工作」含 meeting.md
-    await shell.locator('#nt-tree .nt-trow[data-dir="工作"]').hover();
-    await shell.locator('#nt-tree .nt-trow[data-dir="工作"] [data-deldir]').click();
-    const confirmA = shell.locator('.nt-modal');
+    await shell.locator('#note-tree .note-trow[data-dir="工作"]').hover();
+    await shell.locator('#note-tree .note-trow[data-dir="工作"] [data-deldir]').click();
+    const confirmA = shell.locator('.note-modal');
     await expect(confirmA).toBeVisible();
-    await expect(confirmA.locator('.nt-modal-msg')).toContainText('仅空目录可删');
+    await expect(confirmA.locator('.note-modal-msg')).toContainText('仅空目录可删');
     await confirmA.locator('[data-ok]').click();
     await expect(toast).toContainText('目录非空：先移空笔记/子目录再删');
-    await expect(shell.locator('#nt-tree .nt-trow[data-dir="工作"]')).toBeVisible();
+    await expect(shell.locator('#note-tree .note-trow[data-dir="工作"]')).toBeVisible();
     ok(existsSync(join(tmp.dir, 'notes', '工作')), '非空目录磁盘保留');
 
     // B) 空目录：UI 新建「临时」→ hover × → 确认 → 目录消失（+ 通道就绪时磁盘删除）
-    await shell.locator('#nt-newdir').click();
-    await shell.locator('#nt-newdir-input').fill('临时');
+    await shell.locator('#note-newdir').click();
+    await shell.locator('#note-newdir-input').fill('临时');
     await shell.keyboard.press('Enter');
-    await expect(shell.locator('#nt-tree .nt-trow[data-dir="临时"]')).toBeVisible({ timeout: 20_000 });
-    await shell.locator('#nt-tree .nt-trow[data-dir="临时"]').hover();
-    await shell.locator('#nt-tree .nt-trow[data-dir="临时"] [data-deldir]').click();
-    const confirmB = shell.locator('.nt-modal');
-    await expect(confirmB.locator('.nt-modal-msg')).toContainText('删除目录 临时/');
+    await expect(shell.locator('#note-tree .note-trow[data-dir="临时"]')).toBeVisible({ timeout: 20_000 });
+    await shell.locator('#note-tree .note-trow[data-dir="临时"]').hover();
+    await shell.locator('#note-tree .note-trow[data-dir="临时"] [data-deldir]').click();
+    const confirmB = shell.locator('.note-modal');
+    await expect(confirmB.locator('.note-modal-msg')).toContainText('删除目录 临时/');
     await confirmB.locator('[data-ok]').click();
     if (hasRmdir) {
-      await expect(shell.locator('#nt-tree .nt-trow[data-dir="临时"]')).toHaveCount(0, { timeout: 20_000 });
+      await expect(shell.locator('#note-tree .note-trow[data-dir="临时"]')).toHaveCount(0, { timeout: 20_000 });
       await expect(toast).toContainText('已删除目录 临时/');
       ok(!existsSync(join(tmp.dir, 'notes', '临时')), '空目录已从磁盘删除');
     } else {
       // rmdir 通道未落地（N1 并行）→ 降级提示，目录保留；N1 落地后本分支自动消失
       await expect(toast).toContainText('通道未就绪');
-      await expect(shell.locator('#nt-tree .nt-trow[data-dir="临时"]')).toBeVisible();
+      await expect(shell.locator('#note-tree .note-trow[data-dir="临时"]')).toBeVisible();
     }
     // 根「全部笔记」行无删除按钮
-    await shell.locator('#nt-tree .nt-trow[data-dir=""]').hover();
-    await expect(shell.locator('#nt-tree .nt-trow[data-dir=""] [data-deldir]')).toHaveCount(0);
+    await shell.locator('#note-tree .note-trow[data-dir=""]').hover();
+    await expect(shell.locator('#note-tree .note-trow[data-dir=""] [data-deldir]')).toHaveCount(0);
     await app.close();
     tmp.cleanup();
   });
@@ -242,20 +242,20 @@ test.describe('N2/N1 笔记主链路', () => {
     seedNotes(tmp.dir);
     const app = await launchApp({ userData: tmp.dir, fakeDshMode: 'ready' });
     const shell = await openNotesView(app);
-    await expect(shell.locator('#nt-items .nt-item')).toHaveCount(2, { timeout: 20_000 });
-    const root = shell.locator('#nt-tree .nt-trow[data-dir=""]');
-    const rowCount = () => shell.evaluate(() => document.querySelectorAll('#nt-tree .nt-trow').length);
+    await expect(shell.locator('#note-items .note-item')).toHaveCount(2, { timeout: 20_000 });
+    const root = shell.locator('#note-tree .note-trow[data-dir=""]');
+    const rowCount = () => shell.evaluate(() => document.querySelectorAll('#note-tree .note-trow').length);
     // 展开态：根行 + 工作 = 2 行（seedNotes 仅 一个子目录）
-    await expect(shell.locator('#nt-tree .nt-trow')).toHaveCount(2, { timeout: 20_000 });
+    await expect(shell.locator('#note-tree .note-trow')).toHaveCount(2, { timeout: 20_000 });
     // 路径 ①：真实点击根 chevron → 所有一级目录行消失（根行保留）
-    await root.locator('.nt-chev').click();
+    await root.locator('.note-chev').click();
     await shell.waitForTimeout(200);
     ok(await rowCount() === 1, `折叠后树行数应为 1（仅根行），实际 ${await rowCount()}`);
     await shell.screenshot({ path: '/tmp/notes-root-collapsed.png' });
     // 再点 → 恢复
-    await root.locator('.nt-chev').click();
+    await root.locator('.note-chev').click();
     await shell.waitForTimeout(200);
-    const dirsAfterExpand = await shell.evaluate(() => [...document.querySelectorAll('#nt-tree .nt-trow')].map((r) => (r as HTMLElement).dataset.dir));
+    const dirsAfterExpand = await shell.evaluate(() => [...document.querySelectorAll('#note-tree .note-trow')].map((r) => (r as HTMLElement).dataset.dir));
     ok(await rowCount() === 2 && dirsAfterExpand.join(',') === ',工作', `展开后应为 [根,工作]，实际 ${JSON.stringify(dirsAfterExpand)}`);
     // 路径 ②：双击根行（350ms 内两击）→ 折叠
     await root.click();
@@ -266,7 +266,7 @@ test.describe('N2/N1 笔记主链路', () => {
     await root.click();
     await root.click();
     await shell.waitForTimeout(200);
-    const dirsAfterDblExpand = await shell.evaluate(() => [...document.querySelectorAll('#nt-tree .nt-trow')].map((r) => (r as HTMLElement).dataset.dir));
+    const dirsAfterDblExpand = await shell.evaluate(() => [...document.querySelectorAll('#note-tree .note-trow')].map((r) => (r as HTMLElement).dataset.dir));
     ok(await rowCount() === 2 && dirsAfterDblExpand.join(',') === ',工作', `双击展开后应为 [根,工作]，实际 ${JSON.stringify(dirsAfterDblExpand)}`);
     await app.close();
     tmp.cleanup();
@@ -279,14 +279,14 @@ test.describe('N2/N1 笔记主链路', () => {
     seedNotes(tmp.dir);
     const app = await launchApp({ userData: tmp.dir, fakeDshMode: 'ready' });
     const shell = await openNotesView(app);
-    await expect(shell.locator('#nt-items .nt-item')).toHaveCount(2, { timeout: 20_000 });
+    await expect(shell.locator('#note-items .note-item')).toHaveCount(2, { timeout: 20_000 });
     // 输入即搜（250ms debounce）——正文关键词命中一篇
-    await shell.locator('#nt-q').fill('meeting');
-    await expect(shell.locator('#nt-items .nt-item', { hasText: '每周例会' })).toBeVisible({ timeout: 15_000 });
-    await expect(shell.locator('#nt-items .nt-item')).toHaveCount(1);
+    await shell.locator('#note-q').fill('meeting');
+    await expect(shell.locator('#note-items .note-item', { hasText: '每周例会' })).toBeVisible({ timeout: 15_000 });
+    await expect(shell.locator('#note-items .note-item')).toHaveCount(1);
     // 清空 → 恢复全量
-    await shell.locator('#nt-q').fill('');
-    await expect(shell.locator('#nt-items .nt-item')).toHaveCount(2, { timeout: 15_000 });
+    await shell.locator('#note-q').fill('');
+    await expect(shell.locator('#note-items .note-item')).toHaveCount(2, { timeout: 15_000 });
     await app.close();
     tmp.cleanup();
   });
@@ -298,10 +298,10 @@ test.describe('N2/N1 笔记主链路', () => {
     seedNotes(tmp.dir);
     const app = await launchApp({ userData: tmp.dir, fakeDshMode: 'ready' });
     const shell = await openNotesView(app);
-    await expect(shell.locator('#nt-items .nt-item')).toHaveCount(2, { timeout: 20_000 });
+    await expect(shell.locator('#note-items .note-item')).toHaveCount(2, { timeout: 20_000 });
     // 打开 alpha → 编辑器输入（dirty + 2s debounce 计时启动）
-    await shell.locator('#nt-items .nt-item', { hasText: 'Alpha 计划' }).click();
-    const cm = shell.locator('#nt-editor-body .CodeMirror');
+    await shell.locator('#note-items .note-item', { hasText: 'Alpha 计划' }).click();
+    const cm = shell.locator('#note-editor-body .CodeMirror');
     await expect(cm).toBeVisible();
     await cm.click();
     await shell.keyboard.type('我的本地修改');
@@ -311,11 +311,11 @@ test.describe('N2/N1 笔记主链路', () => {
     writeFileSync(alphaPath, '---\ntitle: Alpha 计划\n---\n\n外部编辑器写入的内容\n', 'utf8');
     utimesSync(alphaPath, new Date(), new Date(Date.now() + 10_000));
     // debounce ~2s 后 flushSave → notes-conflict-modified → 三选弹窗
-    const modal = shell.locator('.nt-modal', { hasText: '保存冲突：文件已被外部修改' });
+    const modal = shell.locator('.note-modal', { hasText: '保存冲突：文件已被外部修改' });
     await expect(modal).toBeVisible({ timeout: 20_000 });
     // 放弃 → 弹窗关闭，磁盘保持外部版本
     await modal.locator('[data-c="discard"]').click();
-    await expect(shell.locator('.nt-modal')).toHaveCount(0);
+    await expect(shell.locator('.note-modal')).toHaveCount(0);
     await expect.poll(() => readFileSync(alphaPath, 'utf8'), { timeout: 10_000 }).toContain('外部编辑器写入的内容');
     await app.close();
     tmp.cleanup();

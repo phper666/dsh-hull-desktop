@@ -990,14 +990,14 @@
   }
 
   // ── N4 笔记存储区块（feishu-n4-notes-api-contract）：路径显示 / 复制 / 更改目录 ──
-  // 确认弹窗（复用 notes.css .nt-modal 组件样式——同页已加载；CON-R-notes-010 定案文案）
+  // 确认弹窗（复用 notes.css .note-modal 组件样式——同页已加载；CON-R-notes-010 定案文案）
   function confirmNotesDirChange(nextPath, onConfirm) {
     const wrap = document.createElement('div');
-    wrap.className = 'nt-modal';
-    wrap.innerHTML = `<div class="nt-modal-box"><h3>更改笔记存储目录</h3>
-      <p class="nt-modal-msg">新目录：<b>${String(nextPath).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</b></p>
-      <p class="nt-modal-msg">新目录将被扫描，旧目录文件不动（不迁移）。打开中的笔记将失效清空回列表。</p>
-      <div class="nt-modal-ops"><button type="button" class="nt-ghost" data-notes-x>取消</button><button type="button" class="nt-primary" data-notes-ok>确认更改</button></div>
+    wrap.className = 'note-modal';
+    wrap.innerHTML = `<div class="note-modal-box"><h3>更改笔记存储目录</h3>
+      <p class="note-modal-msg">新目录：<b>${String(nextPath).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</b></p>
+      <p class="note-modal-msg">新目录将被扫描，旧目录文件不动（不迁移）。打开中的笔记将失效清空回列表。</p>
+      <div class="note-modal-ops"><button type="button" class="note-ghost" data-notes-x>取消</button><button type="button" class="note-primary" data-notes-ok>确认更改</button></div>
     </div>`;
     document.body.appendChild(wrap);
     const close = () => wrap.remove();
