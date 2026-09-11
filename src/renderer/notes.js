@@ -410,6 +410,7 @@
     if (!name) { state.addingDir = false; renderTreeHeadArea(); return; }
     const r = await bridge.mkdir(name);
     state.addingDir = false;
+    renderTreeHeadArea(); // ① 修复：成功分支此前漏渲染——按钮停留在输入态不重现（「点一次就消失」根因）
     if (r && r.ok) {
       toast('已创建目录 ' + name + '/');
       state.extraDirs.add(name); // 树由 entries 派生：空目录补挂保证可见
