@@ -29,11 +29,12 @@ body.nt-resizing { user-select: none; cursor: col-resize; }
 body.nt-resizing .nt-editor-body .EasyMDEContainer .CodeMirror { pointer-events: none; }
 /* ③ 折叠态恢复把手（窄条竖排，点击展开对应栏） */
 /* ③ 折叠后恢复把手：≥20px 宽命中区 + 双箭头（明显可辨），hover accent */
+/* ③ 折叠后恢复把手：不再 stretch 拉满整栏（几百 px 长条突兀）——居中 64px 短条 + 右缘圆角，形似收起的标签页 */
 .nt-ghost-strip {
-  width: 20px; flex-shrink: 0; align-self: stretch;
+  width: 20px; height: 64px; flex-shrink: 0; align-self: center;
   background: var(--hull-panel); border: none; cursor: pointer;
   color: var(--hull-text-dim); font-size: 14px; font-weight: 700; line-height: 1;
-  border-right: 1px solid var(--hull-border);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   padding: 0;
   transition: color 0.1s, background 0.1s;
 }
