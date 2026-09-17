@@ -3,6 +3,14 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-09-17 备份共识发布 v1.0（新需求 backup，基线）
+
+- 类型：新模块共识建立（需求标识 `backup`，来自 PRD `2026-09-11-backup-prd.md` + 调研 `docs/research/2026-09-17-backup调研.md`，含本机实测盘点）
+- 内容：Hull 用户数据备份/恢复全部业务面——①白名单 9 项（settings.json / kanban/boards.json / workflows.json / notes 默认目录内 + 回收站 / notifications + dismiss / skills 状态 / 视图偏好，实测 ≈364KB）；②排除可重装产物（dsh/dsh-previous/node/corepack ≈790MB）与派生缓存（token-buckets/skills 哈希/executions 日志/Chromium 缓存）；③凭据（connections safeStorage）不进包，恢复后重填；④形式 = 目录拷贝 + manifest.json（zip 延后，若做走系统 bsdtar）；⑤恢复 = 全量替换 + `.bak-<ts>` 预备份 + pending-restore 启动期执行 + schemaVersion 迁移 + 崩溃自愈（对齐 CON-R005）；⑥notesDir 外置内容不打包、恢复期重定位；⑦仅手动触发（设置页「数据」区块）。规则 CON-R-backup-001~010；未决 U-1~U-5。不做：云同步 / 字段级 merge / 凭据导出 / DSH_HOME 迁移 / 包加密 / 增量续传
+- 影响：设置页新增「数据」区块；复用既有通道起步（hull:openDataDir / dialog:pickDirectory / hull:openPath），恢复走既有迁移链（无破坏性 schema 变更）
+- 下一步：用户决策「落共识，暂不开实现」——三角色扫描 → 子需求拆解（Gate B）→ 契约 随实现启动时补
+- 关联：docs/spec/共识-Hull桌面壳-备份.md · docs/research/2026-09-17-backup调研.md
+
 ## 2026-09-11 笔记共识 v1.3——目录删除补齐（用户反馈）
 
 - 类型：共识小版本（新增能力；用户实测反馈提出）
