@@ -9,6 +9,19 @@
   const skills = window.skills;
   const hull = window.hull;
   const root = document.getElementById('skills-root');
+
+  /** CON-R-backup-008：missingPath 条目展示契约（「路径不存在」徽标 + 启用/恢复禁用原因）；纯函数供 node:test 直测 */
+  const MISSING_PATH_TITLE = '原路径不存在（跨机失效），无法启用/恢复；仅标注，不自动清洗';
+  function missingPathState(entry) {
+    if (!entry || entry.missingPath !== true) return null;
+    return {
+      disabled: true,
+      title: MISSING_PATH_TITLE,
+      badge: `<span class="sk-badge notinstalled" title="${MISSING_PATH_TITLE}">路径不存在</span>`,
+    };
+  }
+  if (typeof module !== 'undefined' && module.exports) module.exports = { MISSING_PATH_TITLE, missingPathState };
+
   if (!skills || !root) return;
 
   // ── 状态 ──
@@ -248,14 +261,18 @@
     return `<span class="sk-badge plat" title="${tip}">${readers}</span>`;
   }
 
-  /** 路径行：启用开关（Q-031 按物理路径粒度真禁用）+ 路径归属平台徽标 */
-  function pathRow(path, isDisabled, affectedPlatforms) {
+  /** 路径行：启用开关（Q-031 按物理路径粒度真禁用）+ 路径归属平台徽标；
+      missingPath 条目（CON-R-backup-008）：标「路径不存在」+ 禁用启用开关（不自动清洗/重映射） */
+  function pathRow(path, isDisabled, affectedPlatforms, disabledEntry) {
+    const miss = missingPathState(disabledEntry);
     return `<div class="sk-path-row">
       <button class="sk-switch ${isDisabled ? 'off' : ''}" data-toggle-path="${esc(path)}" data-next="${isDisabled ? 'true' : 'false'}"
-        title="${isDisabled ? '点击启用（恢复到 agent 目录）' : '点击禁用（移出 agent 目录，真生效）'}"
+        ${miss ? 'disabled' : ''}
+        title="${miss ? miss.title : isDisabled ? '点击启用（恢复到 agent 目录）' : '点击禁用（移出 agent 目录，真生效）'}"
         aria-label="${esc(path)} ${isDisabled ? '已禁用' : '已启用'}"><i></i></button>
       <span class="sk-path ${isDisabled ? 'disabled' : ''}" title="${esc(path)}">${esc(path)}</span>
       <span class="sk-badge ${isDisabled ? 'notinstalled' : 'latest'}">${isDisabled ? '已禁用' : '启用中'}</span>
+      ${miss ? miss.badge : ''}
       ${pathBadge(path, affectedPlatforms)}
     </div>`;
   }
@@ -278,7 +295,7 @@
         </div>
         <div class="sk-paths">
           ${e.paths.map((p) => pathRow(p.path, false, p.affectedPlatforms)).join('')}
-          ${disabledPaths.map((d) => pathRow(d.originalPath, true, d.affectedPlatforms)).join('')}
+          ${disabledPaths.map((d) => pathRow(d.originalPath, true, d.affectedPlatforms, d)).join('')}
         </div>
       </div>
       <div class="sk-side">
@@ -306,7 +323,7 @@
         </div>
         <div class="sk-paths">
           ${e.paths.map((p) => pathRow(p.path, false, p.affectedPlatforms)).join('')}
-          ${disabledPaths.map((d) => pathRow(d.originalPath, true, d.affectedPlatforms)).join('')}
+          ${disabledPaths.map((d) => pathRow(d.originalPath, true, d.affectedPlatforms, d)).join('')}
         </div>
         <div class="sk-card-ops">
           <button class="sk-btn sk-danger-btn" data-remove="${esc(e.name)}">移除</button>
@@ -548,13 +565,17 @@
       panel.innerHTML = '<div class="sk-trash-head"><b>回收站</b><button class="sk-btn" data-trash-close>关闭</button></div><p class="sk-muted">回收站为空</p>';
     } else {
       panel.innerHTML = `<div class="sk-trash-head"><b>回收站（${trashEntries.length}）</b><button class="sk-btn" data-trash-close>关闭</button></div>` +
-        trashEntries.map((t) => `
+        trashEntries.map((t) => {
+          const miss = missingPathState(t);
+          return `
           <div class="sk-trash-row" data-trash-id="${esc(t.id)}">
             <div><b>${esc(t.skillName)}</b> <span class="sk-muted">${(t.sizeBytes / 1024).toFixed(1)} KB · ${esc(new Date(t.deletedAt).toLocaleString())}</span></div>
             <div class="sk-path">${esc(t.originalPath)}</div>
+            ${miss ? miss.badge : ''}
             <div class="sk-trash-conflict hidden">原路径已被占用，请先移走冲突项或手动处理</div>
-            <button class="sk-btn sk-primary-btn" data-restore="${esc(t.id)}">恢复</button>
-          </div>`).join('');
+            <button class="sk-btn sk-primary-btn" data-restore="${esc(t.id)}"${miss ? ` disabled title="${miss.title}"` : ''}>恢复</button>
+          </div>`;
+        }).join('');
     }
     panel.querySelector('[data-trash-close]')?.addEventListener('click', () => panel.classList.add('hidden'));
     for (const btn of panel.querySelectorAll('[data-restore]')) {

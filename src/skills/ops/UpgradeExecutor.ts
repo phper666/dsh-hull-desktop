@@ -26,6 +26,17 @@ import type { OperationLog } from './OperationLog';
 
 const GIT_CLONE_TIMEOUT_MS = 120_000; // 契约：npx/git 子进程超时上限 120s
 
+/**
+ * 在途升级计数器（CON-R-backup-005 v1.1）：备份/恢复/重启门控需感知 skills 升级在途。
+ * 模块级而非实例级——SkillsOps 每次 newExecutor() 生成新实例，实例字段会漏计。
+ */
+let inFlightUpgrades = 0;
+
+/** skills 升级是否在途（main gateDeps.isSkillsUpgradeActive 注入源；进入 upgrade 即 true，finally 复位） */
+export function isSkillsUpgradeInFlight(): boolean {
+  return inFlightUpgrades > 0;
+}
+
 export interface UpgradeRunners {
   /** npx skills update 注入点（cwd=skill 所在目录；成功且内容变化才算命中，否则降级） */
   npxUpdate?: (cwd: string, skillName: string) => Promise<void>;
@@ -179,8 +190,18 @@ export class UpgradeExecutor {
   /**
    * 升级一个物理路径。调用方（SkillsOps 门面）已完成路径校验+单飞+mtime 守卫。
    * 返回 { path, method, newHash }；失败一律抛具名错误（已回滚）。
+   * 在途计数：进入 +1 / 退出 -1（finally），供 isSkillsUpgradeInFlight() 门控读取。
    */
   async upgrade(physPath: string): Promise<{ path: string; method: 'npx-skills-update' | 'git-staging'; newHash: string }> {
+    inFlightUpgrades++;
+    try {
+      return await this.doUpgrade(physPath);
+    } finally {
+      inFlightUpgrades--;
+    }
+  }
+
+  private async doUpgrade(physPath: string): Promise<{ path: string; method: 'npx-skills-update' | 'git-staging'; newHash: string }> {
     const entry = this.findEntry(physPath);
     if (!entry) throw new SkillsNotFoundError('目标路径不存在，请刷新');
     if (!entry.remoteHash) throw new SkillsUpgradeUndetectableError('无法检测版本（无 source 且无 lock），升级入口禁用');

@@ -7,6 +7,7 @@ import { equal, ok } from 'node:assert/strict';
 
 import {
   ALL_IPC_CHANNELS,
+  BACKUP_IPC_CHANNELS,
   KANBAN_B4_EXEC_IPC_CHANNELS,
   KANBAN_EXEC_IPC_CHANNELS,
   KANBAN_IPC_CHANNELS,
@@ -14,24 +15,26 @@ import {
   SKILLS_IPC_CHANNELS,
 } from './ipc-channels';
 
-test('白名单计数：B1 21（含 getExecutionLog + updateComment），B3 10，B4 5，S1+S2 12，dialog/shell 2，N1 notes 14，共面 64', () => {
+test('白名单计数：B1 21（含 getExecutionLog + updateComment），B3 10，B4 5，S1+S2 12，dialog/shell 2，N1 notes 14，B4 备份/恢复 4，共面 68', () => {
   equal(KANBAN_IPC_CHANNELS.length, 21, 'B1 16 数据原语 + createColumn（BUG-1 修复）+ B5 2 导出/导入 + getExecutionLog（Q-回复落盘）+ Q-026 updateComment');
   equal(KANBAN_EXEC_IPC_CHANNELS.length, 10, 'B3 10 执行控制');
   equal(SKILLS_IPC_CHANNELS.length, 12, 'S1 4 skills:* + S2 7 操作 + hull:showSkills 导航');
   equal(NOTES_IPC_CHANNELS.length, 14, 'N1 12 invoke（含 v1.1 mkdir + v1.2 rmdir）+ notes:indexChanged 推送 + hull:showNotes 导航');
-  equal(ALL_IPC_CHANNELS.length, 64);
+  equal(BACKUP_IPC_CHANNELS.length, 4, 'hull:backup/restore/getBackupStatus/restart');
+  equal(ALL_IPC_CHANNELS.length, 68);
 });
 
 test('唯一性：全部 channel 无重复', () => {
   equal(new Set(ALL_IPC_CHANNELS).size, ALL_IPC_CHANNELS.length);
 });
 
-test('前缀规约：kanban: | skills: | hull:showSkills | hull:openPath（壳级）| dialog:（壳级目录选择器）| notes: | hull:showNotes', () => {
+test('前缀规约：kanban: | skills: | hull:showSkills | hull:openPath（壳级）| dialog:（壳级目录选择器）| notes: | hull:showNotes | hull:backup 等备份通道', () => {
   for (const c of ALL_IPC_CHANNELS) {
     ok(
       c.startsWith('kanban:') ||
         c.startsWith('skills:') ||
         c.startsWith('notes:') ||
+        (BACKUP_IPC_CHANNELS as readonly string[]).includes(c) ||
         c === 'hull:showSkills' ||
         c === 'hull:showNotes' ||
         c === 'hull:openPath' ||
@@ -124,5 +127,12 @@ test('B1/B3 交集为空（数据原语与执行控制不重叠）', () => {
 
 test('Q-026 kanban:updateComment 通道入白名单（B1 → 21）', () => {
   ok(KANBAN_IPC_CHANNELS.includes('kanban:updateComment' as never), '通道存在');
-  equal(ALL_IPC_CHANNELS.length, 64);
+  equal(ALL_IPC_CHANNELS.length, 68);
+});
+
+test('B4 备份/恢复 channel 完整（feishu-backup-api-contract §接口清单 + hull:restart）', () => {
+  const names = BACKUP_IPC_CHANNELS.join(',');
+  for (const expected of ['hull:backup', 'hull:restore', 'hull:getBackupStatus', 'hull:restart']) {
+    ok(names.includes(expected), `含 ${expected}`);
+  }
 });

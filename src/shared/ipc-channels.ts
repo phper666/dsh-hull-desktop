@@ -95,7 +95,16 @@ export const NOTES_IPC_CHANNELS = [
   'notes:indexChanged',
 ] as const;
 
-/** 全部 channel 白名单（B1+B5+B3+B4+S1+dialog+N1 notes 共面） */
+/** B4 备份/恢复 4 channel（feishu-backup-api-contract §接口清单 + hull:restart 恢复后立即重启原语；
+ *  注册见 src/backup/BackupIpc.ts，桥见 window.hull.backup/restore/getBackupStatus/restart） */
+export const BACKUP_IPC_CHANNELS = [
+  'hull:backup',
+  'hull:restore',
+  'hull:getBackupStatus',
+  'hull:restart',
+] as const;
+
+/** 全部 channel 白名单（B1+B5+B3+B4+S1+dialog+N1 notes+B4 备份/恢复 共面） */
 export const ALL_IPC_CHANNELS = [
   ...KANBAN_IPC_CHANNELS,
   ...KANBAN_EXEC_IPC_CHANNELS,
@@ -103,9 +112,11 @@ export const ALL_IPC_CHANNELS = [
   ...SKILLS_IPC_CHANNELS,
   ...DIALOG_IPC_CHANNELS,
   ...NOTES_IPC_CHANNELS,
+  ...BACKUP_IPC_CHANNELS,
 ] as const;
 
 export type KanbanIpcChannel = (typeof KANBAN_IPC_CHANNELS)[number];
 export type KanbanExecIpcChannel = (typeof KANBAN_EXEC_IPC_CHANNELS)[number];
 export type KanbanB4ExecIpcChannel = (typeof KANBAN_B4_EXEC_IPC_CHANNELS)[number];
+export type BackupIpcChannel = (typeof BACKUP_IPC_CHANNELS)[number];
 export type IpcChannel = (typeof ALL_IPC_CHANNELS)[number];

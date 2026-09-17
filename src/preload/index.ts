@@ -61,6 +61,17 @@ contextBridge.exposeInMainWorld('hull', {
   /** N1：壳导航笔记入口 → main 切 view 到 placeholder:notes（镜像 showNotifs） */
   showNotes: () => invoke('hull:showNotes'),
 
+  // ─────────── B4 数据区块桥（feishu-backup-api-contract §1~§3） ───────────
+  /** 执行备份（run）/ 清理旧备份（cleanup）；targetDir 缺省由主进程弹目录选择（仅 HULL_E2E=1 接受显式入参） */
+  backup: (payload?: { action?: 'run' | 'cleanup'; targetDir?: string }) => invoke('hull:backup', payload),
+  /** 请求恢复（request，写标记下次启动执行）/ 取消（cancel，幂等）；sourceDir 缺省主进程弹目录选择 */
+  restore: (payload?: { action?: 'request' | 'cancel'; mode?: 'replace' | 'merge'; sourceDir?: string }) =>
+    invoke('hull:restore', payload),
+  /** 数据区块初始化/刷新（门控 + 待恢复 + 最近结果） */
+  getBackupStatus: () => invoke('hull:getBackupStatus'),
+  /** pending 存在时重启执行恢复（主进程校验；无 pending → restore-source-invalid） */
+  restart: () => invoke('hull:restart'),
+
   // ─────────── S8' D2：设置页桥 15 方法并入（原 src/preload/settings.ts 删除） ───────────
   /** 读全量设置（settings.json 持久化，CON-R002 走主进程 SettingsProvider） */
   getSettings: () => ipcRenderer.invoke('hull:getSettings'),

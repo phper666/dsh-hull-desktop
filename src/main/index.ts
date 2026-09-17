@@ -51,9 +51,16 @@ import { AcEditor } from '../exec/approval/AcEditor';
 import { registerExecIpc } from '../exec/ipc/ExecIpc';
 import { SkillsScanner } from '../skills/SkillsScanner';
 import { SkillsOps } from '../skills/ops/SkillsOps';
+import { isSkillsUpgradeInFlight } from '../skills/ops/UpgradeExecutor';
 import { registerSkillsIpc } from '../skills/ipc/SkillsIpc';
 import { forbiddenNotesDirReason, NotesService } from '../notes/NotesService';
 import { registerNotesIpc, NOTES_PUSH_CHANNEL } from '../notes/NotesIpc';
+import { BackupService } from '../backup/backupService';
+import { registerBackupIpc, type BackupStatus } from '../backup/BackupIpc';
+import { canBackup, canRestore, canStartUpdate, type GateDeps } from '../backup/gate';
+import { runRestoreIfPending } from '../backup/restoreExecutor';
+import { RestoreService } from '../backup/restoreService';
+import { readPending, readResult } from '../backup/result';
 import { Logger } from '../log/Logger';
 
 /**
@@ -79,10 +86,22 @@ if (!lock.ok) {
 async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Promise<void> {
   const userDataPath = app.getPath('userData');
 
+  const logger = new Logger({ logDir: join(userDataPath, 'logs') });
+  // B2 启动期执行器（设计 §1.5 顺序固定）：Logger 之后、兜底清理/SettingsProvider/overlay/窗口之前；
+  // 幂等 + 内部捕获全部异常，绝不阻断启动（CON-R-backup-007/012）
+  // Y2 口径统一：执行器只认 deps.failAt（本处 env 注入，唯一执行依据）；pending.failAt 仅诊断记录字段，
+  // 不参与执行决策（重启时 env 变化可使两者不一致——以本处实际注入值为准，记录一次便于对照）。
+  const restoreFailAt = e2eFailAt();
+  const pendingFailAt = readPending(userDataPath)?.failAt ?? null;
+  if (restoreFailAt || pendingFailAt) {
+    logger.info(
+      `[restore] failAt 口径：执行器=${restoreFailAt ?? 'null'}（唯一执行依据） pending.json=${pendingFailAt ?? 'null'}（诊断）`
+    );
+  }
+  runRestoreIfPending({ userDataPath, logger, failAt: restoreFailAt });
+
   // 启动流程第 2 步：兜底清理（FR-7 / 设计 §4.5）——校验命令行签名防误杀用户手动跑的 dsh
   cleanupStaleDsh(userDataPath);
-
-  const logger = new Logger({ logDir: join(userDataPath, 'logs') });
   logger.info('启动流程开始（单实例锁已获取，兜底清理完成）');
   const settings = new SettingsProvider({ userDataPath, logger });
   settings.migrate(); // S6 B5：schemaVersion < 3 字段补齐（设置页首次运行触发）
@@ -410,6 +429,79 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   });
   winMgrRef = winMgr; // §8.1：工作流通知点击跳转的晚绑定引用回填
   notifsWinRef = winMgr; // V2a：通知存储推送/系统通知点击的窗口引用回填
+
+  // ─────── B4：备份/恢复装配（设计 §1.5 装配点 + §5 门控；B1/B2 服务就绪后注册） ───────
+  // gateDeps 五项接入点：执行快照（ExecutionEngine）/ dsh 首装（overlay）/ dsh 升级（Updater）/
+  // skills 升级在途（UpgradeExecutor 模块计数，CON-R-backup-005 v1.1）/ Hull 自更新（HullUpdater）
+  const gateDeps: GateDeps = {
+    hasRunningExecutions: () => {
+      const s = execEngine.getExecutionSnapshot();
+      return s.running.length > 0 || s.queued.length > 0;
+    },
+    isInstallOrUpgradeActive: () =>
+      overlay.installStatus().phase === InstallPhase.Installing || updater.inFlightUpgrade() !== null,
+    isSkillsUpgradeActive: () => isSkillsUpgradeInFlight(),
+    isHullUpdateActive: () => hullUpdater.snapshot().phase !== HullUpdatePhase.Idle,
+    hasPendingRestore: () => readPending(userDataPath) !== null,
+  };
+  /**
+   * 更新入口统一互斥守卫（CON-R-backup-007 / O2）：dsh 安装/升级/回滚、Hull 自更新、运行时重启
+   * 共用；有 pending 恢复 → { ok:false, code:'restore-pending' }，null = 放行。
+   */
+  const guardUpdateEntry = (): { ok: false; code: string; message: string } | null => {
+    const gate = canStartUpdate(gateDeps);
+    return gate.ok ? null : { ok: false, code: gate.code ?? 'restore-pending', message: gate.message ?? '' };
+  };
+  const backupService = new BackupService({
+    userDataPath,
+    notesDir: () => notesService.getNotesDir(),
+    flushAll: () => kanbanStore.flushSync(),
+    gate: gateDeps,
+    logger,
+    appVersion: app.getVersion(),
+    failAt: e2eFailAt(),
+  });
+  const restoreService = new RestoreService({
+    userDataPath,
+    notesDir: () => notesService.getNotesDir(),
+    gate: gateDeps,
+    logger,
+    // Y2 定版：此处 failAt 仅写入 pending.failAt（诊断记录）；启动期执行器读的是 bootstrap 顶部
+    // 注入的 env failAt（唯一执行依据），两者不冲突（不一致时以执行器为准，启动已记日志）
+    failAt: e2eFailAt(),
+  });
+  // 目录选择：与 dialog:pickDirectory 同模式（winMgr 父窗口 modal；取消 → null）
+  const pickBackupDirectory = async (title: string): Promise<string | null> => {
+    const opts: Electron.OpenDialogOptions = { title, properties: ['openDirectory', 'createDirectory'] };
+    const win = winMgr.getWindow();
+    const r = await (win ? dialog.showOpenDialog(win, opts) : dialog.showOpenDialog(opts));
+    return r.canceled ? null : (r.filePaths[0] ?? null);
+  };
+  registerBackupIpc({
+    backupService,
+    restoreService,
+    gate: gateDeps,
+    pickDirectory: pickBackupDirectory,
+    // O3：重启执行恢复复用退出编排（quitting 标记/runtime 收尾/updater in-flight await）→ relaunch+exit；
+    // 闭包晚绑定（quitOrchestration 在本装配点之后定义，IPC 调用时已就绪）
+    restartApp: () => {
+      if (quitting) return; // 已在退出编排中：不叠加二次编排
+      void quitOrchestration({ relaunch: true });
+    },
+    // BackupStatus（契约 §BackupStatus）：门控实时求值；lastBackupDir 由渲染层 localStorage 自持久化
+    status: (): BackupStatus => {
+      const pending = readPending(userDataPath);
+      const restoreBackupDir = join(userDataPath, '.restore', 'backup');
+      return {
+        canBackup: canBackup(gateDeps),
+        canRestore: canRestore(gateDeps),
+        pending: pending ? { mode: pending.mode, sourceDir: pending.sourceDir, createdAt: pending.createdAt } : null,
+        lastResult: readResult(userDataPath),
+        lastBackupDir: null,
+        restoreBackupDir: existsSync(restoreBackupDir) ? restoreBackupDir : null,
+      };
+    },
+  });
   // N1：indexChanged 推送 → 壳页（渲染层收到后统一重拉 notes:index，契约 §IndexChangedPayload）
   notesService.setBroadcaster((payload) => {
     const w = winMgr.getWindow();
@@ -441,9 +533,11 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   // 退出编排（设计 §4.3 + S3 §4.5）：双 flag 防递归与中途二次退出漏防
   // - quitting：编排进行中（升级取消/等待 + stop + 500ms 延时）
   // - quitProceeding：最终 app.quit() 已发出 → before-quit 放行默认退出
+  // - opts.relaunch：hull:restart 复用本编排（runtime 收尾/in-flight await）后 relaunch+exit(0)，
+  //   不裸调 app.relaunch/app.exit（O3）
   let quitting = false;
   let quitProceeding = false;
-  const quitOrchestration = async (): Promise<void> => {
+  const quitOrchestration = async (opts?: { relaunch?: boolean }): Promise<void> => {
     if (quitting) return;
     quitting = true;
     // S3（B8/D12）：升级中退出 → installing 段 cancelInstall；swapping+ 段等待完成
@@ -480,6 +574,12 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     await new Promise((r) => setTimeout(r, 500)); // SIGKILL 后短延时，防 zombie（T1-02）
     quitProceeding = true; // 🟡-A：最终 quit 发出前标记，before-quit 据此放行
     winMgr.setQuitting(); // 退出编排收尾：close 事件放行（防 closeToQuit=false 阻断最终退出）
+    if (opts?.relaunch) {
+      // hull:restart 定版（O3）：编排收尾后 relaunch；app.exit(0) 不触发 before-quit，直接替换进程
+      app.relaunch();
+      app.exit(0);
+      return;
+    }
     app.quit();
   };
   app.on('before-quit', (e) => {
@@ -528,6 +628,9 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   // preload 桥（契约 #7）：hull:retry / hull:openLogs
   ipcMain.handle('hull:retry', async () => {
     if (quitting) return { ok: false, message: '正在退出' }; // 🟡-3：退出期间禁止重启
+    // O2：运行时重启同属更新入口互斥面（有 pending 恢复 → restore-pending）
+    const deniedEntry = guardUpdateEntry();
+    if (deniedEntry) return deniedEntry;
     try {
       const snap = await runtime.start();
       return { ok: true, phase: snap.phase };
@@ -644,6 +747,9 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   // S2 IPC（契约 v0.2 #6~#8）：install / cancelInstall / installStatus（renderer 250ms 轮询，B6）
   ipcMain.handle('hull:install', async () => {
     if (quitting) return { ok: false, message: '正在退出' };
+    // O2：dsh 安装同属更新入口互斥面（有 pending 恢复 → restore-pending）
+    const deniedEntry = guardUpdateEntry();
+    if (deniedEntry) return deniedEntry;
     // installRunning 锁（runInstallFlow 重入防护）+ Installing 阶段检查，双保险防并发
     if (installRunning || overlay.installStatus().phase === InstallPhase.Installing) {
       return { ok: false, message: '安装进行中' };
@@ -874,6 +980,9 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   });
   ipcMain.handle('hull:upgradeDsh', async (_e, target: string) => {
     if (quitting) return { ok: false, message: '正在退出' };
+    // B4 互斥（CON-R-backup-007 / 设计 §5.2）：存在待恢复标记 → 禁止启动 dsh 升级
+    const deniedEntry = guardUpdateEntry();
+    if (deniedEntry) return deniedEntry;
     try {
       const status = await updater.upgrade(target);
       return { ok: true, status };
@@ -895,7 +1004,12 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     return status;
   });
   ipcMain.handle('hull:dismissDshUpdate', async () => updater.dismiss());
-  ipcMain.handle('hull:rollbackDsh', async () => updater.rollback());
+  ipcMain.handle('hull:rollbackDsh', async () => {
+    // O2：dsh 回滚同属更新入口互斥面（有 pending 恢复 → restore-pending）
+    const deniedEntry = guardUpdateEntry();
+    if (deniedEntry) return deniedEntry;
+    return updater.rollback();
+  });
 
   ipcMain.handle('hull:checkHullUpdate', async () => {
     if (quitting) return { hasUpdate: false, targetVersion: null, changeNotes: null, error: null };
@@ -904,6 +1018,9 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   ipcMain.handle('hull:getHullUpdateStatus', async () => hullUpdater.snapshot());
   ipcMain.handle('hull:downloadHullUpdate', async () => {
     if (quitting) return { ok: false, message: '正在退出' };
+    // B4 互斥（CON-R-backup-007 / 设计 §5.2）：存在待恢复标记 → 禁止启动 Hull 自更新
+    const deniedEntry = guardUpdateEntry();
+    if (deniedEntry) return deniedEntry;
     try {
       const status = await hullUpdater.download();
       if (status.phase === HullUpdatePhase.Restarting && !quitting) {
@@ -1005,6 +1122,11 @@ async function ensureBundledNode(userDataPath: string, logger: Logger): Promise<
   } catch (err) {
     logger.warn(`捆绑 node 解压失败（PATH 兜底）: ${(err as Error).message}`);
   }
+}
+
+/** B2/B4：e2e 注入失败点（HULL_E2E_FAIL_AT；仅 HULL_E2E=1 生效，生产 undefined） */
+function e2eFailAt(): string | undefined {
+  return process.env.HULL_E2E === '1' ? process.env.HULL_E2E_FAIL_AT : undefined;
 }
 
 /** 兜底清理（FR-7）：读 dsh.pid → ps 校验命令行签名 → 通过则按组杀 → 删 pid 文件 */
