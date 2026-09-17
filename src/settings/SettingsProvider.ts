@@ -238,23 +238,7 @@ export class SettingsProvider extends EventEmitter {
     const obj = parsed as Record<string, unknown>;
     const schemaVersion = typeof obj.schemaVersion === 'number' ? obj.schemaVersion : 1;
     if (schemaVersion >= SCHEMA_VERSION_CURRENT) return; // 已最新
-    const next: HullSettings = {
-      closeToQuit: typeof obj.closeToQuit === 'boolean' ? obj.closeToQuit : DEFAULT_SETTINGS.closeToQuit,
-      schemaVersion: SCHEMA_VERSION_CURRENT,
-      channel: obj.channel === 'pinned' || obj.channel === 'latest' ? obj.channel : DEFAULT_SETTINGS.channel,
-      pinnedVersion: typeof obj.pinnedVersion === 'string' ? obj.pinnedVersion : DEFAULT_SETTINGS.pinnedVersion,
-      autoCheckDsh: typeof obj.autoCheckDsh === 'boolean' ? obj.autoCheckDsh : DEFAULT_SETTINGS.autoCheckDsh,
-      autoCheckHull: typeof obj.autoCheckHull === 'boolean' ? obj.autoCheckHull : DEFAULT_SETTINGS.autoCheckHull,
-      // 🟢：旧文件 registry 格式校验（与 set() 校验链对称——非法 → 默认值）
-      registry: typeof obj.registry === 'string' && isValidRegistry(obj.registry) ? obj.registry : DEFAULT_SETTINGS.registry,
-      theme: obj.theme === 'dark' || obj.theme === 'light' || obj.theme === 'system' ? obj.theme : DEFAULT_SETTINGS.theme,
-      // P3：旧文件 packageManager 非法 → 默认 pnpm（与 set() 校验链对称）
-      packageManager: isValidPkgMgr(obj.packageManager) ? obj.packageManager : DEFAULT_SETTINGS.packageManager,
-      // V2b：旧文件无 notifPrefs → 默认（迁移路径字段级补齐）
-      notifPrefs: normalizeNotifPrefs(obj.notifPrefs),
-      // N1：旧文件无 notesDir → 默认补齐（schemaVersion 3→4 无迁移语义，不搬数据）
-      notesDir: typeof obj.notesDir === 'string' && obj.notesDir !== '' ? obj.notesDir : join(this.userDataPath, 'notes'),
-    };
+    const next: HullSettings = migrateSettingsObject(obj, this.userDataPath);
     try {
       const tmp = `${this.filePath}.tmp`;
       writeFileSync(tmp, JSON.stringify(next), 'utf8');
@@ -263,4 +247,29 @@ export class SettingsProvider extends EventEmitter {
       this.logger.warn(`settings.json 迁移写入失败: ${(err as Error).message}`);
     }
   }
+}
+
+/**
+ * settings schema 迁移纯函数（设计 §3.5；migrate() 与其同源，B2 恢复迁移预演复用）：
+ * 读盘对象 → 字段逐项补齐到当前 schema（缺省/非法回退默认；不写盘）。
+ * 标注保留自 migrate() 内联实现，行为等价（既有单测兜底）。
+ */
+export function migrateSettingsObject(raw: Record<string, unknown>, userDataPath: string): HullSettings {
+  return {
+    closeToQuit: typeof raw.closeToQuit === 'boolean' ? raw.closeToQuit : DEFAULT_SETTINGS.closeToQuit,
+    schemaVersion: SCHEMA_VERSION_CURRENT,
+    channel: raw.channel === 'pinned' || raw.channel === 'latest' ? raw.channel : DEFAULT_SETTINGS.channel,
+    pinnedVersion: typeof raw.pinnedVersion === 'string' ? raw.pinnedVersion : DEFAULT_SETTINGS.pinnedVersion,
+    autoCheckDsh: typeof raw.autoCheckDsh === 'boolean' ? raw.autoCheckDsh : DEFAULT_SETTINGS.autoCheckDsh,
+    autoCheckHull: typeof raw.autoCheckHull === 'boolean' ? raw.autoCheckHull : DEFAULT_SETTINGS.autoCheckHull,
+    // 🟢：旧文件 registry 格式校验（与 set() 校验链对称——非法 → 默认值）
+    registry: typeof raw.registry === 'string' && isValidRegistry(raw.registry) ? raw.registry : DEFAULT_SETTINGS.registry,
+    theme: raw.theme === 'dark' || raw.theme === 'light' || raw.theme === 'system' ? raw.theme : DEFAULT_SETTINGS.theme,
+    // P3：旧文件 packageManager 非法 → 默认 pnpm（与 set() 校验链对称）
+    packageManager: isValidPkgMgr(raw.packageManager) ? raw.packageManager : DEFAULT_SETTINGS.packageManager,
+    // V2b：旧文件无 notifPrefs → 默认（迁移路径字段级补齐）
+    notifPrefs: normalizeNotifPrefs(raw.notifPrefs),
+    // N1：旧文件无 notesDir → 默认补齐（schemaVersion 3→4 无迁移语义，不搬数据）
+    notesDir: typeof raw.notesDir === 'string' && raw.notesDir !== '' ? raw.notesDir : join(userDataPath, 'notes'),
+  };
 }
