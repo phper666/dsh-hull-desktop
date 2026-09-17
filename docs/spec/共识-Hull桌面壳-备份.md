@@ -1,12 +1,13 @@
 # Hull 桌面壳（数据备份与恢复）共识文档
 
-> 版本：v1.1 · 更新：2026-09-17 · 维护者：phper666（PM） · 状态：已发布
+> 版本：v1.2 · 更新：2026-09-17 · 维护者：phper666（PM） · 状态：已发布
 > 数据来源：Hull Backup PRD（docs/prd/2026-09-11-backup-prd.md）+ 调研（docs/research/2026-09-17-backup调研.md）+ 用户决策 2026-09-17（7 项待拍板按推荐 + 扫描后 6 项决策 + v1 增加合并模式）+ 三角色扫描闭环（Q-077~Q-100）
 > 关联：新增需求；需求标识 `backup`（PRD slug）；本模块不涉及多期拆分
 
 ## 1. 文档元信息
 
-- **本版本变更**：v1.1——三角色扫描 24 条 Q-items（Q-077~Q-100）全数闭环回写。关键项：① 恢复替换单位改「白名单项集逐项」（不再整目录，dsh/node/corepack 不动）；② 白名单 9→7 项（排除 Partitions/shell 与 workflows/runs.json）；③ 恢复执行时机 = 运行期只校验+标记、启动早期执行；④ notesDir 重定位改「启动后提示重选」（恢复期不弹窗）；⑤ 恢复结果跨启动可见（.restore/result.json + 数据卡展示）；⑥ skills 路径跨机失效 → 标注不可用；⑦ **新增合并模式（merge）**：v1 支持 replace/merge 双模式（用户决策）。新增规则 CON-R-backup-011~016。
+- **本版本变更**：v1.2——白名单 skills 项补 `skills/disabled/` 实体目录（实现核验发现：禁用实体原先未入包，换机后禁用记录指向的实体不可恢复）；CON-R-backup-001 同步。
+- **历史变更摘要**：v1.1——三角色扫描 24 条 Q-items（Q-077~Q-100）全数闭环回写。关键项：① 恢复替换单位改「白名单项集逐项」（不再整目录，dsh/node/corepack 不动）；② 白名单 9→7 项（排除 Partitions/shell 与 workflows/runs.json）；③ 恢复执行时机 = 运行期只校验+标记、启动早期执行；④ notesDir 重定位改「启动后提示重选」（恢复期不弹窗）；⑤ 恢复结果跨启动可见（.restore/result.json + 数据卡展示）；⑥ skills 路径跨机失效 → 标注不可用；⑦ **新增合并模式（merge）**：v1 支持 replace/merge 双模式（用户决策）。新增规则 CON-R-backup-011~016。
 - **历史变更摘要**：v1.0 首次建立——从 backup PRD + 调研提取整理；登记 CON-R-backup-001~010、U-1~U-5；7 项决策定案。
 - **状态说明**：v1.1 已发布；扫描闭环完成；子需求拆解（Gate B）随实现启动补。
 
@@ -43,7 +44,7 @@
   | 工作流定义 | `workflows/workflows.json` | 用户内容 |
   | 笔记 | `notes/**/*.md`（notesDir 默认目录内） | 用户内容（可外置，见 4.7） |
   | 笔记回收站 | `notes/trash.json` + `notes/.trash/` | 用户内容 |
-  | Skills 状态 | `skills/disabled.json`、`skills/trash.json`、`skills/trash/` | 用户意图（禁用/删除过哪些 skill） |
+  | Skills 状态 | `skills/disabled.json`、`skills/disabled/`、`skills/trash.json`、`skills/trash/` | 用户意图（禁用/删除过哪些 skill；实体目录随包） |
   | 通知与免打扰 | `notifications/notifications.json` + `dismiss.json` | 派生但有状态价值（未读等） |
 - **排除**（v1.1 冻结）：
   - 可重装产物：`dsh/`、`dsh-previous/`、`node/`、`corepack/`；
@@ -184,7 +185,7 @@
 
 | 编号 | 规则 | 来源 | 当前结论 | 变更状态 |
 |:-----|:-----|:-----|:---------|:---------|
-| CON-R-backup-001 | 备份范围 = 用户数据白名单 **7 项**（settings.json / kanban/boards.json / workflows/workflows.json / notes 默认目录+回收站 / notifications + dismiss / skills 状态）；排除可重装产物、派生缓存、**Partitions/shell（Q-089）**、**workflows/runs.json（Q-089）**、executions 日志、logs、Chromium 缓存、瞬态 | 调研 §二 + Q-089 | 生效 | v1.1 修订 |
+| CON-R-backup-001 | 备份范围 = 用户数据白名单 **7 项**（settings.json / kanban/boards.json / workflows/workflows.json / notes 默认目录+回收站 / notifications + dismiss / skills 状态（disabled.json + disabled/ 实体 + trash.json + trash/ 实体））；排除可重装产物、派生缓存、**Partitions/shell（Q-089）**、**workflows/runs.json（Q-089）**、executions 日志、logs、Chromium 缓存、瞬态 | 调研 §二 + Q-089 | 生效 | v1.2 修订 |
 | CON-R-backup-002 | connections 凭据不进包（safeStorage 绑机器 + OS 用户密钥，异机不可解密）；恢复后重填（v1 四平台） | 调研 §三.1 | 生效 | 稳定 |
 | CON-R-backup-003 | 备份形式 = 目录拷贝：所选目录下新建 `Hull备份-YYYYMMDD-HHmmss/`（重名自增）；realpath 校验拒绝目标位于 `<userData>` 内；manifest.json **最后原子写**（完成标记） | Q-080 + Q-081 | 生效 | v1.1 修订 |
 | CON-R-backup-004 | 边界 = 不含 DSH_HOME（CON-R002 红线）与 dsh 本体/运行时（CON-R003/R007 可重装） | PRD + 调研 | 生效 | 稳定 |
@@ -254,6 +255,7 @@
 
 | 版本 | 日期 | 变更摘要条目 | 说明 |
 |:-----|:-----|:-------------|:-----|
+| v1.2 | 2026-09-17 | 已登记（已发布） | 白名单 skills 项补 `skills/disabled/` 实体目录（实现核验期修正；CON-R-backup-001 同步） |
 | v1.1 | 2026-09-17 | 已登记（已发布） | 扫描 Q-077~Q-100 全数闭环回写：替换单位改白名单逐项、白名单 9→7、运行期校验+启动期执行、notesDir 启动后提示重选、结果跨启动可见、skills 路径标注不可用；**新增合并模式（merge）**（用户决策）；新增 CON-R-backup-011~016；U-6/U-7 登记 |
 | v1.0 | 2026-09-17 | 已登记（已发布） | 首次建立：从 backup PRD + 调研提取；登记 CON-R-backup-001~010、U-1~U-5；7 项决策用户确认 |
 
