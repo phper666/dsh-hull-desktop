@@ -74,6 +74,7 @@
 | 1 | 已冻结 | `hull:backup` | 执行备份 / 清理旧备份 | 渲染层经 preload 桥（`window.hull.backup`）；仅本机 | 每次新建目录（天然幂等） |
 | 2 | 已冻结 | `hull:restore` | 请求恢复（request）/ 取消（cancel） | 同上 | request 覆盖写标记；cancel 幂等 |
 | 3 | 已冻结 | `hull:getBackupStatus` | 读取门控/待恢复/最近结果/备份目录 | 同上 | 只读 |
+| 4 | 已冻结 | `hull:restart` | 重启应用以执行待恢复（仅 pending 存在且无更新/执行在途时允许） | 同上 | 幂等（无 pending 时拒绝） |
 | 复用 | 已存在 | `dialog:pickDirectory` / `hull:openDataDir` / `hull:openPath` | 目标/包目录选择；打开数据目录 | 既有 | 既有 |
 
 ## Schema 与枚举
@@ -135,7 +136,7 @@
 | `conflicts[]` | `ConflictEntry[]` | 是 | 冲突清单（不静默覆盖） |
 | `notices[]` | `{code,message}[]` | 是 | — |
 
-`ConflictEntry`：`kind: 'note'|'kanban'|'workflow'|'skill'|'setting'`、`path?/id?`、`resolution: 'renamed'|'appended'|'kept-local'|'overwritten'|'missing-path'|'skipped-identical'`、`detail?`。
+`ConflictEntry`：`kind: 'note'|'kanban'|'workflow'|'skill'|'setting'|'notif'`、`path?/id?`、`resolution: 'renamed'|'appended'|'kept-local'|'overwritten'|'missing-path'|'skipped-identical'`、`detail?`。
 
 ### BackupStatus / GateResult
 
@@ -146,7 +147,7 @@
 | `pending` | `{mode,sourceDir,createdAt} \| null` | 是 | 待恢复标记摘要 |
 | `lastResult` | `RestoreResult \| null` | 是 | 最近一次恢复结果 |
 | `lastBackupDir` | string \| null | 是 | 最近备份目录（渲染层持久化） |
-| `restoreBackupDir` | string \| null | 是 | `.restore/backup`（存在时） |
+| `restoreBackupDir` | string \| null | 是 | 活跃 `.restore/backup`（仅恢复进行中存在；成功后归档为 `backup-<ts>/`，路径由 `result.bakDir` 指向） |
 
 ### 枚举与状态
 
@@ -346,6 +347,46 @@
 - 成功：门控字段与实际状态一致；`pending` 随标记出现/消失。
 - 边界：`result.json` 损坏 → `lastResult=null` + message（不阻塞）。
 
+### 4. 重启应用 `hull:restart`
+
+#### 用途与依据
+
+- 使用场景：恢复确认弹窗「立即重启并恢复」——先写 pending，再重启应用触发启动期执行。
+- 共识：CON-R-backup-013（「立即重启并恢复 / 稍后」确认）；验收：B2 ①。
+
+#### 鉴权与隔离
+
+- 同 1；无入参。
+
+#### 请求
+
+无请求体（`ipcRenderer.invoke('hull:restart')`）。
+
+#### 成功响应
+
+- `ok: true, data: { restarted: true }`（应用退出并由既有退出编排 `quitOrchestration({relaunch:true})` 重启；响应先于编排延时返回）。
+
+#### 失败响应
+
+| 错误码 | 触发条件 | 响应字段要求 | 客户端处理 | 可重试 |
+|---|---|---|---|:---:|
+| `restore-source-invalid` | 无待执行恢复（pending 不存在） | `code` + `message` | 提示"没有待执行的恢复" | 是 |
+| `update-in-progress` | dsh 安装/升级、skills 升级、Hull 自更新在途 | `code` + `message` | 提示稍后 | 是 |
+| `backup-busy` | 看板执行中/排队任务存在 | `code` + `message` | 提示稍后 | 是 |
+
+#### 幂等与并发
+
+- 门控通过才执行；`quitting` 已置位时重复调用不叠加退出流程。
+
+#### 副作用与审计
+
+- 退出/重启应用；`logs/hull.log` 记 `restart for pending restore`。
+
+#### 测试要点
+
+- 成功：pending 存在 → `ok:true` 且应用重启后恢复执行。
+- 拒绝：无 pending → `restore-source-invalid`；更新在途 → `update-in-progress`。
+
 ## 联调与测试场景
 
 | 场景 | 前置条件 | 请求/动作 | 预期结果 | 数据与审计结果 | 验收编号 |
@@ -362,6 +403,8 @@
 | 合并模式 | 本地/包内各有同名不同内容笔记 + 同 id 工作流 | `hull:restore{mode:'merge'}` → 重启 | `ok:true`；冲突可见 | 双份笔记（改名）；工作流重 id；`merge.conflicts` 非空 | B3 ①② |
 | 取消恢复 | 已写标记（未重启） | `hull:restore{action:'cancel'}` | `ok:true, cancelled:true` | `pending.json` 删除；零其他写入 | B2 运行期 |
 | 门控互斥 | 已有 pending | 触发 Hull/dsh 更新入口 | 拒绝 `restore-pending` | 更新不启动 | 共识 007 |
+| 重启执行 | pending 存在、无更新/执行在途 | `hull:restart` | `ok:true` + 应用重启 | 重启后启动期执行恢复 | B2 ① |
+| 重启拒绝 | 无 pending | `hull:restart` | `ok:false, code:'restore-source-invalid'` | 应用不重启 | 契约 · 门控 |
 
 ## 开放问题
 
@@ -382,10 +425,10 @@
 
 | 项 | 结果 |
 |:---|:-----|
-| 交付时间 | — |
-| 验证结果 | — |
-| 构建/发布 | — |
-| 偏差处理 | — |
+| 交付时间 | 2026-09-17（feature/backup） |
+| 验证结果 | 单测 1212/1212 ✅ · integration 24/24 ✅ · e2e 4/4 ✅ · semgrep 0 findings ✅ · tsc 0 error ✅ |
+| 构建/发布 | 未发布（待用户验收后走 PR 合并 → 发版另行安排） |
+| 偏差处理 | 4 轮 oracle 评审全部修复；设计级偏离 D1~D5 已回写技术方案（见 `docs/records/B-备份-backup-record.md` §四）；契约本文件变更记录 v1.1 同步 |
 
 ## 决策与踩坑
 
@@ -393,12 +436,14 @@
 - **先 reset 再 merge 保证可重入**：merge 崩溃后重跑需确定基线 → 应用阶段先把 userData 项重置为预备份基线，再从包内容合并；避免"半合并"状态累积。复用场景：一切可重入的合并/导入器。
 - **`.restore/` 独立目录不受白名单影响**：标记/结果/staging/预备份都放 `.restore/`，恢复过程自身不搬运自己 → 自愈判定可全枚举（11 行决策表）。复用场景：需要跨重启续做的两步式操作。
 - **safeStorage 密文不可跨机**：凭据不进包（解密只可能在本机钥匙串）→ 恢复后重填；避免"看似备份了凭据"的假象。复用场景：任何含 OS 绑定密钥的导出功能。
+- **回滚既要幂等又要不留残留**：显式回滚 = 无条件删包内路径 + copy 式还原（backup 不消费）→ 任意崩溃点重跑收敛；而"无 pending 的补齐通道"必须 **repair-only**（只补缺失、不删不覆盖），否则旧备份会在日后静默覆盖当前数据（复验发现的真 🔴）。复用场景：任何"备份-回滚-补齐"三态功能。
 
 ## 变更记录
 
 | 时间 | 类型 | 摘要 |
 |---|---|---|
 | 2026-09-17 | 初次生成 | 基于共识 v1.1 + 技术方案（B-备份-backup-design）生成契约；覆盖 B1~B5；状态=已冻结 |
+| 2026-09-17 | 变更（核验期同步） | ① 新增 `hull:restart` 通道（共识 013「立即重启」落地；门控 = pending 必需 + 更新/执行在途拒绝；走既有退出编排）；② `ConflictKind` 增 `'notif'`（通知冲突不再借 workflow）；③ 白名单 skills 项含 `skills/disabled/` 实体（共识 v1.2）；④ 回滚语义：成功归档 `backup-<ts>/`、孤儿保留 `backup-orphan-<ts>/`、`#3` 补齐通道 repair-only、显式回滚 copy 式；⑤ `restoreBackupDir` 语义澄清（活跃态） |
 
 ## 自检记录
 

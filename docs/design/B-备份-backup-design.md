@@ -255,7 +255,7 @@ registerBackupIpc({ backupService, restoreService, status: buildBackupStatus });
 ### 1.6 BackupIpc.ts / 数据结构读写
 
 ```ts
-export const BACKUP_IPC_CHANNELS = ['hull:backup', 'hull:restore', 'hull:getBackupStatus'] as const;
+export const BACKUP_IPC_CHANNELS = ['hull:backup', 'hull:restore', 'hull:getBackupStatus', 'hull:restart'] as const;
 
 export interface IpcResult<T> { ok: boolean; code?: string; message?: string; data?: T }
 
@@ -283,6 +283,7 @@ export interface BackupStatus {
 | `hull:backup` | `{ action?: 'run' \| 'cleanup'; targetDir?: string }` | `{ backupDir, items, bytes }` |
 | `hull:restore` | `{ action?: 'request' \| 'cancel'; mode?: 'replace'\|'merge'; sourceDir?: string }` | `{ restartRequired, preview }` / `{ cancelled: true }` |
 | `hull:getBackupStatus` | `{}` | `BackupStatus` |
+| `hull:restart` | `{}` | `{restarted:true}`（`canRestart` 不通过 → 错误码） |
 
 `targetDir` / `sourceDir` 在生产缺省走 `dialog:pickDirectory`（复用 src/main/index.ts:541-550）；仅 `HULL_E2E=1` 时接受显式入参（CON-R-backup-009/014）。
 
@@ -354,14 +355,14 @@ Logger → runRestoreIfPending:
 |:--|:---|:---|:---|
 | 1 | 无 pending + `.restore` 无 incoming/backup | `cleanup` | none（删空目录） |
 | 2 | 无 pending + `.restore/backup` 有内容 + 现数据项齐全 | `cleanup`（保留 backup，记 warning） | none |
-| 3 | 无 pending + `.restore/backup` 有内容 + 现数据项缺失 | `rollback` | rolledBack（补齐缺项） |
+| 3 | 无 pending + `.restore/backup` 有内容 + 现数据项缺失 | `rollback`（**repair-only**：只补缺失项，不删除不覆盖） | rolledBack（补齐缺项） |
 | 4 | pending（forward, requested）+ sourceDir 存在 | `continue` | 从 staged 起 |
 | 5 | pending（forward, requested）+ sourceDir 不存在 | `finish` | failed(`restore-source-missing`)，现数据零改动 |
 | 6 | pending（forward, staged/backedUp/applied）+ incoming 完整 | `continue` | 续推 |
 | 7 | pending（forward, staged+）+ incoming 缺失/不完整 | `continue`→重做 staging；二次失败 `rollback` | 成功 / rolledBack |
 | 8 | pending（forward, verified） | `finish` | success（仅收尾） |
 | 9 | pending（rolling-back） | `rollback` | 续做回滚 |
-| 10 | 任一步 + 现数据项"既不在原位也不在 backup" | `manual` | failed(`restore-manual-required`)，不猜测不动现场 |
+| 10 | 回滚续做 + backup 与 incoming 均缺失且 step ≥ backedUp | `manual` | failed(`restore-manual-required`)（"两处皆无"的包内独有项不再 manual——回滚 copy 式后安全续做） |
 | 11 | pending + backup 与 incoming 均缺失且 step ≥ backedUp | `manual` | failed(`restore-manual-required`) |
 
 > #10/#11 判定不做启发式：`phase` 字段显式表达正向/回滚，递归场景全可判定。
@@ -662,11 +663,14 @@ export function mergeSkillsState(ctx: {
 
 ```
 .restore/
-  pending.json      # 运行期写，收尾/取消时删
-  result.json       # 启动期写，下次恢复覆盖
-  incoming/         # staging（rename 式原子就绪）
-  incoming.tmp/     # staging 中间态
-  backup/           # 预备份（逐项原目录树；成功后保留供人工兜底）
+  pending.json           # 运行期写，收尾/取消时删
+  result.json            # 启动期写，下次恢复覆盖
+  manifest.json          # staging 时复制的包内 manifest 副本（step ≥ staged 不再依赖外部包目录）
+  incoming/              # staging（rename 式原子就绪）
+  incoming.tmp/          # staging 中间态
+  backup/                # 活跃预备份（仅恢复进行中存在；copy 式回滚不消费）
+  backup-<ts>/           # 成功归档（保留最新 1 个；result.bakDir 指向）
+  backup-orphan-<ts>/    # 未完成回滚的旧预备份（绝不自动删除；清理入口 v2）
 ```
 
 `.restore/` 不属白名单项；守卫断言已排除（§3.3-5）。
@@ -749,6 +753,10 @@ await shellPage(app)!.evaluate(() => (window as any).hull.restore({ action: 'req
 | R8 | Hull 已更新后执行恢复（appVersion 变化） | v1 照常执行（manifestVersion 区间已挡格式不兼容） |
 | R9 | 备份包加密 | v2 |
 | R10 | `.restore/backup/` 被手动删除 | 决策表 #9/#11 → `restore-manual-required`，不猜测 |
+| R11 | `backup-orphan-<ts>/` 无清理入口（磁盘无上限，异常态才产生） | v2：数据卡「清理恢复孤儿」入口（交付核验登记） |
+| R12 | repair-only 补齐复用 `status='rolledBack'`（未区分「补齐」语义） | v2：UI 如需区分再单开状态码 |
+| R13 | 成功归档仅保留最新 1 个（上轮 `result.bakDir` 可能在崩溃窗口悬空） | 已接受：悬空仅存于 prune→writeResult 之间 |
+| R14 | 显式回滚后活跃 backup 保留（copy 语义必然） | 设计：保留供人工兜底；`#3` 已 repair-only，不会误覆盖 |
 
 ---
 
@@ -758,8 +766,12 @@ await shellPage(app)!.evaluate(() => (window as any).hull.restore({ action: 'req
 
 ## 10. 核验记录
 
-> 交付核验时对照本方案逐项核验，偏离清单与处理结论记录于此。
+> 交付核验（2026-09-17）对照本方案逐项核验。
 
 | 日期 | 项 | 结论 |
 |:-----|:---|:-----|
-| — | 待实现完成后核验 | — |
+| 2026-09-17 | 模块划分/文件结构（§1） | 一致（实现见 `src/backup/**`；IPC 通道 4 个，含 `hull:restart`） |
+| 2026-09-17 | 偏离 D1 replace copy 语义 / D2 回滚 copy 式 / D3 `#3` repair-only / D4 决策表 #10 收紧 / D5 `hull:restart` 通道 | **有意偏离，已记录理由并回写本方案**（见 §2.3/§2.5/§6.4 与记录文件） |
+| 2026-09-17 | 门控与互斥（§5） | 一致（`canRestart` 新增；更新入口 5 处 `guardUpdateEntry`） |
+| 2026-09-17 | 测试方案（§7） | 一致（unit 1212 / integration 24 / e2e 4；e2e 门控场景未跑，已登记） |
+| 2026-09-17 | 风险表（§8） | R11~R14 新增登记（凭证/债务） |
