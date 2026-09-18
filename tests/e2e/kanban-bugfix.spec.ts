@@ -117,7 +117,12 @@ test.describe('BUG-2 ✓ 确认完成', () => {
   test('Verify 列 succeeded 卡点 ✓ → 立即出现在 Done（无需切视图/重进）', async () => {
     const { tmp, app, shell } = await openBoard();
     await expect(cardIn(shell, 'c_verify', 't_vfy')).toBeVisible();
-    await shell.locator('[data-verify="t_vfy"]').click();
+    // BUG-2 的 ✓ 按钮位于 hover 显形的 .kb-card-ops（opacity:0 + pointer-events:none，悬停/键盘 focus 才可点，属设计意图）。
+    // Playwright 合成悬停不触发 CSS :hover → 命中测试无法穿透 pointer-events:none（报 .kb-card intercepts pointer events）。
+    // 走应用的 focus-within 显形机制：focus() 后正常 click（测试意图 = ✓ → 立即落 Done + UI 刷新）。
+    const verifyBtn = shell.locator('[data-verify="t_vfy"]');
+    await verifyBtn.focus();
+    await verifyBtn.click();
     await expect(cardIn(shell, 'c_done', 't_vfy')).toBeVisible();
     await expect(cardIn(shell, 'c_verify', 't_vfy')).toHaveCount(0);
     await expect(shell.locator('[data-verify="t_vfy"]'), '✓ 按钮随重渲染消失').toHaveCount(0);
