@@ -748,7 +748,7 @@
             </div>
             <div class="control">
               <div>
-                <button id="check-dsh" class="sbtn primary">检查更新</button>
+                <button id="check-dsh" class="sbtn primary">检查 dsh 更新</button>
                 <button id="rollback-dsh" class="sbtn danger" title="无可用上一版本" disabled>回滚</button>
               </div>
               <div id="dsh-hint" class="hint"></div>
@@ -772,10 +772,10 @@
           </div>
           <div class="srow">
             <div class="info">
-              <div class="label">检查 Hull 更新</div>
+              <div class="label">更新</div>
               <div class="sub">GitHub Releases · 升级需重启应用；确认/进度在本区块底部</div>
             </div>
-            <button id="check-hull" class="sbtn primary">检查更新</button>
+            <button id="check-hull" class="sbtn primary">检查 Hull 更新</button>
           </div>
           <div class="srow">
             <div class="info">
@@ -1679,7 +1679,7 @@
       body.innerHTML = `<div class="up-ok">${esc(u.message)}</div>`;
       return;
     }
-    body.innerHTML = '<div class="up-msg">无进行中的 dsh 升级</div>';
+    body.innerHTML = `<div class="up-msg">${u.message === '未开始' ? '尚未检查 dsh 更新' : '无进行中的 dsh 升级'}</div>`;
   }
   // Hull 通道（getHullUpdateStatus 快照驱动）
   function renderHullUpgrade(h) {
@@ -1758,7 +1758,7 @@
         <div class="urow"><div class="up-error retry"><button id="up-hull-recheck" class="sbtn">重新检查</button></div></div>`;
       return;
     }
-    body.innerHTML = '<div class="up-msg">无进行中的 Hull 更新</div>';
+    body.innerHTML = `<div class="up-msg">${h.message === '未开始' ? '尚未检查 Hull 更新' : '无进行中的 Hull 更新'}</div>`;
   }
   // preventive-prompt（H2 裁决 2：Hull 区块底部重启安装提示区）
   function renderRestartPrompt() {
