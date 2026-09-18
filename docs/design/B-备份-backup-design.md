@@ -729,6 +729,8 @@ await shellPage(app)!.evaluate(() => (window as any).hull.restore({ action: 'req
 
 复用既有 `makeTempUserData` / `launchApp` / `__hullTest.quit`（tests/e2e/helpers.ts、cold-start.spec.ts）。
 
+> 门控用例（第 5 条）采用测试钩子 `HULL_E2E_FORCE_GATE=backup-busy`（仅 `HULL_E2E=1` 生效）：真实"执行中任务"态需 fake dsh ACP 桩（v2），本轮以钩子覆盖"门控求值 → status 载荷 → DOM 置灰/原因 → 主进程强制拒绝（零写入）"整链；真实 gate 判定由 `gate`/`backupService` 单测覆盖。
+
 ### 7.4 验收口径（CON-R-backup-016，可观察）
 
 1. 备份：目标目录出现 7 项对应文件 + `manifest.json`；守卫断言通过。

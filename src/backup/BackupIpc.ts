@@ -2,11 +2,13 @@
  * B4 备份/恢复 IPC 注册（设计 §1.6 / §5.2；契约 feishu-backup-api-contract §1~§3）：
  *   4 channel：hull:backup / hull:restore / hull:getBackupStatus / hull:restart（通道常量在 src/shared/ipc-channels.ts）。
  *   - 统一返回 { ok:true, data } | { ok:false, code, message }（BackupError 码透传，未知错误按 handler 语义兜底）
- *   - targetDir / sourceDir 生产一律走原生目录选择（主进程注入 pickDirectory）；仅 HULL_E2E=1 接受显式入参（CON-R-backup-009/014）
+ *   - targetDir / sourceDir 生产一律走原生目录选择（主进程注入 pickDirectory）；仅 deps.isE2E（main 传 HULL_E2E=1）
+ *     接受显式入参（CON-R-backup-009/014）
  *   - 主进程强制门控：backup → canBackup；restore(request) → canRestore（渲染层禁用只是 UX，CON-R-backup-005）
  *   - hull:restart 安全约束：canRestart（pending 必须存在 + 无更新进行中 + 无执行中任务，防误用为通用重启）；
  *     重启走 main 注入的 restartApp（复用退出编排：quitting 标记/runtime 收尾/updater in-flight await → relaunch+exit），
  *     不在本文件裸调 app.relaunch/app.exit
+ *   - 业务逻辑在 createBackupHandlers（纯函数工厂，可脱 Electron 单测）；registerBackupIpc 仅 ipcMain.handle 薄壳
  *   - 注册见 src/main/index.ts bootstrap（服务就绪后）
  */
 import { ipcMain } from 'electron';
@@ -15,7 +17,7 @@ import type { BackupService } from './backupService';
 import { BackupError } from './errors';
 import { canBackup, canRestore, canRestart, type GateDeps, type GateResult } from './gate';
 import type { RestoreResult } from './result';
-import type { RestoreService } from './restoreService';
+import type { RestorePreview, RestoreService } from './restoreService';
 
 /** 4 通道常量唯一事实源在 src/shared/ipc-channels.ts（BACKUP_IPC_CHANNELS）；此处转出供主进程注册面消费 */
 export { BACKUP_IPC_CHANNELS } from '../shared/ipc-channels';
@@ -54,13 +56,27 @@ export interface BackupIpcDeps {
    * 收尾后 app.relaunch() + app.exit(0)；本文件不直接触碰 Electron app 生命周期
    */
   restartApp(): void;
+  /** 显式目录入参门控（生产 false；main 传 process.env.HULL_E2E === '1'，替代 handler 内直读 env） */
+  isE2E: boolean;
 }
 
-/** 显式目录入参仅 HULL_E2E=1 接受；生产忽略并弹选择器（CON-R-backup-009/014） */
-async function resolveDir(explicit: unknown, title: string, pick: BackupIpcDeps['pickDirectory']): Promise<string | null> {
-  if (process.env.HULL_E2E === '1' && typeof explicit === 'string' && explicit.length > 0) return explicit;
-  return pick(title);
+/** hull:backup 入参（preload §B4 桥镜像） */
+export interface BackupHandlerPayload {
+  action?: 'run' | 'cleanup';
+  targetDir?: unknown;
 }
+
+/** hull:restore 入参（preload §B4 桥镜像） */
+export interface RestoreHandlerPayload {
+  action?: 'request' | 'cancel';
+  mode?: unknown;
+  sourceDir?: unknown;
+}
+
+export type BackupRunData = { backupDir: string; items: string[]; bytes: number };
+export type BackupCleanupData = { removed: number };
+export type RestoreRequestData = { restartRequired: true; preview: RestorePreview };
+export type RestoreCancelData = { cancelled: boolean };
 
 function fail(err: unknown, fallbackCode: string): BackupIpcResult<never> {
   const code = err instanceof BackupError ? err.code : fallbackCode;
@@ -70,22 +86,31 @@ function fail(err: unknown, fallbackCode: string): BackupIpcResult<never> {
 /** 清理旧备份保留数量（v1 数据卡未暴露 keep 入参；契约未定义 data 形状，返回 { removed }） */
 const CLEANUP_KEEP = 3;
 
-export function registerBackupIpc(deps: BackupIpcDeps): void {
+/**
+ * 4 handler 业务逻辑（纯函数工厂）：每个 handler = (payload) => Promise<BackupIpcResult<...>>。
+ * 显式目录入参仅在 deps.isE2E 时短路 pickDirectory（CON-R-backup-009/014）。
+ */
+export function createBackupHandlers(deps: BackupIpcDeps) {
+  const resolveDir = async (explicit: unknown, title: string): Promise<string | null> => {
+    if (deps.isE2E && typeof explicit === 'string' && explicit.length > 0) return explicit;
+    return deps.pickDirectory(title);
+  };
+
   // hull:backup：{ action?: 'run'|'cleanup', targetDir? }
-  ipcMain.handle('hull:backup', async (_e, payload?: { action?: 'run' | 'cleanup'; targetDir?: unknown }) => {
+  const backup = async (payload?: BackupHandlerPayload): Promise<BackupIpcResult<BackupRunData | BackupCleanupData>> => {
     const action = payload?.action ?? 'run';
     try {
       const gate = canBackup(deps.gate);
       if (!gate.ok) return { ok: false, code: gate.code, message: gate.message } as BackupIpcResult<never>;
 
       if (action === 'cleanup') {
-        const parentDir = await resolveDir(payload?.targetDir, '选择要清理旧备份的目录', deps.pickDirectory);
+        const parentDir = await resolveDir(payload?.targetDir, '选择要清理旧备份的目录');
         if (!parentDir) return { ok: false, code: 'backup-failed', message: '未选择目录（已取消）' };
         const removed = deps.backupService.cleanupOrphans(parentDir, CLEANUP_KEEP);
         return { ok: true, data: { removed } };
       }
 
-      const targetDir = await resolveDir(payload?.targetDir, '选择备份目标目录', deps.pickDirectory);
+      const targetDir = await resolveDir(payload?.targetDir, '选择备份目标目录');
       if (!targetDir) return { ok: false, code: 'backup-failed', message: '未选择备份目录（已取消）' };
       const r = await deps.backupService.run({ targetDir });
       return {
@@ -95,51 +120,48 @@ export function registerBackupIpc(deps: BackupIpcDeps): void {
     } catch (err) {
       return fail(err, 'backup-failed');
     }
-  });
+  };
 
   // hull:restore：{ action?: 'request'|'cancel', mode?, sourceDir? }
-  ipcMain.handle(
-    'hull:restore',
-    async (_e, payload?: { action?: 'request' | 'cancel'; mode?: unknown; sourceDir?: unknown }) => {
-      const action = payload?.action ?? 'request';
-      try {
-        if (action === 'cancel') {
-          // cancel 幂等：无标记 → { ok:true, cancelled:false }（契约 §2 幂等与并发）
-          return { ok: true, data: { cancelled: deps.restoreService.cancel() } };
-        }
-        const mode = payload?.mode;
-        if (mode !== 'replace' && mode !== 'merge') {
-          return {
-            ok: false,
-            code: 'restore-source-invalid',
-            message: '恢复模式无效（replace/merge）',
-          } as BackupIpcResult<never>;
-        }
-        const gate = canRestore(deps.gate);
-        if (!gate.ok) return { ok: false, code: gate.code, message: gate.message } as BackupIpcResult<never>;
-
-        const sourceDir = await resolveDir(payload?.sourceDir, '选择备份包目录', deps.pickDirectory);
-        if (!sourceDir) return { ok: false, code: 'restore-source-invalid', message: '未选择备份包目录（已取消）' };
-        const r = await deps.restoreService.request({ sourceDir, mode });
-        return { ok: true, data: { restartRequired: true, preview: r.preview } };
-      } catch (err) {
-        return fail(err, 'io-error');
+  const restore = async (payload?: RestoreHandlerPayload): Promise<BackupIpcResult<RestoreRequestData | RestoreCancelData>> => {
+    const action = payload?.action ?? 'request';
+    try {
+      if (action === 'cancel') {
+        // cancel 幂等：无标记 → { ok:true, cancelled:false }（契约 §2 幂等与并发）
+        return { ok: true, data: { cancelled: deps.restoreService.cancel() } };
       }
+      const mode = payload?.mode;
+      if (mode !== 'replace' && mode !== 'merge') {
+        return {
+          ok: false,
+          code: 'restore-source-invalid',
+          message: '恢复模式无效（replace/merge）',
+        } as BackupIpcResult<never>;
+      }
+      const gate = canRestore(deps.gate);
+      if (!gate.ok) return { ok: false, code: gate.code, message: gate.message } as BackupIpcResult<never>;
+
+      const sourceDir = await resolveDir(payload?.sourceDir, '选择备份包目录');
+      if (!sourceDir) return { ok: false, code: 'restore-source-invalid', message: '未选择备份包目录（已取消）' };
+      const r = await deps.restoreService.request({ sourceDir, mode });
+      return { ok: true, data: { restartRequired: true, preview: r.preview } };
+    } catch (err) {
+      return fail(err, 'io-error');
     }
-  );
+  };
 
   // hull:getBackupStatus：{} → BackupStatus（只读；异常 → io-error 不阻塞）
-  ipcMain.handle('hull:getBackupStatus', () => {
+  const getBackupStatus = async (): Promise<BackupIpcResult<BackupStatus>> => {
     try {
       return { ok: true, data: deps.status() };
     } catch (err) {
       return fail(err, 'io-error');
     }
-  });
+  };
 
   // hull:restart：canRestart 前置（pending 必须存在 + 无 dsh/skills 更新 + 无 Hull 自更新 + 无执行中任务）；
   // 通过后交 main 的 restartApp 走既有退出编排（先回 IPC 响应，编排收尾后 relaunch+exit）
-  ipcMain.handle('hull:restart', async () => {
+  const restart = async (_payload?: unknown): Promise<BackupIpcResult<{ restarted: true }>> => {
     try {
       const gate = canRestart(deps.gate);
       if (!gate.ok) return { ok: false, code: gate.code, message: gate.message } as BackupIpcResult<never>;
@@ -148,5 +170,16 @@ export function registerBackupIpc(deps: BackupIpcDeps): void {
     } catch (err) {
       return fail(err, 'io-error');
     }
-  });
+  };
+
+  return { backup, restore, getBackupStatus, restart };
+}
+
+/** ipcMain 薄壳注册（业务逻辑见 createBackupHandlers；Electron 装配面） */
+export function registerBackupIpc(deps: BackupIpcDeps): void {
+  const handlers = createBackupHandlers(deps);
+  ipcMain.handle('hull:backup', (_e, payload?: BackupHandlerPayload) => handlers.backup(payload));
+  ipcMain.handle('hull:restore', (_e, payload?: RestoreHandlerPayload) => handlers.restore(payload));
+  ipcMain.handle('hull:getBackupStatus', () => handlers.getBackupStatus());
+  ipcMain.handle('hull:restart', () => handlers.restart());
 }

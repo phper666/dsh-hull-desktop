@@ -169,3 +169,114 @@ test('notes：backup 根不存在 → 无动作不崩', () => {
   deepEqual(report.classes.note, { added: 0, updated: 0, skipped: 0 });
   equal(existsSync(join(userData, 'notes', 'a.md')), true);
 });
+
+test('notes：冲突名重名递增 -3（既有冲突文件均不动）', () => {
+  const userData = tmp('hull-merge-notes6-');
+  const backup = tmp('hull-merge-bak6-');
+  const incoming = tmp('hull-merge-inc6-');
+  writeTree(join(userData, 'notes'), {
+    'c.md': 'PACK',
+    [`c (恢复冲突 ${STAMP}).md`]: 'OLD1',
+    [`c (恢复冲突 ${STAMP})-2.md`]: 'OLD2',
+  });
+  writeTree(join(backup, 'notes'), { 'c.md': 'LOCAL' });
+  writeTree(join(incoming, 'notes'), { 'c.md': 'PACK' });
+
+  mergeNotes({ userDataPath: userData, backupNotesRoot: join(backup, 'notes'), incomingNotesRoot: join(incoming, 'notes'), now: NOW });
+
+  const notes = join(userData, 'notes');
+  equal(readFileSync(join(notes, 'c.md'), 'utf8'), 'LOCAL');
+  equal(readFileSync(join(notes, `c (恢复冲突 ${STAMP}).md`), 'utf8'), 'OLD1');
+  equal(readFileSync(join(notes, `c (恢复冲突 ${STAMP})-2.md`), 'utf8'), 'OLD2');
+  equal(readFileSync(join(notes, `c (恢复冲突 ${STAMP})-3.md`), 'utf8'), 'PACK');
+});
+
+test('notes：incoming 与两侧均不同 → 包内版本另存冲突名；incoming 缺失 → 保留现内容', () => {
+  const userData = tmp('hull-merge-notes7-');
+  const backup = tmp('hull-merge-bak7-');
+  const incoming = tmp('hull-merge-inc7-');
+  writeTree(join(userData, 'notes'), { 'x.md': 'USER-X', 'y.md': 'USER-Y' });
+  writeTree(join(backup, 'notes'), { 'x.md': 'LOCAL-X', 'y.md': 'LOCAL-Y' });
+  writeTree(join(incoming, 'notes'), { 'x.md': 'PACK-X' }); // y.md 包内无对应版本
+
+  const { report } = mergeNotes({
+    userDataPath: userData,
+    backupNotesRoot: join(backup, 'notes'),
+    incomingNotesRoot: join(incoming, 'notes'),
+    now: NOW,
+  });
+
+  const notes = join(userData, 'notes');
+  equal(readFileSync(join(notes, 'x.md'), 'utf8'), 'USER-X'); // 目标内容保留原名
+  equal(readFileSync(join(notes, `x (恢复冲突 ${STAMP}).md`), 'utf8'), 'PACK-X'); // 包内版本落冲突名
+  equal(readFileSync(join(notes, 'y.md'), 'utf8'), 'USER-Y'); // 包内无对应版本 → 现状不动
+  equal(existsSync(join(notes, `y (恢复冲突 ${STAMP}).md`)), false);
+  deepEqual(report.classes.note, { added: 0, updated: 1, skipped: 1 });
+  equal(report.conflicts.filter((c) => c.resolution === 'renamed' && c.path === 'x.md').length, 1);
+  const kept = report.conflicts.find((c) => c.resolution === 'kept-local')!;
+  equal(kept.path, 'y.md');
+  equal(kept.kind, 'note');
+});
+
+test('notes：非 md 忽略 / .trash 不进文件级合并 / 空目录与深路径遍历', () => {
+  const userData = tmp('hull-merge-notes8-');
+  const backup = tmp('hull-merge-bak8-');
+  writeTree(join(backup, 'notes'), {
+    'readme.txt': 'TXT',
+    'pic.png': 'PNG',
+    '.trash/ghost.md': 'GHOST',
+    'a/b/c/deep.md': 'DEEP',
+  });
+  mkdirSync(join(backup, 'notes', 'empty'), { recursive: true });
+  mkdirSync(join(userData, 'notes'), { recursive: true });
+
+  const { report } = mergeNotes({
+    userDataPath: userData,
+    backupNotesRoot: join(backup, 'notes'),
+    incomingNotesRoot: join(backup, 'notes', 'none'),
+    now: NOW,
+  });
+
+  const notes = join(userData, 'notes');
+  equal(readFileSync(join(notes, 'a/b/c/deep.md'), 'utf8'), 'DEEP');
+  equal(existsSync(join(notes, 'readme.txt')), false);
+  equal(existsSync(join(notes, 'pic.png')), false);
+  equal(existsSync(join(notes, '.trash/ghost.md')), false);
+  deepEqual(report.classes.note, { added: 1, updated: 0, skipped: 0 });
+});
+
+test('notes 回收站：incoming 实体兜底拷入', () => {
+  const userData = tmp('hull-merge-notes9-');
+  const backup = tmp('hull-merge-bak9-');
+  const incoming = tmp('hull-merge-inc9-');
+  const t1 = { id: 'tr_1', originalPath: 'one.md', deletedAt: '2026-09-01T00:00:00.000Z', sizeBytes: 1 };
+  writeTree(join(userData, 'notes'), { 'trash.json': JSON.stringify({ entries: [t1] }) }); // 实体缺失
+  writeTree(join(incoming, 'notes'), {
+    'trash.json': JSON.stringify({ entries: [t1] }), // 同 id → 不重复并入
+    '.trash/tr_1.md': 'INC-ENTITY',
+  });
+
+  mergeNotes({ userDataPath: userData, backupNotesRoot: join(backup, 'notes'), incomingNotesRoot: join(incoming, 'notes'), now: NOW });
+
+  equal(readFileSync(join(userData, 'notes', '.trash', 'tr_1.md'), 'utf8'), 'INC-ENTITY');
+  const trash = JSON.parse(readFileSync(join(userData, 'notes', 'trash.json'), 'utf8')) as { entries: Array<{ id: string }> };
+  deepEqual(trash.entries.map((e) => e.id), ['tr_1']);
+});
+
+test('notes 回收站：trash.json 损坏 → 按空处理不崩，backup 条目与实体照常并入', () => {
+  const userData = tmp('hull-merge-notes10-');
+  const backup = tmp('hull-merge-bak10-');
+  const incoming = tmp('hull-merge-inc10-');
+  const t2 = { id: 'tr_2', originalPath: 'two.md', deletedAt: '2026-09-02T00:00:00.000Z', sizeBytes: 2 };
+  writeTree(join(userData, 'notes'), { 'trash.json': '{broken' });
+  writeTree(join(backup, 'notes'), {
+    'trash.json': JSON.stringify({ entries: [t2] }),
+    '.trash/tr_2.md': 'E2',
+  });
+
+  mergeNotes({ userDataPath: userData, backupNotesRoot: join(backup, 'notes'), incomingNotesRoot: join(incoming, 'notes'), now: NOW });
+
+  const trash = JSON.parse(readFileSync(join(userData, 'notes', 'trash.json'), 'utf8')) as { entries: Array<{ id: string }> };
+  deepEqual(trash.entries.map((e) => e.id), ['tr_2']);
+  equal(readFileSync(join(userData, 'notes', '.trash', 'tr_2.md'), 'utf8'), 'E2');
+});

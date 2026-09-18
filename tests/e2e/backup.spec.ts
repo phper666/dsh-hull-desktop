@@ -361,4 +361,53 @@ test.describe('B5 备份/恢复', () => {
       tmp.cleanup();
     }
   });
+
+  /**
+   * 门控（设计 §7.3 表末行 / 契约联调「备份门控」）：存在执行中/排队任务 → 置灰 + 原因 + backup-busy。
+   *
+   * 注入路径说明（评审认可的 e2e 兜底）：真实执行驱动不可行——HULL_EXEC_PROVIDER=mock 的 MockProvider
+   * 0 延迟瞬时完成；预置 queued 任务走 ACP 真实握手，running 窗口 = 15s 握手超时（与启动耗时竞态，不稳定）。
+   * 故经 HULL_E2E_FORCE_GATE=backup-busy（仅 HULL_E2E=1 生效）让 gateDeps.hasRunningExecutions 报告 busy。
+   * 本用例覆盖「门控 → status 载荷 → DOM 置灰/原因 → 主进程强制拒绝」接线与呈现；
+   * 真实 canBackup 判定（running/queued 快照）由 src/backup/gate.test.ts + backupService.test.ts 单测覆盖。
+   */
+  test('门控：存在执行中/排队任务 → 备份按钮置灰 + 原因提示 + backup-busy（设计 §7.3 门控行）', async () => {
+    const tmp = makeTempUserData();
+    const target = join(tmp.dir, 'backup-target'); // 不存在 → 门控拒绝时断言零写入
+    let app: ElectronApplication | null = null;
+    try {
+      seedFakeDsh(tmp.dir);
+      seedSettings(tmp.dir, { theme: 'light' });
+
+      app = await launchApp({ userData: tmp.dir, env: { HULL_E2E_FORCE_GATE: 'backup-busy' } });
+      const shell = await waitForReady(app);
+
+      // ① hull:getBackupStatus：canBackup 拒绝且码为 backup-busy（canRestore 不受执行影响，不置 busy）
+      const st = await shell.evaluate(() =>
+        (window as unknown as { hull: { getBackupStatus(): Promise<any> } }).hull.getBackupStatus(),
+      );
+      expect(st.ok, JSON.stringify(st)).toBe(true);
+      expect(st.data.canBackup.ok).toBe(false);
+      expect(st.data.canBackup.code).toBe('backup-busy');
+
+      // ② DOM：数据卡备份按钮置灰 + 原因文案可见
+      const settings = await openSettings(app);
+      await expect(settings.locator('#backup-run')).toBeDisabled();
+      await expect(settings.locator('#backup-gate-hint')).toBeVisible();
+      await expect(settings.locator('#backup-gate-hint')).toContainText('有执行中或排队的任务');
+
+      // ③ 按钮 disabled 不可点（DOM 层拦截）；等价桥直调验证主进程强制门控（CON-R-backup-005）+ 零写入
+      const r = await shell.evaluate(
+        (t: string) =>
+          (window as unknown as { hull: { backup(p: unknown): Promise<any> } }).hull.backup({ action: 'run', targetDir: t }),
+        target,
+      );
+      expect(r.ok, JSON.stringify(r)).toBe(false);
+      expect(r.code).toBe('backup-busy');
+      expect(existsSync(target)).toBe(false);
+    } finally {
+      if (app) await closeAppQuietly(app);
+      tmp.cleanup();
+    }
+  });
 });

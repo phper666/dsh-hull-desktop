@@ -66,3 +66,20 @@
 | 实现纪律 | TDD / lint / review / semgrep / 留痕 | TDD ✅（状态机/校验器/merge 先测后写）· lint 降级（无脚本）· review ✅（4 轮）· semgrep 0 · 留痕=本文 |
 
 > 结论：**交付核验通过**；ticket 置 Verify 待用户验收 → 用户验收后走 PR 合并（teamflow git-pr）。
+
+## 附录：测试缺口补齐记录（2026-09-17，用户要求）
+
+用户复核"测试都覆盖了吗"→ 实测覆盖率暴露 3 处缺口 → 三路并行补齐：
+
+| 缺口 | 补齐方式 | 结果 |
+|:---|:---|:---|
+| e2e 门控场景缺失 | `HULL_E2E_FORCE_GATE=backup-busy` 测试钩子（仅 HULL_E2E=1）+ 第 5 条 e2e（置灰 + 原因 + 主进程强制拒绝零写入） | e2e **5/5** |
+| BackupIpc handler 无单测 | 重构成 `createBackupHandlers(deps)` 纯工厂（`isE2E` 注入，行为不变）+ **27 条**用例 | BackupIpc **94.6% / 分支 100%** |
+| merge 三模块分支覆盖低 | **15 条**边界用例（settings 归一化全字段非法回退 / skills 实体与并集边界 / notes 改名递增与回收站） | settings **100/100** · skills **100/100** · notes **99.4/95** |
+
+补齐后覆盖率（行/分支，unit + integration 触达口径）：
+- 100% 行覆盖：errors · scope · result · conflicts · gate · manifest · settings · skills · workflows · notifications
+- 其余：restoreExecutor 88.4/73.9 · validators 96.0/87.6 · BackupIpc 94.6/100 · restoreService 94.0/62.9 · backupService 86.7/69.8
+- 残余未覆盖：restoreExecutor 防御分支 + restoreService 错误路径（非主干风险，登记债务）
+
+全量回归（补齐后）：tsc 0 error · unit **1254/1254** · integration 24/24 · e2e 5/5 · semgrep 0 findings。

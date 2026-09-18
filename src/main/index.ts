@@ -435,6 +435,10 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   // skills 升级在途（UpgradeExecutor 模块计数，CON-R-backup-005 v1.1）/ Hull 自更新（HullUpdater）
   const gateDeps: GateDeps = {
     hasRunningExecutions: () => {
+      // B5 e2e 门控注入（HULL_E2E_FORCE_GATE=backup-busy；仅 HULL_E2E=1 生效，生产零影响）：
+      // 让 status 首载即命中 busy（renderer 首载只拉一次 status，无刷新入口）；
+      // 真实 running/queued 判定由 gate.test.ts / backupService.test.ts 覆盖，此处仅测接线与呈现
+      if (process.env.HULL_E2E === '1' && process.env.HULL_E2E_FORCE_GATE === 'backup-busy') return true;
       const s = execEngine.getExecutionSnapshot();
       return s.running.length > 0 || s.queued.length > 0;
     },
@@ -488,6 +492,8 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
       if (quitting) return; // 已在退出编排中：不叠加二次编排
       void quitOrchestration({ relaunch: true });
     },
+    // 显式目录入参门控（CON-R-backup-009/014）：仅 e2e 接受，生产忽略并弹原生选择器
+    isE2E: process.env.HULL_E2E === '1',
     // BackupStatus（契约 §BackupStatus）：门控实时求值；lastBackupDir 由渲染层 localStorage 自持久化
     status: (): BackupStatus => {
       const pending = readPending(userDataPath);
