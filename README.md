@@ -68,6 +68,16 @@ Hull 面向程序员，在官方之上叠加自己的层：任务看板、原生
 - [x] 三端打包：electron-builder 三平台 target + 捆绑 node + GitHub Releases 更新源（PK1~PK3）
 - [x] CI 发布链：workflow_dispatch 手动触发 + 三端 matrix（mac arm64/x64 双架构 / win / linux）+ 版本三档 bump + 失败隔离（C1~C4）
 
+### ✅ 增量功能已完成（2026-08-25 ~ 2026-09-17）
+
+- [x] 看板增强：ticket 编辑器 EasyMDE（E1）、时间线/日历视图 + startDate 迁移（T1/T2）、依赖图可视化（U3）
+- [x] Token 视图：16 平台本地适配 + 成本换算 + 小时桶缓存 + 筛选语义
+- [x] 工作流：顺序步骤引擎 + cron 定时触发 + connection-action + token-budget（v1/v2）
+- [x] 通知中心：独立页 → NotificationService 底座 → 按源开关/免打扰时段（V1/V2a/V2b）
+- [x] 工作台连接：Salesforce / 阿里云短信 / 腾讯云短信 / SMTP 四平台授权连接与连通验证（凭据 safeStorage 加密）
+- [x] 笔记：md 文件为事实源 + 任意层级目录树 + 任务关联 + 回收站（N1~N4）
+- [x] 数据备份与恢复：白名单目录包 + replace/merge 双模式 + 启动期原子替换/回滚/自愈（backup；PR #14 待合并）
+
 ## 架构
 
 ```
