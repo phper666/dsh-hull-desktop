@@ -1,9 +1,9 @@
 # 数据备份与恢复（backup）技术方案
 
 > 需求标识：`backup` · 判级：**复杂**（新增模块 + 启动期状态机 + 数据安全路径；判级理由：跨模块数据面 + 原子替换状态机 + 安全敏感写路径）→ 本文即方案冻结输入
-> 依据：共识 `docs/spec/共识-Hull桌面壳-备份.md` v1.1（CON-R-backup-001~016）、调研 `docs/research/2026-09-17-backup调研.md`
+> 依据：共识 `docs/spec/共识-Hull桌面壳-备份.md` v1.2（CON-R-backup-001~016）、调研 `docs/research/2026-09-17-backup调研.md`
 > 子需求：B1 备份引擎与门控 / B2 恢复替换（replace）/ B3 恢复合并（merge）/ B4 设置页「数据」区块与 IPC / B5 测试与验收（ticket：de822069 / ad2107c8 / 880c8f7d / ec42ce2d / 32ee28bc）
-> 契约（并行）：`hull:backup` / `hull:restore` / `hull:getBackupStatus`；统一返回 `{ok, code?, message?, data?}`；e2e 注入 `HULL_E2E=1` 显式路径 + `HULL_E2E_FAIL_AT`
+> 契约（并行）：`hull:backup` / `hull:restore` / `hull:getBackupStatus` / `hull:restart`；统一返回 `{ok, code?, message?, data?}`；e2e 注入 `HULL_E2E=1` 显式路径 + `HULL_E2E_FAIL_AT`
 > 状态：**已冻结**（2026-09-17，owner 评审通过）· 实现须按 §9 冻结检查项逐条对照
 
 **全局不变量（所有模块共享）**
@@ -764,7 +764,7 @@ await shellPage(app)!.evaluate(() => (window as any).hull.restore({ action: 'req
 
 ## 9. 冻结检查（实现对照 checklist）
 
-① 白名单 7 项与 CON-R-backup-001 一致；② replace/merge 双模式均走"预备份 + 可回滚"；③ 运行期零数据副作用；④ `.restore/pending.json` 字段与 §6.2 一致；⑤ `canBackup/canRestore` 调用点齐（§5.2）；⑥ 迁移预演纯函数化，不在半应用状态下触发 `backupAndRebuild`；⑦ 错误码全部 kebab、无新增通道（仅三通道）。
+① 白名单 7 项与 CON-R-backup-001 一致；② replace/merge 双模式均走"预备份 + 可回滚"；③ 运行期零数据副作用；④ `.restore/pending.json` 字段与 §6.2 一致；⑤ `canBackup/canRestore` 调用点齐（§5.2）；⑥ 迁移预演纯函数化，不在半应用状态下触发 `backupAndRebuild`；⑦ 错误码全部 kebab；IPC 通道 = 契约 4 个（`hull:backup`/`restore`/`getBackupStatus`/`restart`）。
 
 ## 10. 核验记录
 

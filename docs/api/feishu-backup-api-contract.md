@@ -26,7 +26,7 @@
 
 - 备份：白名单 7 项 → `Hull备份-YYYYMMDD-HHmmss/` 目录包 + `manifest.json`（含门控、flush 一致性、失败清理）。
 - 恢复：`replace` / `merge` 双模式；运行期（校验 + 迁移预演 + 写标记 + 提示重启）与启动期（预备份 → 应用 → 复校验 → 结果/回滚/自愈）两段式。
-- 入口：设置页「数据」区块 + 3 个 IPC 通道。
+- 入口：设置页「数据」区块 + 4 个 IPC 通道（`hull:backup` / `hull:restore` / `hull:getBackupStatus` / `hull:restart`）。
 
 ### 非目标
 
