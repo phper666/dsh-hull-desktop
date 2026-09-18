@@ -3,6 +3,14 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-09-18 备份需求交付完成——用户验收通过 + PR #14 合并
+
+- 类型：交付收尾（验收 + 合并 + 清理）
+- 内容：backup（B1~B5）用户手动验收通过；PR #14 合并 main；worktree/分支清理；ticket B1~B5 移 Done
+- 验收期补充修复（随合并入 main）：①恢复确认按模式显式警告（替换=备份后新增/修改内容被移出到预备份可找回；合并=保留双方）+ 结果卡「打开预备份目录」入口；②设置页更新区去歧义（检查 dsh 更新/检查 Hull 更新 + idle 初始态「尚未检查 X 更新」）；③Hull/dsh 检查失败不再显示无意义「未开始」（queueBusy 补 message + 渲染层错误码映射 + 横幅/子卡错误去重）；④cold-start E2E-01 nav 断言补 nav-notes（预存旧断言）
+- 遗留（登记）：U-1~U-7（v2）· R11~R14 · E2E-05 预存失败（fake-dsh 子进程泄漏，main 复现）· 空目录不进包（v2）
+- 关联：docs/records/B-备份-backup-record.md · docs/api/feishu-backup-api-contract.md · docs/design/B-备份-backup-design.md
+
 ## 2026-09-17 备份共识 v1.2——白名单补 `skills/disabled/` 实体目录（核验期修正）
 
 - 类型：共识小版本（实现核验发现）
