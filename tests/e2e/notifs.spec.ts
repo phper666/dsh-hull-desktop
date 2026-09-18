@@ -17,6 +17,15 @@ import {
   type ElectronApplication,
 } from './helpers';
 
+declare global {
+  interface Window {
+    /** kanban.js 暴露：打开任务详情（壳页全局钩子，notifs 跳转复用） */
+    __kanbanOpenTask: (taskId: string) => void;
+    /** 本用例包装钩子后记录最近一次路由的 taskId */
+    __lastOpenTaskId: string | null;
+  }
+}
+
 /** 种子工作流定义（WorkflowStore 磁盘格式）：让「查看工作流」flash 定位有真实卡片 */
 function seedWorkflows(userData: string): void {
   const dir = join(userData, 'workflows');
