@@ -17,7 +17,7 @@ import {
   SkillsUpgradeUndetectableError,
 } from '../errors';
 import { OperationLog } from './OperationLog';
-import { defaultNpxUpdate, spawnChecked, UpgradeExecutor, type UpgradeRunners } from './UpgradeExecutor';
+import { defaultNpxUpdate, isSkillsUpgradeInFlight, spawnChecked, UpgradeExecutor, type UpgradeRunners } from './UpgradeExecutor';
 import { SkillsScanner } from '../SkillsScanner';
 
 const tempDirs: string[] = [];
@@ -242,6 +242,32 @@ test('回滚自身失败 → skills-io-error（不虚报 rolledBack）+ manifest
     log: new OperationLog(join(fx.base, 'log', 'operations.jsonl')),
   }).selfHeal();
   ok(existsSync(join(fx.skillDir, 'SKILL.md')), 'selfHeal 还原原版本');
+});
+
+// ─────────────── 在途标志（CON-R-backup-005 v1.1：门控 isSkillsUpgradeActive 注入源） ───────────────
+
+test('isSkillsUpgradeInFlight：升级执行中 true，成功/失败退出后均复位 false', async () => {
+  equal(isSkillsUpgradeInFlight(), false, '初始 false');
+
+  const fx = await makeFixture('remote');
+  let during = false;
+  await fx
+    .exec({
+      gitClone: async (_url, dest) => {
+        during = isSkillsUpgradeInFlight(); // clone 阶段 = 升级进行中
+        await gitClonerWriting('v2')(_url, dest);
+      },
+    })
+    .upgrade(fx.skillDir);
+  equal(during, true, '升级进行中为 true（备份/恢复门控依据）');
+  equal(isSkillsUpgradeInFlight(), false, '成功后复位');
+
+  const fx2 = await makeFixture('remote');
+  await rejects(
+    () => fx2.exec({ gitClone: async () => { throw new Error('network down'); } }).upgrade(fx2.skillDir),
+    (err: Error) => err instanceof SkillsUpgradeFailedError
+  );
+  equal(isSkillsUpgradeInFlight(), false, '失败后复位（finally）');
 });
 
 // ─────────────── 生产 npx runner（O-2 接线：spawnChecked / defaultNpxUpdate） ───────────────

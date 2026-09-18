@@ -634,6 +634,54 @@
           </div>
         </section>
 
+        <!-- B4 数据区块（feishu-backup-api-contract §3 + CON-R-backup-009/013/015）：
+             通道 window.hull.backup / window.hull.restore / window.hull.getBackupStatus（B1~B3 lane 提供，桥未就绪时降级）；
+             open-data-dir 由诊断卡迁入（id 保留，e2e 依赖）；目录选择复用 dialog:pickDirectory。 -->
+        <section class="scard" aria-labelledby="sec-data">
+          <h2 id="sec-data">数据</h2>
+          <div class="srow">
+            <div class="info">
+              <div class="label">备份与恢复</div>
+              <div class="sub" id="backup-last-time">尚未备份</div>
+            </div>
+            <div class="control">
+              <button id="backup-run" class="sbtn primary">备份</button>
+              <button id="restore-run" class="sbtn">恢复</button>
+            </div>
+          </div>
+          <div class="srow">
+            <div class="info">
+              <div class="label">恢复模式</div>
+              <div class="sub">替换：用包内数据覆盖本机同项（先备份到 .restore/backup）；合并：保留双方，冲突以结果清单呈现</div>
+            </div>
+            <div class="control" role="radiogroup" aria-label="恢复模式">
+              <div class="theme-seg" id="backup-mode">
+                <button type="button" data-mode="replace" aria-pressed="true">替换</button>
+                <button type="button" data-mode="merge" aria-pressed="false">合并</button>
+              </div>
+            </div>
+          </div>
+          <div class="srow">
+            <div class="info"><div class="label">打开数据目录</div></div>
+            <div class="control"><button id="open-data-dir" class="sbtn">打开数据目录</button></div>
+          </div>
+          <div id="backup-gate-hint" class="hint hidden" style="padding:0 var(--space-4) var(--space-2)"></div>
+          <div id="backup-notice" class="up-warn hidden" style="padding:0 var(--space-4) var(--space-2)"></div>
+          <div id="backup-alert" class="status-alert" role="alert"></div>
+          <div id="backup-notes-fallback" class="srow hidden">
+            <div class="info">
+              <div class="label">笔记目录需要重新选择</div>
+              <div class="sub">原笔记目录不存在，已回退到默认目录；外置笔记内容不随备份包。</div>
+            </div>
+            <div class="control"><button id="backup-notes-relocate" class="sbtn">重新选择笔记目录…</button></div>
+          </div>
+          <!-- 恢复结果卡（CON-R-backup-013：启动后展示一次，成功 / 失败原因 / 已回滚到 .bak 路径） -->
+          <div id="backup-result" class="ucard hidden">
+            <div class="up-head"><div class="label">最近一次恢复</div><div class="badges" id="backup-result-badge"></div></div>
+            <div class="up-body" id="backup-result-body"></div>
+          </div>
+        </section>
+
         <section class="scard" aria-labelledby="sec-notif">
           <h2 id="sec-notif">通知</h2>
           <div class="srow">
@@ -700,7 +748,7 @@
             </div>
             <div class="control">
               <div>
-                <button id="check-dsh" class="sbtn primary">检查更新</button>
+                <button id="check-dsh" class="sbtn primary">检查 dsh 更新</button>
                 <button id="rollback-dsh" class="sbtn danger" title="无可用上一版本" disabled>回滚</button>
               </div>
               <div id="dsh-hint" class="hint"></div>
@@ -724,10 +772,10 @@
           </div>
           <div class="srow">
             <div class="info">
-              <div class="label">检查 Hull 更新</div>
+              <div class="label">更新</div>
               <div class="sub">GitHub Releases · 升级需重启应用；确认/进度在本区块底部</div>
             </div>
-            <button id="check-hull" class="sbtn primary">检查更新</button>
+            <button id="check-hull" class="sbtn primary">检查 Hull 更新</button>
           </div>
           <div class="srow">
             <div class="info">
@@ -753,10 +801,9 @@
         <section class="scard" aria-labelledby="sec-diag">
           <h2 id="sec-diag">诊断</h2>
           <div class="srow">
-            <div class="info"><div class="label">排查日志与数据目录</div></div>
+            <div class="info"><div class="label">排查日志</div></div>
             <div>
               <button id="open-logs-dir" class="sbtn">打开日志目录</button>
-              <button id="open-data-dir" class="sbtn">打开数据目录</button>
             </div>
           </div>
         </section>
@@ -928,6 +975,11 @@
     notifDnd: 'notifDnd', notifDndFrom: 'notifDndFrom', notifDndTo: 'notifDndTo', notifDndTimes: 'notifDndTimes',
     // N4 笔记区块（存储目录显示/更改/复制）
     notesDirPath: 'notes-dir-path', notesPick: 'notes-pick', notesCopy: 'notes-copy', notesDirError: 'notes-dir-error',
+    // B4 数据区块（备份 / 恢复 / 打开数据目录 / 结果卡）
+    backupRun: 'backup-run', restoreRun: 'restore-run', backupMode: 'backup-mode', backupLastTime: 'backup-last-time',
+    backupGateHint: 'backup-gate-hint', backupNotice: 'backup-notice', backupAlert: 'backup-alert',
+    backupNotesFallback: 'backup-notes-fallback', backupNotesRelocate: 'backup-notes-relocate',
+    backupResult: 'backup-result', backupResultBadge: 'backup-result-badge', backupResultBody: 'backup-result-body',
   };
   for (const k of Object.keys(SETT_IDS)) {
     sett.els[k] = document.getElementById(SETT_IDS[k]);
@@ -1032,6 +1084,234 @@
         const r = await bridge.copyText(p);
         toast(r && r.ok === false ? (r.message || '复制失败') : '路径已复制');
       } catch { toast('复制失败'); }
+    });
+  }
+
+  // ── B4 数据区块（feishu-backup-api-contract §1~§3；CON-R-backup-009/013/015）──
+  // 固定文案：成功两条免责声明；失败提示含目标路径（message 透传）+ 重试入口；v1 不提供取消。
+  // 桥 window.hull.backup / restore / getBackupStatus 由 B1~B3 lane 提供，缺失时 typeof 守卫降级（不抛错）。
+  const BACKUP_DISCLAIMERS = [
+    '包内不含凭据（工作台连接需重新填写）。',
+    '外置笔记与运行记录不随包。',
+  ];
+  // 契约「错误码」表 → 用户可见提示（内部码归并到最近集合；路径等细节走 message 透传）
+  const BACKUP_ERR_TEXT = {
+    'backup-target-unwritable': '备份失败：目标目录不可写，请改选其他目录。',
+    'backup-target-inside-userdata': '备份失败：目标目录位于 Hull 数据目录内，请改选其他目录。',
+    'backup-failed': '备份失败：写入中断。',
+    'restore-manifest-invalid': '恢复失败：备份包缺失或损坏，请更换包目录。',
+    'restore-version-newer': '恢复失败：备份包版本高于当前 Hull，请升级 Hull 后重试。',
+    'restore-migrate-preview-failed': '恢复失败：包内数据无法迁移，现数据未改动。',
+    'restore-verify-failed': '恢复失败：数据校验未通过，已自动回滚。',
+    'restore-rolled-back': '恢复失败，已回滚。',
+    'restore-already-pending': '恢复失败：已有未完成的恢复任务，请先重启应用。',
+    'io-error': '操作失败：读写错误。',
+  };
+  // 门控码（CON-R-backup-005）：主进程 message 优先，缺失时用兜底文案（不裸露 kebab 码）
+  const BACKUP_GATE_TEXT = {
+    'backup-busy': '有任务正在执行或排队，请稍后再试。',
+    'update-in-progress': '更新进行中，完成后可操作。',
+    'restore-pending': '有未完成的恢复任务，请先重启应用。',
+    'restore-already-pending': '有未完成的恢复任务，请先重启应用。',
+  };
+  const BACKUP_LAST_KEY = 'hull.backup.last';
+  const BACKUP_SEEN_KEY = 'hull.backup.resultSeen';
+
+  function backupErrText(code, message) {
+    return [BACKUP_ERR_TEXT[code] || (code ? '操作失败。' : ''), message].filter(Boolean).join(' ');
+  }
+  function backupBridge(name) {
+    return bridge && typeof bridge[name] === 'function' ? bridge[name].bind(bridge) : null;
+  }
+  function backupMode() {
+    const b = sett.els.backupMode && sett.els.backupMode.querySelector('button[aria-pressed="true"]');
+    return b && b.dataset.mode === 'merge' ? 'merge' : 'replace';
+  }
+  function backupReadLast() {
+    try { return JSON.parse(localStorage.getItem(BACKUP_LAST_KEY) || 'null'); } catch { return null; }
+  }
+  function backupWriteLast(dir, at) {
+    try { localStorage.setItem(BACKUP_LAST_KEY, JSON.stringify({ dir: dir || '', at: at || null })); } catch {}
+  }
+  function fmtTime(iso) {
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? String(iso || '') : d.toLocaleString('zh-CN', { hour12: false });
+  }
+  function renderBackupLast() {
+    if (!sett.els.backupLastTime) return;
+    const rec = backupReadLast();
+    if (!rec || !rec.dir) { sett.els.backupLastTime.textContent = rec && rec.at ? `最近备份：${fmtTime(rec.at)}` : '尚未备份'; return; }
+    sett.els.backupLastTime.textContent = rec.at ? `最近备份：${fmtTime(rec.at)} · ${rec.dir}` : `最近备份目录：${rec.dir}`;
+  }
+  function renderBackupNotice(show) {
+    if (!sett.els.backupNotice) return;
+    sett.els.backupNotice.classList.toggle('hidden', !show);
+    if (show) sett.els.backupNotice.innerHTML = BACKUP_DISCLAIMERS.map((t) => `<div>${esc(t)}</div>`).join('');
+  }
+  function clearBackupError() {
+    if (sett.els.backupAlert) sett.els.backupAlert.classList.remove('show');
+  }
+  function renderBackupError(code, message, retryable) {
+    if (!sett.els.backupAlert) return;
+    const text = backupErrText(code, message) || '操作失败。';
+    sett.els.backupAlert.innerHTML = `<span></span>${retryable ? '<button id="backup-retry" class="sbtn" style="margin-left:8px">重试</button>' : ''}`;
+    sett.els.backupAlert.firstElementChild.textContent = text;
+    sett.els.backupAlert.classList.add('show');
+    renderBackupNotice(false);
+    toast(text);
+  }
+
+  // 备份（targetDir 缺省由主进程弹目录选择；成功 → 两条免责声明）
+  async function runBackup() {
+    const call = backupBridge('backup');
+    if (!call) { toast('备份功能尚未就绪'); return; }
+    clearBackupError();
+    const btn = sett.els.backupRun;
+    btn.disabled = true; btn.textContent = '备份中…';
+    try {
+      const r = await call({ action: 'run' });
+      if (!r || r.ok === false) { renderBackupError(r && r.code, r && r.message, true); return; }
+      backupWriteLast(r.data && r.data.backupDir, new Date().toISOString());
+      renderBackupLast();
+      renderBackupNotice(true);
+      toast('备份完成');
+    } catch (err) { renderBackupError(null, err && err.message, true); }
+    finally { btn.disabled = false; btn.textContent = '备份'; refreshBackupStatus(); }
+  }
+
+  // 恢复：先 request（校验 + 写标记，运行期零数据副作用）→ 确认弹窗「立即重启并恢复 / 稍后」
+  async function runRestore() {
+    const call = backupBridge('restore');
+    if (!call) { toast('恢复功能尚未就绪'); return; }
+    clearBackupError();
+    const btn = sett.els.restoreRun;
+    const mode = backupMode();
+    btn.disabled = true; btn.textContent = '校验中…';
+    try {
+      const r = await call({ action: 'request', mode });
+      if (!r || r.ok === false) { renderBackupError(r && r.code, r && r.message, false); return; }
+      confirmRestore(mode, (r.data && r.data.preview) || {});
+    } catch (err) { renderBackupError(null, err && err.message, false); }
+    finally { btn.disabled = false; btn.textContent = '恢复'; refreshBackupStatus(); }
+  }
+
+  // 二次确认（CON-R-backup-013）：两选项「立即重启并恢复 / 稍后」，v1 无取消
+  function confirmRestore(mode, preview) {
+    const modeName = mode === 'merge' ? '合并' : '替换';
+    const items = (preview.items || []).map((it) => it.id).join('、');
+    const warns = (preview.warnings || []).map((w) => `<div>${esc(w)}</div>`).join('');
+    const fallback = preview.notesDirFallback
+      ? `<p class="note-modal-msg">原笔记目录不存在，恢复后需重新选择：<b>${esc(preview.notesDirFallback)}</b></p>` : '';
+    const wrap = document.createElement('div');
+    wrap.className = 'note-modal';
+    const modeWarn = mode === 'merge'
+      ? '恢复将在下次启动时执行；合并模式保留本机现有内容，冲突不覆盖、以结果清单呈现。'
+      : '恢复将在下次启动时执行；替换模式会把本机当前内容（含备份之后新增/修改的笔记、看板等）移入预备份目录 .restore/backup（结果卡会给出路径，可手动找回），恢复到备份时刻的状态。';
+    wrap.innerHTML = `<div class="note-modal-box"><h3>确认恢复数据</h3>
+      <p class="note-modal-msg">模式：<b>${modeName}</b>；将恢复：${esc(items || '—')}</p>
+      <p class="note-modal-msg">${modeWarn}</p>
+      ${warns ? `<p class="note-modal-msg">${warns}</p>` : ''}
+      ${fallback}
+      <div class="note-modal-ops"><button type="button" class="note-ghost" data-backup-later>稍后（下次启动自动执行）</button><button type="button" class="note-primary" data-backup-restart>立即重启并恢复</button></div>
+    </div>`;
+    document.body.appendChild(wrap);
+    const close = () => wrap.remove();
+    wrap.querySelector('[data-backup-later]').addEventListener('click', () => { close(); toast('已记录，下次启动自动恢复'); });
+    wrap.querySelector('[data-backup-restart]').addEventListener('click', async () => {
+      close();
+      // 重启原语由主进程提供（B4 IPC lane）；缺失时退化为手动重启提示，不静默
+      const relaunch = backupBridge('relaunch') || backupBridge('restart');
+      if (relaunch) { try { await relaunch(); return; } catch {} }
+      toast('已记录恢复任务，请手动重启 Hull 完成恢复');
+    });
+  }
+
+  // 结果卡（CON-R-backup-013：启动后展示一次：成功 / 失败原因 / 已回滚到 .bak 路径）
+  function renderBackupResult(st) {
+    const r = st && st.lastResult;
+    if (!r || !sett.els.backupResult) return;
+    let seen = null;
+    try { seen = localStorage.getItem(BACKUP_SEEN_KEY); } catch {}
+    if (seen === r.finishedAt) return;
+    const statusText = r.status === 'success' ? '成功' : r.status === 'rolledBack' ? '已回滚' : '失败';
+    sett.els.backupResultBadge.innerHTML = badge(statusText, r.status === 'success' ? 'ok' : r.status === 'rolledBack' ? 'warn' : 'err');
+    const rows = [`<div class="up-msg">时间：${esc(fmtTime(r.finishedAt))} · 模式：${r.mode === 'merge' ? '合并' : '替换'}</div>`];
+    if (r.error) rows.push(`<div class="up-error">${esc(r.error.message || r.error.code || '恢复失败')}</div>`);
+    const bakRow = (label, path) => `<div class="up-msg">${esc(label)}：<code>${esc(path)}</code> <button type="button" class="sbtn" data-bak-open>打开预备份目录</button></div>`;
+    if (r.status === 'rolledBack' && r.bakDir) rows.push(bakRow('已回滚到', r.bakDir));
+    if (r.status === 'success' && r.bakDir) rows.push(bakRow('原数据备份', r.bakDir));
+    const cf = r.merge && Array.isArray(r.merge.conflicts) ? r.merge.conflicts : [];
+    if (cf.length) rows.push(`<div class="up-msg">合并冲突 ${cf.length} 项（未静默覆盖）：${esc(cf.slice(0, 5).map((c) => `${c.kind}:${c.resolution}`).join('、'))}${cf.length > 5 ? ' …' : ''}</div>`);
+    for (const n of r.notices || []) rows.push(`<div class="up-msg">${esc(n.message || n.code)}</div>`);
+    rows.push('<div class="urow"><div><button id="backup-result-ok" class="sbtn">知道了</button></div></div>');
+    sett.els.backupResultBody.innerHTML = rows.join('');
+    const bakBtn = sett.els.backupResultBody.querySelector('[data-bak-open]');
+    if (bakBtn && r.bakDir) bakBtn.addEventListener('click', () => {
+      if (bridge.openPath) bridge.openPath(r.bakDir);
+      else toast('无法打开该目录');
+    });
+    sett.els.backupResult.dataset.finishedAt = r.finishedAt || '';
+    sett.els.backupResult.classList.remove('hidden');
+    // notesDir 回退（CON-R-backup-008：启动后数据卡提示重选）
+    const fallback = (r.notices || []).some((n) => n.code === 'notes-dir-fallback');
+    if (sett.els.backupNotesFallback) sett.els.backupNotesFallback.classList.toggle('hidden', !fallback);
+  }
+
+  // 门控（CON-R-backup-005/015）：不通过 → 按钮置灰 + 原因；pending → 提示待恢复
+  function renderBackupStatus(st) {
+    if (!st) return;
+    const cb = st.canBackup || { ok: true };
+    const cr = st.canRestore || { ok: true };
+    if (sett.els.backupRun) sett.els.backupRun.disabled = cb.ok === false;
+    if (sett.els.restoreRun) sett.els.restoreRun.disabled = cr.ok === false;
+    const hints = [];
+    if (cb.ok === false) hints.push(`备份不可用：${cb.message || BACKUP_GATE_TEXT[cb.code] || cb.code}`);
+    if (cr.ok === false) hints.push(`恢复不可用：${cr.message || BACKUP_GATE_TEXT[cr.code] || cr.code}`);
+    if (st.pending) hints.push(`待恢复：${st.pending.mode === 'merge' ? '合并' : '替换'}（下次启动执行）`);
+    if (sett.els.backupGateHint) {
+      sett.els.backupGateHint.textContent = hints.join('；');
+      sett.els.backupGateHint.classList.toggle('hidden', !hints.length);
+    }
+    // 最近备份目录（渲染层持久化；契约 BackupStatus.lastBackupDir）
+    if (!backupReadLast() && st.lastBackupDir) backupWriteLast(st.lastBackupDir, null);
+    renderBackupLast();
+    renderBackupResult(st);
+  }
+  async function refreshBackupStatus() {
+    const call = backupBridge('getBackupStatus');
+    if (!call) return;
+    try {
+      const r = await call();
+      if (r && r.ok !== false) renderBackupStatus(r.data || r);
+    } catch {}
+  }
+
+  if (sett.els.backupMode) {
+    sett.els.backupMode.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-mode]');
+      if (!btn) return;
+      for (const b of sett.els.backupMode.querySelectorAll('button[data-mode]')) b.setAttribute('aria-pressed', String(b === btn));
+    });
+  }
+  if (sett.els.backupRun) sett.els.backupRun.addEventListener('click', runBackup);
+  if (sett.els.restoreRun) sett.els.restoreRun.addEventListener('click', runRestore);
+  if (sett.els.backupAlert) {
+    sett.els.backupAlert.addEventListener('click', (e) => {
+      if (e.target instanceof Element && e.target.closest('#backup-retry')) runBackup();
+    });
+  }
+  if (sett.els.backupResult) {
+    sett.els.backupResult.addEventListener('click', (e) => {
+      if (!(e.target instanceof Element) || !e.target.closest('#backup-result-ok')) return;
+      try { localStorage.setItem(BACKUP_SEEN_KEY, sett.els.backupResult.dataset.finishedAt || ''); } catch {}
+      sett.els.backupResult.classList.add('hidden');
+    });
+  }
+  if (sett.els.backupNotesRelocate) {
+    // 复用笔记设置卡的目录选择接线（dialog:pickDirectory + setSettings({notesDir}) + 确认弹窗）
+    sett.els.backupNotesRelocate.addEventListener('click', () => {
+      if (sett.els.notesPick) sett.els.notesPick.click();
+      else toast('笔记目录入口未就绪');
     });
   }
 
@@ -1194,7 +1474,7 @@
     sett.els.dshHint.textContent = hint;
 
     if (upgrade.error && (upgrade.phase ?? 'idle') === 'idle') {
-      sett.els.dshAlert.textContent = upgrade.message || upgrade.error;
+      sett.els.dshAlert.textContent = updErrorText(upgrade.error, upgrade.message);
       sett.els.dshAlert.classList.add('show');
     } else {
       sett.els.dshAlert.classList.remove('show');
@@ -1208,7 +1488,7 @@
     sett.els.checkHull.disabled = busy;
 
     if (hs.error && hs.phase === 'idle') {
-      sett.els.hullAlert.textContent = hs.message || hs.error;
+      sett.els.hullAlert.textContent = updErrorText(hs.error, hs.message);
       sett.els.hullAlert.classList.add('show');
     } else {
       sett.els.hullAlert.classList.remove('show');
@@ -1310,6 +1590,16 @@
       } catch (err) { toast(err.message || '检查失败'); }
     },
   });
+  // 更新错误文案：message 为初始占位「未开始」时按 error 码映射（防无意义红字）；
+  // 错误摘要由横幅（dsh-alert/hull-alert）承载，子卡错误行只留「重新检查」动作——同一错误不重复红字
+  function updErrorText(code, message) {
+    if (message && message !== '未开始') return message;
+    if (code === 'check-failed') return '检查更新失败，请稍后再试';
+    if (code === 'queue-busy') return '更新队列繁忙，请稍后再试';
+    if (code === 'download-failed') return '下载更新失败';
+    return code || '更新失败';
+  }
+
   // dsh 通道确认卡片（hull:status upgrade.phase=confirm → 渲染；立即升级 → hull:upgradeDsh）
   function renderDshUpgrade(u, dshStatus) {
     const body = upCard('up-dsh-body');
@@ -1391,7 +1681,6 @@
     // idle：失败/回滚结果/空闲
     if (u.error) {
       body.innerHTML = `
-        <div class="up-error">${esc(u.message || u.error)}</div>
         <div class="urow"><div class="up-error retry"><button id="up-dsh-recheck" class="sbtn">重新检查</button></div></div>`;
       return;
     }
@@ -1399,7 +1688,7 @@
       body.innerHTML = `<div class="up-ok">${esc(u.message)}</div>`;
       return;
     }
-    body.innerHTML = '<div class="up-msg">无进行中的 dsh 升级</div>';
+    body.innerHTML = `<div class="up-msg">${u.message === '未开始' ? '尚未检查 dsh 更新' : '无进行中的 dsh 升级'}</div>`;
   }
   // Hull 通道（getHullUpdateStatus 快照驱动）
   function renderHullUpgrade(h) {
@@ -1474,11 +1763,10 @@
     }
     if (h.error) {
       body.innerHTML = `
-        <div class="up-error">${esc(h.message || h.error)}</div>
         <div class="urow"><div class="up-error retry"><button id="up-hull-recheck" class="sbtn">重新检查</button></div></div>`;
       return;
     }
-    body.innerHTML = '<div class="up-msg">无进行中的 Hull 更新</div>';
+    body.innerHTML = `<div class="up-msg">${h.message === '未开始' ? '尚未检查 Hull 更新' : '无进行中的 Hull 更新'}</div>`;
   }
   // preventive-prompt（H2 裁决 2：Hull 区块底部重启安装提示区）
   function renderRestartPrompt() {
@@ -1677,6 +1965,7 @@
     bridge.getDshStatus().then(renderStatus).catch(() => {});
   }
   if (bridge && bridge.getSettings) tick();
+  refreshBackupStatus(); // B4：数据卡首载（桥未就绪时内部静默跳过）
 </script>
 <!-- E1 vendored 库（CON-R-editor-001/004）：本地 <script src>（CSP 'self'，禁 CDN），先于 kanban.js 保证全局就绪。
      markdown-it 锁 v14.1.0（v15 起无 UMD build）；EasyMDE 2.21.0 含捆绑 CM5；DOMPurify UMD；task-lists 为 CJS 源码 + UMD shim 包装 -->

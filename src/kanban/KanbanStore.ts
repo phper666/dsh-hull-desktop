@@ -182,6 +182,33 @@ function makeDefaultData(): KanbanData {
   return { version: KANBAN_SCHEMA_VERSION, boards: [makeDefaultBoard('默认看板', 0)] };
 }
 
+/** startDate 读取侧宽松归一化（load/migrate 路径）：任何非法输入置 null，不抛错不阻塞加载（T2-9） */
+function coerceStartDate(v: unknown): string | null {
+  return typeof v === 'string' && isValidDateOnly(v) ? v : null;
+}
+
+/**
+ * 看板 schema 迁移纯函数（设计 §3.5；类方法 migrate 与其同源，B2 恢复迁移预演复用）。
+ * v1→v2：逐任务补 startDate（只加字段不动存量，幂等）；version > 当前 → HullError('migrate-failed')。
+ */
+export function migrateKanbanData(data: KanbanData): KanbanData {
+  const current = { ...data, boards: data.boards.map((b) => ({ ...b, tasks: b.tasks.map((t) => ({ ...t })) })) };
+  if (current.version < 2) {
+    for (const b of current.boards) {
+      // 第 2 层 columns[] 不动（迁移只加任务字段）
+      for (const t of b.tasks) {
+        t.startDate = t.startDate === undefined ? null : coerceStartDate(t.startDate);
+      }
+    }
+    current.version = 2;
+  }
+  if (current.version > KANBAN_SCHEMA_VERSION) {
+    throw new HullError(ERR.migrateFailed, `boards.json version ${current.version} 高于当前 schema`);
+  }
+  current.version = KANBAN_SCHEMA_VERSION;
+  return current;
+}
+
 export class KanbanStore {
   private readonly dir: string;
   private readonly filePath: string;
@@ -275,21 +302,7 @@ export class KanbanStore {
    * B5 importVersionOlder 复用此 migrate（P2-B5-2），v1 导入自动升 v2。
    */
   migrate(data: KanbanData): KanbanData {
-    const current = { ...data, boards: data.boards.map((b) => ({ ...b, tasks: b.tasks.map((t) => ({ ...t })) })) };
-    if (current.version < 2) {
-      for (const b of current.boards) {
-        // 第 2 层 columns[] 不动（迁移只加任务字段）
-        for (const t of b.tasks) {
-          t.startDate = t.startDate === undefined ? null : this.coerceStartDate(t.startDate);
-        }
-      }
-      current.version = 2;
-    }
-    if (current.version > KANBAN_SCHEMA_VERSION) {
-      throw new HullError(ERR.migrateFailed, `boards.json version ${current.version} 高于当前 schema`);
-    }
-    current.version = KANBAN_SCHEMA_VERSION;
-    return current;
+    return migrateKanbanData(data);
   }
 
   /** 立即原子写（temp+rename） */
@@ -763,7 +776,7 @@ export class KanbanStore {
 
   /** startDate 读取侧宽松归一化（load/migrate 路径）：任何非法输入置 null，不抛错不阻塞加载（T2-9） */
   private coerceStartDate(v: unknown): string | null {
-    return typeof v === 'string' && isValidDateOnly(v) ? v : null;
+    return coerceStartDate(v);
   }
 
   /** CON-R018：auto 模式 AC 四字段强校验必填 */
