@@ -1474,7 +1474,7 @@
     sett.els.dshHint.textContent = hint;
 
     if (upgrade.error && (upgrade.phase ?? 'idle') === 'idle') {
-      sett.els.dshAlert.textContent = upgrade.message || upgrade.error;
+      sett.els.dshAlert.textContent = updErrorText(upgrade.error, upgrade.message);
       sett.els.dshAlert.classList.add('show');
     } else {
       sett.els.dshAlert.classList.remove('show');
@@ -1488,7 +1488,7 @@
     sett.els.checkHull.disabled = busy;
 
     if (hs.error && hs.phase === 'idle') {
-      sett.els.hullAlert.textContent = hs.message || hs.error;
+      sett.els.hullAlert.textContent = updErrorText(hs.error, hs.message);
       sett.els.hullAlert.classList.add('show');
     } else {
       sett.els.hullAlert.classList.remove('show');
@@ -1590,6 +1590,16 @@
       } catch (err) { toast(err.message || '检查失败'); }
     },
   });
+  // 更新错误文案：message 为初始占位「未开始」时按 error 码映射（防无意义红字）；
+  // 错误摘要由横幅（dsh-alert/hull-alert）承载，子卡错误行只留「重新检查」动作——同一错误不重复红字
+  function updErrorText(code, message) {
+    if (message && message !== '未开始') return message;
+    if (code === 'check-failed') return '检查更新失败，请稍后再试';
+    if (code === 'queue-busy') return '更新队列繁忙，请稍后再试';
+    if (code === 'download-failed') return '下载更新失败';
+    return code || '更新失败';
+  }
+
   // dsh 通道确认卡片（hull:status upgrade.phase=confirm → 渲染；立即升级 → hull:upgradeDsh）
   function renderDshUpgrade(u, dshStatus) {
     const body = upCard('up-dsh-body');
@@ -1671,7 +1681,6 @@
     // idle：失败/回滚结果/空闲
     if (u.error) {
       body.innerHTML = `
-        <div class="up-error">${esc(u.message || u.error)}</div>
         <div class="urow"><div class="up-error retry"><button id="up-dsh-recheck" class="sbtn">重新检查</button></div></div>`;
       return;
     }
@@ -1754,7 +1763,6 @@
     }
     if (h.error) {
       body.innerHTML = `
-        <div class="up-error">${esc(h.message || h.error)}</div>
         <div class="urow"><div class="up-error retry"><button id="up-hull-recheck" class="sbtn">重新检查</button></div></div>`;
       return;
     }
