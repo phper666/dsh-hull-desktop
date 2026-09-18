@@ -6,6 +6,8 @@
  *       HULL_REGISTRY（registry 源）——均为 main 侧已支持的注入点。
  */
 import { _electron, type ElectronApplication, type Page } from '@playwright/test';
+
+export type { ElectronApplication };
 import { execSync, spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

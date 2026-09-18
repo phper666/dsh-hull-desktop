@@ -80,7 +80,7 @@ test.describe('BUG-1 新建列', () => {
     await shell.locator('#kb-cname').fill('待评审');
     await shell.locator('.kb-modal [data-ok]').click();
     await expect(shell.locator('.kb-col:has(.kb-col-name:text-is("待评审"))')).toBeVisible();
-    expect(await shell.locator('.kb-col').count()).toBe(7, '6 模板列 + 1 新建');
+    expect(await shell.locator('.kb-col').count(), '6 模板列 + 1 新建').toBe(7);
     // 新列加卡
     const newColId = await shell.locator('.kb-col:has(.kb-col-name:text-is("待评审"))').getAttribute('data-col') as string;
     await shell.locator(`.kb-add-card[data-col="${newColId}"]`).click();
@@ -120,7 +120,7 @@ test.describe('BUG-2 ✓ 确认完成', () => {
     await shell.locator('[data-verify="t_vfy"]').click();
     await expect(cardIn(shell, 'c_done', 't_vfy')).toBeVisible();
     await expect(cardIn(shell, 'c_verify', 't_vfy')).toHaveCount(0);
-    await expect(shell.locator('[data-verify="t_vfy"]')).toHaveCount(0, '✓ 按钮随重渲染消失');
+    await expect(shell.locator('[data-verify="t_vfy"]'), '✓ 按钮随重渲染消失').toHaveCount(0);
     await app.close();
     tmp.cleanup();
   });
@@ -143,7 +143,7 @@ test.describe('BUG-4 视图记忆跨重启', () => {
     const app2 = await launchApp({ userData: tmp.dir, fakeDshMode: 'ready' });
     const shell2 = await app2.firstWindow();
     await shell2.locator('#nav-board').click();
-    await expect(shell2.locator('.kb-cal-grid')).toBeVisible({ message: '重启后视图记忆应恢复日历' });
+    await expect(shell2.locator('.kb-cal-grid'), '重启后视图记忆应恢复日历').toBeVisible();
     await app2.close();
     tmp.cleanup();
   });
