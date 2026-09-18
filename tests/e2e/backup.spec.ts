@@ -163,6 +163,8 @@ test.describe('B5 备份/恢复', () => {
       await expect(settings.locator('#backup-result')).toBeVisible();
       await expect(settings.locator('#backup-result-badge')).toContainText('成功');
       await expect(settings.locator('#backup-result-body')).toContainText('原数据备份');
+      // 找回入口（接受验收缺口 B）：预备份目录一键打开
+      await expect(settings.locator('#backup-result-body [data-bak-open]')).toBeVisible();
     } finally {
       if (app) await closeAppQuietly(app);
       tmp.cleanup();
