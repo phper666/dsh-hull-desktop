@@ -173,7 +173,7 @@ export class Updater extends EventEmitter {
     // Y-1：acquire 成功后才进 checking（失败直接返回，无 checking→idle 闪事件）
     if (!this.queue.acquire('dsh')) {
       this.error = UPGRADE_ERRORS.queueBusy;
-      this.transition(UpgradePhase.Idle, '升级队列繁忙，请稍后再试');
+      this.message = '升级队列繁忙，请稍后再试'; // 直接设 message（idle→idle 非法迁移，不 transition）
       return { hasUpdate: false, current: this.currentVersion, latest: null, phase: UpgradePhase.Idle, error: UPGRADE_ERRORS.queueBusy };
     }
     this.transition(UpgradePhase.Checking, '正在检查更新…');
