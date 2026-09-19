@@ -356,6 +356,45 @@ test('Q-018 set_config_option error → settleFailure（错误信息含「模型
   equal(h.results[0].exitCode, 1);
 });
 
+test('E2E-05 修复：killAllChildren 终止登记在册的 ACP 子进程（SIGTERM → SIGKILL 兜底）', async () => {
+  const h = new Harness();
+  const provider = new ACPProvider({
+    settingsPath: join(tmpdir(), 'hull-killall-settings.yaml'),
+    spawnFn: (() => { h.child = new FakeChild(); return h.child; }) as never,
+  });
+  const p = provider.listModels(); // 触发 fetchModels → 登记探测子进程
+  respond(h.child!, sentRequest(h, 0).id!, { protocolVersion: 1 });
+  await sleep(5);
+  respond(h.child!, sentRequest(h, 1).id!, { sessionId: 's_kill', configOptions: [] });
+  await p;
+  await provider.killAllChildren(); // 退出编排调用（FakeChild 未 emit exit，仍在登记表 → 双段 kill）
+  ok(h.child!.killed.includes('SIGKILL'), '宽限后 SIGKILL 兜底（防退出瞬间 finally 未清）');
+});
+
+test('子进程 exit 后自动移出登记表（killAllChildren 不再命中已退出进程）', async () => {
+  const h = new Harness();
+  const provider = new ACPProvider({
+    settingsPath: join(tmpdir(), 'hull-killall-exit-settings.yaml'),
+    spawnFn: (() => { h.child = new FakeChild(); return h.child; }) as never,
+  });
+  const p = provider.listModels();
+  respond(h.child!, sentRequest(h, 0).id!, { protocolVersion: 1 });
+  await sleep(5);
+  respond(h.child!, sentRequest(h, 1).id!, { sessionId: 's_exit', configOptions: [] });
+  await p;
+  h.child!.emit('exit', 0, null); // 正常退出 → 移出登记表
+  await provider.killAllChildren();
+  equal(h.child!.killed.filter((s) => s === 'SIGKILL').length, 0, '已退出进程不再被 SIGKILL');
+});
+
+test('无登记子进程时 killAllChildren no-op 不抛错', async () => {
+  const provider = new ACPProvider({
+    settingsPath: join(tmpdir(), 'hull-killall-none-settings.yaml'),
+    spawnFn: (() => { throw new Error('不应 spawn'); }) as never,
+  });
+  await provider.killAllChildren(); // 立即返回，不抛
+});
+
 test('Q-018 listModels：configOptions[model] 分组原样返回 + 5 分钟缓存（两次调用仅 spawn 一次）', async () => {
   const h = new Harness();
   const spawnLog: { cmd: string; args: string[]; opts: unknown }[] = [];

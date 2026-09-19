@@ -165,7 +165,7 @@ export class HullUpdater extends EventEmitter {
     this.reconcileCacheOnce(); // 陈旧差分基清理（只跑一次，防差分失败假回退）
     if (!this.queue.acquire('hull')) {
       this.error = HULL_UPDATE_ERRORS.queueBusy;
-      this.transition(HullUpdatePhase.Idle, '更新队列繁忙，请稍后再试');
+      this.message = '更新队列繁忙，请稍后再试'; // 直接设 message（idle→idle 非法迁移，不 transition）
       return { hasUpdate: false, targetVersion: null, changeNotes: null, error: HULL_UPDATE_ERRORS.queueBusy };
     }
     this.queueHeld = true;

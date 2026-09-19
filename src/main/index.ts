@@ -577,6 +577,8 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     } catch (err) {
       logger.warn(`退出 stop 失败: ${(err as Error).message}`);
     }
+    // E2E-05 修复：ACP 探测/会话子进程不随 runtime.stop 的进程组被杀 → 退出编排统一 kill（防孤儿）
+    if (acpProvider) await acpProvider.killAllChildren();
     await new Promise((r) => setTimeout(r, 500)); // SIGKILL 后短延时，防 zombie（T1-02）
     quitProceeding = true; // 🟡-A：最终 quit 发出前标记，before-quit 据此放行
     winMgr.setQuitting(); // 退出编排收尾：close 事件放行（防 closeToQuit=false 阻断最终退出）

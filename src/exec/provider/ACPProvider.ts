@@ -231,6 +231,24 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
   private readonly nodePath: string;
   /** Q-018：listModels 进程内缓存（overlayDir → {at, groups}） */
   private readonly modelsCache = new Map<string, { at: number; data: ModelOption[] }>();
+  /** 全部 dsh ACP 子进程登记（探测 + 会话）：退出编排统一 kill，防孤儿（E2E-05 泄漏根因） */
+  private readonly activeChildren = new Set<ReturnType<typeof spawn>>();
+
+  /** 终止全部 dsh ACP 子进程（退出编排调用）：SIGTERM → 1s 宽限 → SIGKILL 兜底 */
+  async killAllChildren(): Promise<void> {
+    const children = [...this.activeChildren];
+    for (const c of children) {
+      if (c.exitCode === null && c.pid !== undefined) {
+        try { c.kill('SIGTERM'); } catch { /* 已退出 */ }
+      }
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+    for (const c of children) {
+      if (c.exitCode === null && c.pid !== undefined) {
+        try { c.kill('SIGKILL'); } catch { /* 已退出 */ }
+      }
+    }
+  }
 
   constructor(options: ACPProviderOptions = {}) {
     super();
@@ -383,6 +401,8 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
       env: { ...process.env, DSH_HOME: tmpHome },
     });
     this.logger.info(`[Q-023] 模型清单探测子进程已启动 pid=${child.pid ?? '?'}`);
+    this.activeChildren.add(child);
+    child.on('exit', () => this.activeChildren.delete(child));
     // spawn 异步失败（ENOENT 等）必须就地吸收：不挂 handler 会变 unhandled 'error'
     // → uncaughtException → 主进程弹框（0.1.7 实测缺陷）；转 reject 走既有失败路径
     const spawnError = new Promise<never>((_, reject) => {
@@ -466,6 +486,8 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
       return undefined;
     }
     state.child = child;
+    this.activeChildren.add(child);
+    child.on('exit', () => this.activeChildren.delete(child));
 
     // 崩溃拒绝：任意错误（spawn error / exit 非 0 / 流断开）→ failed（exec-provider-unavailable，P2-B4-2）
     const crashPromise = new Promise<Error>((resolve) => {
