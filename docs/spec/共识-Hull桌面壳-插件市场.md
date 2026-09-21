@@ -170,7 +170,17 @@
 
 ## 14. 子需求清单
 
-> **待拆解**——随实现启动补：扫描 → 拆解（Gate B）→ 契约。
+> **Gate B 通过（2026-09-21）**：按 v2.1 范围拆解 5 个子需求；ticket 已落 `dsh-hull-desktop` 清单（Todo 列）；实现顺序 P1 → P2 → P3 → P4 → P5。
+
+| # | 子需求 | 验收标准（可测试，摘要） | 规则绑定 | 依赖 | 来源 | ticket |
+|:--|:-------|:-------------------------|:---------|:-----|:-----|:-------|
+| P1 | dsh CLI 通道服务 | 主进程 dsh 子进程服务（add/update/remove/list + 解析/超时 120s/非零退出透传）；独立 profile `hull`；与升级/ACP 互斥 | CON-R-plugin-004/011/012 | 无 | 调研 v2 + Q-101/102 | d57af7df |
+| P2 | registry 发现与白名单校验 | plugins.json 拉取（URL 可配默认社区 dsh-market）+ 1h 缓存 + snapshot 兜底 + 时钟注入；白名单（URL 逐字命中 + https）；minDshVersion | CON-R-plugin-002/005 | 无 | Q-104/105/116 | 7ee9c080 |
+| P3 | 安装/更新/卸载编排 | 事务性（校验→pack 解析 patch→add→验证→清理）；更新委托；卸载二次确认；互斥门控接线 | CON-R-plugin-004/005/007 | P1/P2 | Q-103/106/108 | 235c90eb |
+| P4 | 插件页 UI（双 tab） | nav 插件态 + 市场/已安装双 tab；信任+patch 预览确认；卸载确认；降级空态；kebab 错误码 | CON-R-plugin-008/009/010 | P1/P2/P3 | Q-109~113 | dccd870e |
+| P5 | 测试与验收 | fake dsh plugin mock + HULL_E2E_REGISTRY fixture；验收 5 断言；缓存时钟/白名单/通道边界单测 | CON-R-plugin-010 | P1~P4 | Q-114~117 | b8ca1656 |
+
+> ticket 描述 = 验收点快照 + 指针（「依据：共识 v2.1 §X；冲突时以共识为准」）；共识变更时只改共识正文，不回写历史 ticket 快照。
 
 ## 15. 附录
 
