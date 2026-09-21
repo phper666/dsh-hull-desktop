@@ -3,6 +3,13 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-09-21 插件市场共识发布 v1.0（新需求 plugin-market，基线）
+
+- 类型：新模块共识建立（需求标识 `plugin-market`，PRD 2026-09-07 + 调研 docs/research/2026-09-21-plugin-market调研.md）
+- 内容：Hull 壳插件市场全部业务面——**壳插件**形态（npm 包 + `hull-plugin.json`，加载进主进程扩展点；dsh 插件 `--patch` 渠道 v2）；分发 = npm registry（复用 pkgmgr 安装链，包名 `hull-plugin-<id>`，版本 latest/pinned）；生命周期 = staging 原子换入 + 回收站卸载（复用 skills UpgradeExecutor/TrashManager 模式）；**安全三重防线**（来源白名单 + manifest 校验 + 显式信任声明——插件获主进程权限）；入口 = 壳导航「插件」页双 tab；互斥门控（插件操作禁用 dsh 升级/自更新）。规则 CON-R-plugin-001~010；未决 U-1~U-6。不做：自建注册表 / dsh 插件渠道 / 沙箱 / 热加载 / 支付评分 / 依赖冲突
+- 判级：**复杂**（新扩展机制 + 主进程代码加载安全敏感 + npm registry 集成 + 新导航视图）→ 实现前必产技术方案
+- 下一步：三角色扫描 → 拆子需求（Gate B）→ 契约 → 判级确认 → 技术方案 → 实现管道
+
 ## 2026-09-21 Token 视图性能与平台扩展（散任务）
 
 - 类型：功能优化 + 平台新增（无共识规则变化）
