@@ -20,7 +20,8 @@ export type TokenPlatform =
   | 'zcode'
   | 'qoder'
   | 'copilot'
-  | 'kiro';
+  | 'kiro'
+  | 'workbuddy';
 
 /** 统计粒度 = 日历对齐范围（TokenTracker 同构五档）：day=今天、week=本周（周一起）、month=本月、total=最近 24 个月（有界）、custom=用户自定义区间；全视图（总计/序列/透视）按 {from,to} 双边界过滤；序列分桶粒度按范围推导（day→hour、week/month→day、total→month、custom→跨度自适应） */
 export type UsageGranularity = 'day' | 'week' | 'month' | 'total' | 'custom';

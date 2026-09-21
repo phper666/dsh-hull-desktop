@@ -34,7 +34,7 @@ const DSH_LINE =
     message: { model: 'deepseek-v4', usage: { input_tokens: 640, output_tokens: 210 } },
   }) + '\n';
 
-const ALL_PLATFORMS: TokenPlatform[] = ['claude-code', 'codex', 'dsh', 'opencode', 'cline', 'roo', 'gemini', 'kimi', 'goose', 'continue', 'zed', 'warp', 'zcode', 'qoder', 'copilot', 'kiro'];
+const ALL_PLATFORMS: TokenPlatform[] = ['claude-code', 'codex', 'dsh', 'opencode', 'cline', 'roo', 'gemini', 'kimi', 'goose', 'continue', 'zed', 'warp', 'zcode', 'qoder', 'copilot', 'kiro', 'workbuddy'];
 
 test('parseClaudeLine：assistant+usage → 记录（含缓存读/写）；非 assistant → null', () => {
   const r = parseClaudeLine(CLAUDE_LINE, '1970-01-01T00:00:00Z');
@@ -71,11 +71,11 @@ test('parseDshLine：message.usage 优先；会话头行跳过', () => {
   equal(parseDshLine('{"type":"session","createdAt":1}', 'x'), null);
 });
 
-test('platformSources：注册表含全部 16 平台（id 唯一）', () => {
+test('platformSources：注册表含全部 17 平台（id 唯一）', () => {
   const srcs = platformSources('/nonexistent-home-for-test');
-  equal(srcs.length, 16);
+  equal(srcs.length, 17);
   const platforms = srcs.map((s) => s.platform);
-  equal(new Set(platforms).size, 16, '平台 id 无重复');
+  equal(new Set(platforms).size, 17, '平台 id 无重复');
   for (const p of ALL_PLATFORMS) {
     ok(platforms.includes(p), `注册表应含 ${p}`);
   }
@@ -99,7 +99,7 @@ test('scanAllSources：env 注入平台 home → 端到端扫描（含 dsh zstd 
     writeFileSync(join(dir, '.dsh', 'sessions', 'w', 'session-x', 'session.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(DSH_LINE + '\n')));
 
     const { records, sources } = scanAllSources(platformSources(join(dir, 'home-fake')));
-    equal(sources.length, 16, '注册表应含 16 平台');
+    equal(sources.length, 17, '注册表应含 17 平台');
     equal(records.filter((r) => r.platform === 'claude-code').length, 1);
     equal(records.filter((r) => r.platform === 'codex').length, 1);
     equal(records.filter((r) => r.platform === 'dsh').length, 1);

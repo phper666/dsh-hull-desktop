@@ -119,7 +119,9 @@ export function writeCache(cachePath: string, cache: TokenBucketCache): void {
 
 /**
  * 主入口：全部平台指纹与缓存一致 → 从桶还原 records（fromCache=true）；
- * 任一指纹不符/缓存缺失/损坏/版本不符 → scanAllSources 重建桶 → 落盘（fromCache=false）。
+ * 缓存缺失/损坏/版本不符 → 全量 scanAllSources（返回原始记录，全精度 ts）；
+ * 缓存存在但部分平台指纹变化 → **增量重扫**：只重扫变化/新增平台（与缓存桶合并，未变化平台直接读缓存），
+ * 平台从缓存消失 → 清其桶。
  */
 export function loadOrScan(cachePath: string, sources: PlatformSource[]): { records: UsageRecord[]; fromCache: boolean } {
   const fpMap: Record<string, string> = {};
@@ -130,13 +132,41 @@ export function loadOrScan(cachePath: string, sources: PlatformSource[]): { reco
   if (cache && fingerprintsEqual(cache.fingerprints, fpMap)) {
     return { records: bucketsToRecords(cache.buckets), fromCache: true };
   }
-  const { records } = scanAllSources(sources);
-  const newCache: TokenBucketCache = {
+  if (!cache) {
+    // 无缓存/损坏/版本不符 → 全量扫描（原始记录全精度；桶只用于后续增量）
+    const { records } = scanAllSources(sources);
+    writeCache(cachePath, {
+      version: CACHE_VERSION,
+      generatedAt: new Date().toISOString(),
+      buckets: buildBuckets(records),
+      fingerprints: fpMap,
+    });
+    return { records, fromCache: false };
+  }
+  // 增量：缓存存在但部分平台指纹变化 → 只重扫变化/新增平台，与缓存桶合并
+  const changed = sources.filter(
+    (src) => cache.fingerprints[src.platform] === undefined || cache.fingerprints[src.platform] !== fpMap[src.platform]
+  );
+  // 缓存里有但当前源已无的平台（源消失）→ 清其桶，防陈旧数据
+  const removed = Object.keys(cache.fingerprints).filter((p) => !(p in fpMap));
+  const buckets: Record<string, BucketTotals> = { ...cache.buckets };
+  const dropPlatform = (p: string): void => {
+    for (const key of Object.keys(buckets)) {
+      const i = key.indexOf('::');
+      if (i > 0 && key.slice(0, i) === p) delete buckets[key];
+    }
+  };
+  for (const p of removed) dropPlatform(p);
+  if (changed.length > 0) {
+    const { records } = scanAllSources(changed);
+    for (const src of changed) dropPlatform(src.platform); // 旧桶替换（防残留旧模型/旧小时）
+    Object.assign(buckets, buildBuckets(records));
+  }
+  writeCache(cachePath, {
     version: CACHE_VERSION,
     generatedAt: new Date().toISOString(),
-    buckets: buildBuckets(records),
+    buckets,
     fingerprints: fpMap,
-  };
-  writeCache(cachePath, newCache);
-  return { records, fromCache: false };
+  });
+  return { records: bucketsToRecords(buckets), fromCache: false };
 }
