@@ -171,7 +171,7 @@ test('loadOrScan：缓存损坏 / CACHE_VERSION 不符 → 重扫', () => {
   }
 });
 
-test('loadOrScan：多平台——任一平台源变化 → 重扫；其余平台指纹不匹配也重扫', () => {
+test('loadOrScan：多平台——单平台变化 → 增量重扫（未变化平台保留）', () => {
   const dir = mkdtempSync(join(tmpdir(), 'hull-uc-l4-'));
   try {
     const cachePath = join(dir, 'cache.json');
@@ -189,13 +189,74 @@ test('loadOrScan：多平台——任一平台源变化 → 重扫；其余平�
     equal(first.fromCache, false);
     equal(first.records.length, 2);
 
-    // 只改 zcode 源 → 重扫；claude 未变但仍整体重扫（指纹表不一致）
+    // 只改 zcode 源 → 增量重扫该平台；claude 未变桶保留
     writeFileSync(f1, JSON.stringify([{ ts: L(12, 0), model: 'm1', input: 999, output: 10 }]));
     const second = loadOrScan(cachePath, sources);
     equal(second.fromCache, false, '任一平台变化 → 重扫');
     equal(second.records.find((r) => r.platform === 'zcode')?.inputTokens, 999);
+    equal(second.records.find((r) => r.platform === 'claude-code')?.inputTokens, 50, '未变化平台桶原样保留');
     // 新状态命中
     equal(loadOrScan(cachePath, sources).fromCache, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('loadOrScan：增量——单平台文件变化只重扫该平台（未变化平台数据与缓存指纹保留）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-uc-inc-'));
+  try {
+    const cachePath = join(dir, 'cache.json');
+    const d1 = join(dir, 's1');
+    const d2 = join(dir, 's2');
+    mkdirSync(d1, { recursive: true });
+    mkdirSync(d2, { recursive: true });
+    const f1 = join(d1, 'a.jsonl');
+    const f2 = join(d2, 'b.jsonl');
+    writeFileSync(f1, JSON.stringify([{ ts: L(12, 0), model: 'm1', input: 100, output: 10 }]));
+    writeFileSync(f2, JSON.stringify([{ ts: L(12, 0), model: 'm2', input: 50, output: 5 }]));
+    const sources = [recSource('zcode', [f1]), recSource('claude-code', [f2])];
+
+    equal(loadOrScan(cachePath, sources).fromCache, false, '首扫');
+    // 只改 zcode 源：旧记录变更 + 新增一条
+    writeFileSync(f1, JSON.stringify([
+      { ts: L(12, 0), model: 'm1', input: 999, output: 10 },
+      { ts: L(13, 0), model: 'm1', input: 7, output: 1 },
+    ]));
+    const second = loadOrScan(cachePath, sources);
+    equal(second.fromCache, false, '变化 → 重扫');
+    equal(second.records.length, 3, 'zcode 新旧两条 + claude 一条（未变化平台桶保留）');
+    equal(second.records.find((r) => r.platform === 'zcode' && r.ts === L(12, 0))?.inputTokens, 999, '变化平台新值');
+    equal(second.records.find((r) => r.platform === 'zcode' && r.ts === L(13, 0))?.inputTokens, 7, '变化平台新增记录');
+    equal(second.records.find((r) => r.platform === 'claude-code')?.inputTokens, 50, '未变化平台原值');
+    const cache = readCache(cachePath);
+    ok(cache && cache.fingerprints['claude-code'] && cache.fingerprints['zcode'], '双平台指纹均落缓存');
+    equal(loadOrScan(cachePath, sources).fromCache, true, '增量后缓存命中');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('loadOrScan：增量——平台从源移除 → 其桶清空（不残留陈旧数据）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-uc-rm-'));
+  try {
+    const cachePath = join(dir, 'cache.json');
+    const d1 = join(dir, 's1');
+    const d2 = join(dir, 's2');
+    mkdirSync(d1, { recursive: true });
+    mkdirSync(d2, { recursive: true });
+    const f1 = join(d1, 'a.jsonl');
+    const f2 = join(d2, 'b.jsonl');
+    writeFileSync(f1, JSON.stringify([{ ts: L(12, 0), model: 'm1', input: 100, output: 10 }]));
+    writeFileSync(f2, JSON.stringify([{ ts: L(12, 0), model: 'm2', input: 50, output: 5 }]));
+    const both = [recSource('zcode', [f1]), recSource('claude-code', [f2])];
+    equal(loadOrScan(cachePath, both).fromCache, false, '首扫双平台');
+    // 第二次仅 zcode（claude 源消失）→ claude 桶清空
+    const second = loadOrScan(cachePath, [recSource('zcode', [f1])]);
+    equal(second.fromCache, false);
+    equal(second.records.filter((r) => r.platform === 'claude-code').length, 0, '移除平台无残留');
+    equal(second.records.length, 1, '剩余平台记录保留');
+    const cache = readCache(cachePath);
+    ok(cache && cache.fingerprints['claude-code'] === undefined, '缓存指纹不含已移除平台');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

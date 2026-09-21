@@ -27,6 +27,7 @@ import { createZcodeSource } from './adapters/zcode';
 import { createQoderSource } from './adapters/qoder';
 import { createCopilotSource } from './adapters/copilot';
 import { createKiroSource } from './adapters/kiro';
+import { createWorkbuddySource } from './adapters/workbuddy';
 import { fileFingerprint, safeJson } from './adapters/shared';
 
 const HOME = homedir();
@@ -50,6 +51,7 @@ export function platformSources(home = HOME): PlatformSource[] {
     createQoderSource(home),
     createCopilotSource(home),
     createKiroSource(home),
+    createWorkbuddySource(home),
   ];
 }
 
