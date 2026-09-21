@@ -3,6 +3,14 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-09-21 Token 视图性能与平台扩展（散任务）
+
+- 类型：功能优化 + 平台新增（无共识规则变化）
+- 内容：①**增量扫描**——usage-cache.loadOrScan 重构：缓存存在时按平台指纹**只重扫变化/新增平台**并与缓存桶合并（未变化平台直接读缓存），平台消失清桶；首扫仍返回全精度记录。背景：任一平台文件变化触发 16 平台全量重扫（本机实测全量 3.2s，dsh 2.4s + opencode 1.6s 为大头）；②**workbuddy 适配器**——`~/.workbuddy/workbuddy.db` session_usage（used 总量记输出侧、updated_at→ts；模型哈希不可拆 → 成本「—」诚实口径），平台 16→17
+- 影响：Token 视图加载从秒级降为单平台级；workbuddy 用量进入统计
+- 验证：全量单测 1260/1260（新增增量 2 + workbuddy 3 + 注册表计数）；本机实测 workbuddy 52 条
+- 关联：PR #18 · docs/records/Token消耗查看-tokens-v2-record.md
+
 ## 2026-09-18 备份需求交付完成——用户验收通过 + PR #14 合并
 
 - 类型：交付收尾（验收 + 合并 + 清理）
