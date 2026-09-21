@@ -76,13 +76,15 @@ reconcile：进入插件页/启动 → hull:getPluginStatus → 主进程调 dsh
 
 | 字段 | 类型 | 必填 | 约束 | 说明 |
 |---|---|:---:|---|---|
-| `name` | string | 是 | 非空 | 插件名（展示） |
-| `owner` | string | 是 | — | 作者/仓库 owner |
+| `name` | string | 是 | 非空 | 插件名（展示；**与 owner 组成稳定标识**） |
+| `owner` | string | 否 | — | 作者/仓库 owner（缺省 `''`） |
 | `url` | string | 是 | https | 安装源（npm / github:owner/repo / tgz，dsh 原生支持） |
 | `category` | string | 否 | — | 分类（市场 tab 筛选） |
 | `install` | string | 否 | — | 安装命令提示（dsh-market 兼容字段） |
 | `deprecated` | boolean | 否 | 缺省 false | 弃用标记（UI 禁用安装 + 提示） |
-| `minDshVersion` | string | 否 | semver | 最低 dsh 版本；低于当前 → 安装前提示 |
+| `minDshVersion` | string | 否 | semver | 最低 dsh 版本；低于当前 → preview 提示（不拦截） |
+
+> **entryId 稳定标识 = `${name}#${owner}`（owner 缺省 `''` → `name#`）**——评审实证真实 registry 182 组重名（同 name 不同 owner/url），name 单键反查会装错插件；复合键逐字命中杜绝。渲染层与主进程统一用该复合键（`entryId()` helper 单点）。
 
 ### InstalledPlugin（reconcile 结果）
 
@@ -137,7 +139,7 @@ reconcile：进入插件页/启动 → hull:getPluginStatus → 主进程调 dsh
 
 ### 3. 安装 `hull:pluginInstall`
 
-- 请求：`{ entryId: string }`（entryId = registry 条目在列表中的稳定标识，主进程反查条目 URL——**不接受直接传 URL**，防白名单绕过）。
+- 请求：`{ entryId: string }`（entryId = **`name#owner` 复合键**，主进程反查条目 URL——**不接受直接传 URL**，防白名单绕过）。
 - 成功（两段式）：
   - 第一阶段（未确认）：`data: { stage: 'preview', preview: PluginPreview }` → 渲染层弹信任+变更明示确认；
   - 第二阶段（确认后）：`{ entryId, confirm: true }` → 执行安装 → `data: { stage: 'done', installed: InstalledPlugin }`。
@@ -203,10 +205,10 @@ reconcile：进入插件页/启动 → hull:getPluginStatus → 主进程调 dsh
 
 | 项 | 结果 |
 |:---|:-----|
-| 交付时间 | — |
-| 验证结果 | — |
-| 构建/发布 | — |
-| 偏差处理 | — |
+| 交付时间 | 2026-09-21（feature/plugin-market） |
+| 验证结果 | 单测 1343/1343 ✅ · integration 40/40 ✅ · e2e plugins 3/3（5 断言）+ cold-start 4/4 ✅ · semgrep 0 ✅ · tsc 0 ✅ |
+| 构建/发布 | 未发布（待用户验收后走 PR 合并） |
+| 偏差处理 | oracle 评审 1 轮全修（🔴2/🟠4/🟡 关键 4）；设计级偏离 D1~D5 已回写设计核验记录（见 `docs/records/plugin-market-record.md` §四） |
 
 ## 决策与踩坑
 
@@ -219,7 +221,7 @@ reconcile：进入插件页/启动 → hull:getPluginStatus → 主进程调 dsh
 
 | 时间 | 类型 | 摘要 |
 |---|---|---|
-| 2026-09-21 | 初次生成 | 基于共识 v2.1 + 调研 v2 生成契约；覆盖 P1~P5；状态=已冻结 |
+| 2026-09-21 | 变更（评审同步） | ① entryId 升级为 `name#owner` 复合键（评审实证 182 组重名装错风险）；② registry 默认源统一 awesome-dsh-plugin.com（与 snapshot 同源）；③ minDshVersion 提示链落地（preview.versionTooOld）；④ 门控字段对齐（canOperate.ok/message）；⑤ 市场列表懒加载（top-100） |
 
 ## 自检记录
 
