@@ -62,6 +62,13 @@ import { runRestoreIfPending } from '../backup/restoreExecutor';
 import { RestoreService } from '../backup/restoreService';
 import { readPending, readResult } from '../backup/result';
 import { Logger } from '../log/Logger';
+import { DshCliRunner } from '../plugins/cli';
+import { HULL_PLUGIN_PROFILE, reconcileInstalled } from '../plugins/profile';
+import { loadRegistry } from '../plugins/registry';
+import { PluginInstaller } from '../plugins/installer';
+import type { GateDeps as PluginGateDeps } from '../plugins/gate';
+import { registerPluginsIpc } from '../plugins/PluginsIpc';
+import type { RegistryEntry } from '../plugins/types';
 
 /**
  * 主进程入口（设计 §3 / §4.3/4.4/4.5 + S2 D9 + S3 D11/D12）：
@@ -508,6 +515,81 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
       };
     },
   });
+  // ─────── P4：插件市场装配（设计 §1.8；与 backup 服务并列——runner/registry/installer/gate → registerPluginsIpc） ───────
+  // 默认社区 awesome-dsh-plugin registry（settings.pluginRegistry 可配；HULL_E2E_REGISTRY 仅 HULL_E2E=1 覆盖 url，e2e 注入）。
+  // 源统一（评审 🔴-1）：与 scripts/fetch-plugin-snapshot.mjs SOURCE_URL 及 assets snapshot 元信息同源，防白名单集合随网络漂移。
+  const defaultPluginRegistryUrl = 'https://awesome-dsh-plugin.com/plugins.json';
+  const pluginRegistrySetting = (settings.getSettings() as unknown as Record<string, unknown>).pluginRegistry;
+  const pluginRegistryUrl =
+    process.env.HULL_E2E === '1' && process.env.HULL_E2E_REGISTRY
+      ? process.env.HULL_E2E_REGISTRY
+      : typeof pluginRegistrySetting === 'string' && pluginRegistrySetting.length > 0
+        ? pluginRegistrySetting
+        : defaultPluginRegistryUrl;
+  const pluginCliRunner = new DshCliRunner({
+    userDataPath,
+    profile: HULL_PLUGIN_PROFILE,
+    logger,
+    failAt: e2eFailAt(), // HULL_E2E_FAIL_AT（仅 HULL_E2E=1 生效，崩溃窗口可测）
+  });
+  const loadPluginRegistry = (forceRefresh: boolean) =>
+    loadRegistry(
+      {
+        url: pluginRegistryUrl,
+        // 内置兜底快照（构建期生成，P5 打包时随 assets/ 分发；缺失仅影响 registry 不可达降级）
+        snapshotPath: join(app.getAppPath(), 'assets', 'plugins-registry-snapshot.json'),
+        logger,
+      },
+      forceRefresh,
+    );
+  const reconcilePlugins = () => reconcileInstalled(pluginCliRunner, { profile: HULL_PLUGIN_PROFILE, logger });
+  // installer 白名单条目 = 当前 registry 条目（安装时取最新；每次 loadPluginRegistry 后同步）
+  const pluginEntries: RegistryEntry[] = [];
+  const syncPluginEntries = (entries: RegistryEntry[]): void => {
+    pluginEntries.length = 0;
+    pluginEntries.push(...entries);
+  };
+  const pluginGateDeps: PluginGateDeps = {
+    isUpgradeActive: () => overlay.installStatus().phase === InstallPhase.Installing || updater.inFlightUpgrade() !== null,
+    isHullUpdateActive: () => hullUpdater.snapshot().phase !== HullUpdatePhase.Idle,
+    hasPluginInflight: () => pluginInstaller.getSnapshot().inflight !== null,
+  };
+  const pluginInstaller = new PluginInstaller({
+    runner: pluginCliRunner,
+    entries: pluginEntries,
+    // ponytail: dsh 自管 profile 根路径壳侧不可知（DSH_HOME 不触碰 CON-R002）；传 overlay 根（existsSync 恒真），
+    // verify 就位以 dsh list 含 bundle 为准（installer.verifyInstalled 双检查，list 为权威信号）
+    profileDir: join(userDataPath, 'dsh'),
+    tmpRoot: join(app.getPath('temp'), 'hull-plugins'),
+    gate: pluginGateDeps,
+    // minDshVersion 提示链（🟠-2）：overlay 当前生效版本（无 dsh → null，不提示）
+    dshVersion: () => Promise.resolve(overlay.currentVersion()),
+    logger,
+    // e2e 测试钩子（HULL_E2E=1 生效，生产零影响）：跳过真实 npm pack 网络依赖（预览路径由单测/集成
+    // 注入 pack 覆盖；e2e 专注 UI + 编排 + fake dsh 链），语义对齐 HULL_E2E_FORCE_GATE 先例
+    preview:
+      process.env.HULL_E2E === '1'
+        ? async (url: string) => ({
+            id: url.split('/').pop()?.replace(/\.git$/i, '') ?? 'unknown',
+            version: '1.0.0',
+            patchSummary: '将修改 tests（e2e mock 预览）',
+            sourceUrl: url,
+            previewUnavailable: false,
+          })
+        : undefined,
+  });
+  registerPluginsIpc({
+    loadRegistry: loadPluginRegistry,
+    syncEntries: syncPluginEntries,
+    installer: pluginInstaller,
+    gate: pluginGateDeps,
+    reconcile: reconcilePlugins,
+  });
+  // 反向互斥（设计 §1.7/§2.4）：插件 in-flight → 拒绝 dsh 升级/回滚/Hull 自更新（plugin-busy）
+  const guardPluginInflight = (): { ok: false; code: string; message: string } | null =>
+    pluginInstaller.getSnapshot().inflight
+      ? { ok: false, code: 'plugin-busy', message: '插件操作进行中，请等待完成后再升级/更新' }
+      : null;
   // N1：indexChanged 推送 → 壳页（渲染层收到后统一重拉 notes:index，契约 §IndexChangedPayload）
   notesService.setBroadcaster((payload) => {
     const w = winMgr.getWindow();
@@ -957,6 +1039,13 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     winMgr.showNotes();
     return { ok: true };
   });
+  // P4：壳导航插件入口 → 切 plugin 视图（镜像 showNotes，设计 §1.8/§1.9；
+  // 渲染层 nav-plugin 高亮映射 placeholder:plugin 已在 shell.html navActiveByView 就位）
+  ipcMain.handle('hull:showPlugin', async () => {
+    if (quitting) return { ok: false, message: '正在退出' };
+    winMgr.showPlugin();
+    return { ok: true };
+  });
   // B2 补丁：壳导航 dsh web 入口 → 恢复官方 view（与 showBoard 对称；无新通道）
   // 语义照 onStatus 映射：Ready → loadOfficialUrl（officialDirty 则重载，否则复用）；
   // Failed → failed 占位；NotInstalled（未安装）→ not-installed 引导态；
@@ -991,6 +1080,9 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     // B4 互斥（CON-R-backup-007 / 设计 §5.2）：存在待恢复标记 → 禁止启动 dsh 升级
     const deniedEntry = guardUpdateEntry();
     if (deniedEntry) return deniedEntry;
+    // P4 反向互斥（设计 §1.7/§2.4）：插件 in-flight → plugin-busy
+    const pluginBusy = guardPluginInflight();
+    if (pluginBusy) return pluginBusy;
     try {
       const status = await updater.upgrade(target);
       return { ok: true, status };
@@ -1016,6 +1108,9 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     // O2：dsh 回滚同属更新入口互斥面（有 pending 恢复 → restore-pending）
     const deniedEntry = guardUpdateEntry();
     if (deniedEntry) return deniedEntry;
+    // P4 反向互斥（设计 §1.7/§2.4）：插件 in-flight → plugin-busy
+    const pluginBusy = guardPluginInflight();
+    if (pluginBusy) return pluginBusy;
     return updater.rollback();
   });
 
@@ -1029,6 +1124,9 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     // B4 互斥（CON-R-backup-007 / 设计 §5.2）：存在待恢复标记 → 禁止启动 Hull 自更新
     const deniedEntry = guardUpdateEntry();
     if (deniedEntry) return deniedEntry;
+    // P4 反向互斥（设计 §1.7/§2.4）：插件 in-flight → plugin-busy
+    const pluginBusy = guardPluginInflight();
+    if (pluginBusy) return pluginBusy;
     try {
       const status = await hullUpdater.download();
       if (status.phase === HullUpdatePhase.Restarting && !quitting) {

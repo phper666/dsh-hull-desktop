@@ -104,7 +104,19 @@ export const BACKUP_IPC_CHANNELS = [
   'hull:restart',
 ] as const;
 
-/** 全部 channel 白名单（B1+B5+B3+B4+S1+dialog+N1 notes+B4 备份/恢复 共面） */
+/** P4 插件市场 6 channel（feishu-plugin-market-api-contract §接口清单；注册见 src/plugins/PluginsIpc.ts，
+ *  桥见 window.hull.pluginListRegistry/getInstalledPlugins/pluginInstall/pluginUpdate/pluginUninstall/getPluginStatus。
+ *  hull:showPlugin 壳导航通道沿用既有 nav 通道先例（showBoard/showSettings 等不入白名单），不列本清单） */
+export const PLUGIN_IPC_CHANNELS = [
+  'hull:pluginListRegistry',
+  'hull:getInstalledPlugins',
+  'hull:pluginInstall',
+  'hull:pluginUpdate',
+  'hull:pluginUninstall',
+  'hull:getPluginStatus',
+] as const;
+
+/** 全部 channel 白名单（B1+B5+B3+B4+S1+dialog+N1 notes+B4 备份/恢复+P4 插件市场 共面） */
 export const ALL_IPC_CHANNELS = [
   ...KANBAN_IPC_CHANNELS,
   ...KANBAN_EXEC_IPC_CHANNELS,
@@ -113,6 +125,7 @@ export const ALL_IPC_CHANNELS = [
   ...DIALOG_IPC_CHANNELS,
   ...NOTES_IPC_CHANNELS,
   ...BACKUP_IPC_CHANNELS,
+  ...PLUGIN_IPC_CHANNELS,
 ] as const;
 
 export type KanbanIpcChannel = (typeof KANBAN_IPC_CHANNELS)[number];
