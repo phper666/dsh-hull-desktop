@@ -3,6 +3,12 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-09-21 插件市场共识 v2.1——扫描 Q-101~Q-117 全数闭环
+
+- 类型：共识小版本（三角色扫描闭环回写）
+- 内容：① dsh CLI 通道服务（CON-R-plugin-011，Q-101）：spawnArgs + overlay bin + DSH_HOME 隔离 + 120s 超时 + 统一输出解析，与升级/ACP 互斥；② `--profile` 独立管理策略（CON-R-plugin-012，Q-102）：插件装到独立 profile `hull`；③ §4.9 扫描定案：安装事务性（校验→add→验证→清理）/ registry（默认社区 dsh-market + 1h 缓存 + snapshot 兜底 + 时钟注入）/ 白名单（URL 逐字命中列表条目 + scheme https）/ 配置变更明示（npm pack 只读解析 cordis.patch.yml）/ reconcile / 互斥门控（复用 backup 模式）/ UI（nav 插件态 + 双 tab + 信任确认 + kebab 错误码）/ QA（fake dsh plugin mock + HULL_E2E_REGISTRY fixture + 验收 5 断言）
+- 下一步：拆子需求（Gate B + tickets）→ 契约 → 判级确认 → 技术方案 → 实现管道
+
 ## 2026-09-21 插件市场共识 v2.0——架构级推翻：对接 dsh 官方插件生态
 
 - 类型：共识架构级变更（v1.0 推翻；外部调研驱动）
