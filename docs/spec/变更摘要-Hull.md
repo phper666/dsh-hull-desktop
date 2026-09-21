@@ -3,6 +3,13 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-09-21 插件市场共识 v2.0——架构级推翻：对接 dsh 官方插件生态
+
+- 类型：共识架构级变更（v1.0 推翻；外部调研驱动）
+- 内容：外部调研（deepseek-ai/deepseek-harness 官方文档）确认——**dsh 已有官方插件机制**（npm bundle `dsh.bundle` + cordis.patch.yml + profile 组合；`dsh plugin add` 安装；热挂载原生），**dsh 无官方市场**、官方桌面壳市场 "COMING SOON"、社区 `dsh-market` 完整实现可参照 → 插件形态从「壳插件自造格式」（v1.0）改为「**对接 dsh 生态**」：插件 = dsh 官方 bundle/profile（CON-R004 完全合规）；发现 = plugins.json registry（JSON 指向 repo，提交=PR）；生命周期委托 `dsh plugin`（Hull 编排 + 回显）；安全 = 来源白名单 + bundle 校验 + 哈希 + 禁 build script + 配置变更明示；插件数据由 dsh 管理（Hull 只读回显）。CON-R-plugin-001~010 全量重写；U-1 closed、U-2~U-6 重登记
+- 影响：废弃 `hull-plugin.json` 自造格式概念；实现全部委托 dsh CLI（复用 spawnArgs/pkgmgr 子进程通道）；UI = 双 tab 市场/已安装
+- 下一步：三角色扫描 → 拆子需求（Gate B）→ 契约 → 判级确认 → 技术方案 → 实现管道
+
 ## 2026-09-21 插件市场共识发布 v1.0（新需求 plugin-market，基线）
 
 - 类型：新模块共识建立（需求标识 `plugin-market`，PRD 2026-09-07 + 调研 docs/research/2026-09-21-plugin-market调研.md）

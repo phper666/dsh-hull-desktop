@@ -1,44 +1,41 @@
 # 调研：插件市场（plugin-market）
 
-> 日期：2026-09-21 · 需求：docs/prd/2026-09-07-plugin-market-prd.md（未启动）· 来源：代码事实 + 共识规则（CON-R004/R002/skills 系/pkgmgr 系）
-> 结论：可行；**判级：复杂**（新扩展机制 + 主进程代码加载=安全敏感 + 外部集成 npm registry + 新导航视图）
+> 日期：2026-09-21 · 需求：docs/prd/2026-09-07-plugin-market-prd.md（未启动）· 判级：**复杂**
+> 版本：v2（外部调研推翻 v1 方向：从「壳插件自造格式」改为「**对接 dsh 官方插件生态**」——CON-R004 完全合规 + 零自造格式）
 
-## 一、调研结论（对应 PRD 5 项待调研）
+## 一、dsh 官方插件机制（外部调研查证，deepseek-ai/deepseek-harness 官方文档）
 
-### 1. 插件形态与边界 → **壳插件（Electron 主进程扩展）**
+- **dsh 无官方插件市场/注册表**——插件靠 npm / github / tgz 自然分发，无发现机制。
+- **插件形态**：npm 包 = **bundle**（`package.json#dsh.bundle` + `cordis.patch.yml`，即 `--patch` overlay 的结构化版本）；**profile** = `$DSH_HOME/profiles/<name>`，声明 `dsh.profile.bundles` 有序组合；底层 Cordis 框架。
+- **安装**：`dsh plugin add` 转发 pnpm；`reconcilePlugins` 自动把带 `dsh.bundle` 的依赖写入 bundles 列表；**热挂载**能力已有（`ctx.pluginManager`）。
+- **`dsh.client`**：browser 端插件声明，懒加载。
+- 官方桌面壳（deepseek-harness-desktop）插件市场 UI = **"COMING SOON"**（官方未落地）；**社区 `dsh-market` 已完整实现**（见 §二）。
 
-- Hull **当前无插件/扩展机制**（代码实证：仅 IPC/preload 桥的"受控扩展"，非插件系统）——需新定义。
-- **壳插件** = npm 包 + `hull-plugin.json` manifest（id/name/version/entry），加载进 Hull 主进程扩展点（预定义 IPC 注册 + 渲染层挂载点）。
-- **红线合规**：CON-R004 要求"跑在 dsh 内部的功能走官方扩展点"——壳插件住在 Electron 主进程 = 壳原生功能层（CON-R004 第一句），不违反；与 dsh 插件（`--patch`/`dsh plugin add`，跑在 dsh 内）是两条渠道，互不冲突。
-- **dsh 插件渠道**（`--patch`）留 v2：需调研 dsh 官方插件协议（ExecutionProvider 注释实证存在），v1 不做。
+## 二、同类插件市场实现模式（外部调研）
 
-### 2. 分发渠道 → **npm registry（主）**
+| 工具 | 注册表/发现 | 分发 | 生命周期/安全 |
+|:-----|:-----------|:-----|:-------------|
+| **dsh-market（社区，最贴）** | 远端 `plugins.json`（JSON 指向 GitHub repo，非中心化）；内存缓存 1h + snapshot 兜底；条目 name/owner/url/category/install/deprecated | 校验 URL 白名单 → `dsh plugin add` | 验证可加载 → 热挂载；白名单 + 同源 CSRF + pnpm 禁 build script + `validate-registry.mjs` |
+| Obsidian | `community-plugins.json`（releases repo 内 JSON 数组） | 各 repo GitHub Releases 拉 `manifest.json` + main.js | `versions.json`（插件版本→最低宿主版本）兼容降级；更新=对照 tag |
+| Claude Code | GitHub repo 内 `marketplace.json`（name/owner/plugins） | 插件 repo 内 `.claude-plugin/plugin.json` | `plugin marketplace add` + 官方/社区双市场 + 审核管线 + `plugin validate` |
+| VS Code | 中心化 marketplace | `.vsix` + SemVer 强制 | `vsce publish`；奇偶版本号 pre-release 约定 |
+| Zed | Git repo | `extension.toml`（id/version/schema_version） | dev 本地安装先于发布 |
 
-- Hull 已有完整 npm 安装链（pkgmgr/InstallFlow，CON-R-pkgmgr 系）：插件 = npm 包 `hull-plugin-<id>`，版本管理复用 dsh 通道模式（latest/pinned）。
-- GitHub Releases 分发 = v2 备选（electron-updater 基建可借）；自建注册表 = **不做**（重）。
+## 三、可复用模式（给 Hull）
 
-### 3. 生命周期（安装/更新/卸载）→ 复用 skills 机制族
+1. **registry 协议**：JSON 列表文件指向 GitHub repo（Obsidian / dsh-market / Claude 同构）——提交=对 registry repo 提 PR，零自建后端。字段集参考 dsh-market：name/owner/url/category/install/deprecated + minDshVersion。
+2. **manifest 复用**：dsh 已有 `package.json#dsh.bundle` —— **直接复用，不另造格式**。
+3. **生命周期委托**：安装/更新/卸载全部委托 `dsh plugin`，Hull 只做 UI + 白名单校验 + 编排 + reconcile 回显；热挂载 dsh 原生。
+4. **安全基线**：来源白名单（仅 registry 内 URL）+ 哈希校验（release asset SHA）+ pnpm 禁 build script + patch 配置变更明示 + 二次确认。
+5. **兼容降级**：Obsidian `versions.json` 模式（条目 minDshVersion 提示；严格映射表 v2）。
 
-- 安装：`npm install` 到 `<userData>/plugins/staging/<id>` → manifest 校验 → 原子换入 `<userData>/plugins/<id>`（复用 `UpgradeExecutor` staging→替换→验证→回滚模式）。
-- 更新：registry 版本检测 → staging 下载 → 替换 → 旧版备份（复用 TrashManager 回收站语义）。
-- 卸载：二次确认 → 移回收站（可恢复，复用 CON-R-skills-003 回收站模式）。
-- **生效需重启 Hull**（v1 启动时加载插件；热加载 v2）。
+## 四、结论与边界（给共识 v2.0 输入）
 
-### 4. 安全（核心风险面）
+- **方向**：Hull 插件市场 = **dsh 插件生态的市场层**（发现/安装编排/状态回显），不造平行插件格式、不实现 dsh 侧能力（委托）。
+- **CON-R004 合规**：插件跑在 dsh 内（官方扩展点 bundle/profile），Hull 仅负责市场 UI 与安装编排。
+- **CON-R002 精神**：插件数据由 dsh 管理（$DSH_HOME/profiles、bundles），Hull 只读回显不写。
+- 官方桌面壳市场 "COMING SOON" → 未来若官方 registry 上线，Hull 可接入（U 项）。
 
-- 插件代码在主进程运行 = **高权限** → v1 安全模型：① 来源白名单（registry 前缀 + 包名规范 `hull-plugin-` 校验）；② 安装前 manifest 校验（schema/入口存在性）；③ 安装时**显式信任声明**（提示"插件将获得主进程权限"）；④ 破坏性操作二次确认（复用 CON-R-skills-003/007 模式）。
-- 真正沙箱（utilityProcess 隔离）→ v2。
-- 不写 DSH_HOME（CON-R002）；插件目录在 userData。
+## 五、下一阶段
 
-### 5. UI 位置 → 壳导航「插件」页（Skills 检查器后）
-
-- 两 tab：市场浏览（远程 registry 搜索）/ 已安装管理（列表/更新/卸载），复用 skills 检查器 UI 模式（本地/远程两 tab 先例，CON-R-skills-010）。
-- 安装/更新/卸载与 dsh 升级、壳自更新**互斥**（复用 backup 门控先例：插件操作进行中禁用更新入口）。
-
-## 二、判级
-
-**复杂**：新扩展机制（greenfield）+ 主进程代码加载（安全敏感，红线区）+ 外部系统集成（npm registry）+ 新导航视图 → 实现前必产技术方案（docs/design/）并评审冻结。
-
-## 三、下一阶段
-
-建共识（本调研为输入）→ 规则编号 CON-R-plugin-xxx → 扫描 → 拆子需求（Gate B）→ 契约 → 判级确认 → 技术方案 → 实现管道。
+共识 v2.0（形态对接 dsh 生态）→ 扫描 → 拆子需求（Gate B）→ 契约 → 技术方案（复杂必产）→ 实现管道。

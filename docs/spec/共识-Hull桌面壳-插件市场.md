@@ -1,102 +1,108 @@
 # Hull 桌面壳（插件市场）共识文档
 
-> 版本：v1.0 · 更新：2026-09-21 · 维护者：phper666（PM） · 状态：已发布（基线）
-> 数据来源：Hull Plugin Market PRD（docs/prd/2026-09-07-plugin-market-prd.md）+ 调研（docs/research/2026-09-21-plugin-market调研.md）
+> 版本：v2.0 · 更新：2026-09-21 · 维护者：phper666（PM） · 状态：已发布（基线）
+> 数据来源：Hull Plugin Market PRD（docs/prd/2026-09-07-plugin-market-prd.md）+ 调研（docs/research/2026-09-21-plugin-market调研.md，v2 含外部查证）
 > 关联：新增需求；需求标识 `plugin-market`（PRD slug）；本模块不涉及多期拆分
 
 ## 1. 文档元信息
 
-- **本版本变更**：v1.0 首次建立——从 PRD + 调研（含代码事实：Hull 无现成插件机制、dsh 官方扩展点为 `--patch`、npm 安装链现成、skills 生命周期件可复用）提取整理；登记 CON-R-plugin-001~010、U-1~U-6。
-- **历史变更摘要**：无（首版）。
-- **状态说明**：v1.0 已发布（基线）。**扫描/拆子需求未跑**——随实现启动补（顺序：扫描 → 拆解 → 契约）。
+- **本版本变更**：**v2.0（架构级推翻 v1.0）**——外部调研确认 dsh 官方插件机制（bundle/profile/`dsh plugin add`/热挂载）且 dsh **无官方市场**、官方桌面壳市场 "COMING SOON"、社区 `dsh-market` 完整实现可参考 → 插件形态从「壳插件自造格式」改为「**对接 dsh 官方插件生态**」（CON-R004 完全合规、零自造格式、生命周期委托 dsh）。规则 CON-R-plugin-001~010 全部重写；U-1 关闭、U-2~U-6 重登记。
+- **历史变更摘要**：v1.0（2026-09-21）——壳插件形态（npm 包 + hull-plugin.json 主进程加载）；**被 v2.0 推翻**（调研实证 dsh 已有官方插件机制，自造格式违反 CON-R004 精神且重复造轮子）。
+- **状态说明**：v2.0 已发布（基线）。**扫描/拆子需求未跑**——随实现启动补。
 
 ## 2. 文档结构总览
 
-- **覆盖**：Hull 壳插件市场的全部业务面——插件形态与边界、分发渠道、安装/更新/卸载生命周期、安全模型（主进程代码加载）、来源白名单、入口与 UI、互斥门控、验收口径。
-- **适用范围**：Hull 壳自有扩展（Electron 主进程层）；**不覆盖** dsh 插件（`--patch` 渠道，v2 调研）、DSH_HOME（CON-R002 红线）、dsh 本体（CON-R003）。
-- **不做事项**（详见 §12）：自建注册表 / dsh 插件渠道 / 插件沙箱（v2）/ 热加载（v2）/ 收费支付 / 插件依赖冲突解决（v2）。
+- **覆盖**：Hull 插件市场全部业务面——插件形态（dsh 官方 bundle/profile）、发现（plugins.json registry）、安装/更新/卸载（委托 `dsh plugin`）、安全模型（来源白名单 + 哈希 + 信任明示）、入口与 UI、互斥门控、降级与验收。
+- **适用范围**：Hull 市场层（发现/编排/回显）；插件本体与数据由 **dsh 管理**（$DSH_HOME/profiles、bundles，Hull 只读回显，CON-R002 精神）。
+- **不做事项**（详见 §12）：自造平行插件格式 / 自建中心化注册表后端 / 实现 dsh 侧插件能力 / 插件沙箱（dsh 侧） / 热挂载自研 / 支付评分。
 
 ## 3. 领域术语表
 
 | 术语 | 定义 | 出处 |
 |:-----|:-----|:-----|
-| 壳插件 | 以 npm 包分发、带 `hull-plugin.json` manifest 的 Hull 扩展；加载进 Electron 主进程扩展点 | 调研 §1 |
-| hull-plugin.json | 插件 manifest：id / name / version / entry（主进程入口）/ description | 调研 §1 |
-| 插件市场 | 壳内「插件」页：市场浏览（远程） + 已安装管理（本地）双 tab | 调研 §5 |
-| registry 白名单 | 允许安装插件的 npm registry 前缀集合（默认官方 registry；可配） | 调研 §4 |
-| 信任声明 | 安装时显式提示"插件将获得主进程权限"并要求确认 | 调研 §4 |
-| staging 原子替换 | 先装到 `<userData>/plugins/staging/<id>` → 校验 → 整体换入（复用 dsh 升级 CON-R005 模式） | 调研 §3 |
+| bundle | dsh 官方插件形态：npm 包声明 `package.json#dsh.bundle` + `cordis.patch.yml`（`--patch` overlay 结构化版本） | 调研 §一 |
+| profile | `$DSH_HOME/profiles/<name>`，声明 `dsh.profile.bundles` 有序组合 | 调研 §一 |
+| dsh plugin add | dsh 官方安装原语（转发 pnpm；reconcilePlugins 自动登记 bundle） | 调研 §一 |
+| plugins.json registry | 市场发现列表：JSON 数组指向 GitHub repo（name/owner/url/category/install/deprecated/minDshVersion）；提交=对 registry repo 提 PR | 调研 §二/§三 |
+| 热挂载 | dsh 原生能力（ctx.pluginManager）：插件安装后无需重启即生效 | 调研 §一 |
+| 来源白名单 | 仅允许 registry 列表内 URL 安装插件 | 调研 §三 |
 
 ## 4. 功能需求（PRD + 调研提取）
 
-### 4.1 插件形态与边界（FR-1）
+### 4.1 插件形态（FR-1）
 
-- **壳插件**：npm 包 + `hull-plugin.json`（id/name/version/entry）；加载进 Hull 主进程预定义扩展点（受控 IPC 注册 + 渲染层挂载点）。
-- **CON-R004 不破**：壳插件住 Electron 主进程 = 壳原生功能层；跑在 dsh 内部的插件走 dsh 官方扩展点（`--patch`，v2 渠道，本需求不做）。
-- 插件目录：`<userData>/plugins/<id>/`（manifest 白名单，不写 DSH_HOME，CON-R002）。
+- 插件 = **dsh 官方插件**（bundle + profile；CON-R004 完全合规：跑在 dsh 内的功能走官方扩展点）。
+- **Hull 不造平行插件格式**；`hull-plugin.json` 概念废弃（v1.0 产物）。
+- 插件数据（profiles/bundles）由 dsh 管理，Hull 只读回显（CON-R002 精神）。
 
-### 4.2 分发渠道（FR-2）
+### 4.2 发现（FR-2）
 
-- **npm registry 为主**：插件 = `hull-plugin-<id>` 命名 npm 包；版本管理复用 dsh 通道模式（latest / pinned）。
-- GitHub Releases 分发 = v2 候选（U-2）；自建注册表 = 不做。
+- 市场数据源 = **plugins.json registry**（JSON 指向 GitHub repo，参照 dsh-market / Obsidian / Claude Code 同构协议）。
+- 缓存策略：内存缓存（1h）+ 内置 snapshot 兜底；registry 不可达 → 降级提示 + 本地已安装管理不受影响。
+- 条目字段：name / owner / url / category / install / deprecated / minDshVersion。
 
-### 4.3 生命周期（FR-3）
+### 4.3 生命周期（FR-3，委托 dsh）
 
-- **安装**：npm install 到 staging → manifest 校验（schema/入口存在性）→ 原子换入 → 提示重启生效。
-- **更新**：registry 版本检测 → staging 下载 → 替换 → 旧版备份（回收站语义）。
-- **卸载**：二次确认 → 移回收站（可恢复）。
-- **生效需重启 Hull**（v1 启动时加载；热加载 v2，U-4）。
+- **安装**：选择插件 → 二次确认（来源 + 配置变更明示）→ URL 白名单校验 → 委托 `dsh plugin add` → 验证可加载 → 回显结果（热挂载 dsh 原生，通常免重启）。
+- **更新**：registry 版本检测 → 委托 dsh 更新 → 旧版由 dsh 侧处理（profile/bundle 管理）。
+- **卸载**：二次确认 → 委托 `dsh plugin remove` → 回显。
+- Hull 角色 = 编排 + 状态回显，不实现 dsh 侧逻辑。
 
-### 4.4 安全模型（FR-4，核心）
+### 4.4 安全模型（FR-4）
 
-- 插件在主进程运行 = 高权限 → v1：来源白名单（registry 前缀 + 包名规范校验）+ 安装前 manifest 校验 + **显式信任声明**（"将获得主进程权限"）+ 破坏性操作二次确认。
-- 真正沙箱（utilityProcess 隔离）= v2（U-3）。
+- 来源白名单（仅 registry 列表内 URL）+ 安装前 bundle manifest 校验（`dsh.bundle` 存在性）+ 哈希校验（release asset SHA，若 registry 提供）+ pnpm 禁 build script（dsh 默认行为）+ **配置变更明示**（patch 层改了什么，安装前展示）+ 破坏性操作二次确认。
 
 ### 4.5 入口与 UI（FR-5）
 
-- 壳导航新增「插件」入口（Skills 检查器之后）；两 tab：市场浏览（远程搜索）/ 已安装管理（列表/更新/卸载）；复用 skills 检查器 UI 模式。
+- 壳导航新增「插件」入口（Skills 检查器之后）；两 tab：市场浏览（远程）/ 已安装管理（列表/更新/卸载/状态）；复用 skills 检查器 UI 模式。
 
 ### 4.6 互斥与门控（FR-6）
 
-- 插件安装/更新/卸载进行中 → 禁用 dsh 升级与壳自更新入口（复用 backup 门控先例）；反之亦然。
+- 插件安装/更新进行中 → 禁用 dsh 升级与壳自更新入口（复用 backup 门控先例）；反之亦然。
 
-### 4.7 验收口径（FR-7）
+### 4.7 降级与兼容（FR-7）
 
-- 安装 → 重启 → 插件生效（入口/能力可见）；更新 → 版本变化生效；卸载 → 回收站可恢复；registry 不可达 → 明确降级提示（市场页可浏览已安装，远程 tab 显示不可用）。
+- registry 不可达 → snapshot/缓存兜底 + 远程 tab 降级提示。
+- 条目 `minDshVersion`：当前 dsh 版本低于要求 → 安装前提示（不自动阻止；严格 versions.json 映射表 v2）。
+
+### 4.8 验收口径（FR-8）
+
+- 安装 → 插件在 dsh 侧生效（能力可见/热挂载）；更新 → 版本变化生效；卸载 → 恢复；registry 不可达 → 降级可用；白名单外 URL → 拒绝安装。
 
 ## 5. 流程与状态
 
 | 流程 | 步骤 | 失败行为 |
 |:-----|:-----|:---------|
-| 安装 | 市场选择 → 信任声明确认 → npm install staging → manifest 校验 → 原子换入 → 提示重启 | 安装失败/校验失败 → 清 staging，已安装插件零改动 |
-| 更新 | 版本检测 → staging 下载 → 旧版备份 → 替换 → 提示重启 | 失败 → 回滚旧版 |
-| 卸载 | 二次确认 → 移回收站（可恢复） | 回收站满 → TTL 清理（复用 skills 模式） |
-| 重启生效 | 启动早期加载已信任插件（manifest 白名单 + 入口存在性复检） | 插件加载失败 → 隔离该插件（禁用标记 + 日志），不阻断启动 |
+| 安装 | 市场选择 → 信任/变更明示确认 → 白名单校验 → `dsh plugin add` → 验证可加载 → 回显 | dsh 侧失败 → 原样报错，零改动 |
+| 更新 | 版本检测 → 委托 dsh 更新 → 回显 | 失败 → dsh 侧回滚/报告 |
+| 卸载 | 二次确认 → `dsh plugin remove` → 回显 | 失败 → 报告 |
+| 状态同步 | Hull 启动/进入插件页时 reconcile（读 dsh 已装插件列表） | dsh 不可达 → 降级提示 |
 
 ## 6. 异常分支
 
-- registry 不可达 → 远程 tab 降级提示，本地管理不受影响。
-- 插件 manifest 缺失/损坏/入口缺失 → 拒绝加载/安装，隔离 + 日志。
-- 插件运行时抛错 → 捕获 + 禁用标记（同插件加载失败处理），不拖垮主进程。
-- 卸载后重启前崩溃 → 回收站条目保留，启动自愈（复用 UpgradeExecutor.selfHeal 模式）。
+- registry 不可达 → snapshot/缓存 + 降级提示。
+- dsh 未安装/不可达 → 插件页降级（引导先装 dsh）。
+- bundle manifest 损坏 → 拒绝安装，报告。
+- minDshVersion 不满足 → 安装前提示。
+- 白名单外 URL → 拒绝 + 提示。
 
 ## 7. 安全与红线
 
-- **CON-R002 不破**：插件/数据全在 userData，不写 DSH_HOME。
-- **CON-R003 不破**：插件安装与 dsh 升级/壳自更新互斥。
-- **CON-R004**：壳插件属壳原生层；dsh 内部功能走官方扩展点（本需求不实现 dsh 插件渠道）。
-- 主进程代码加载 = 高权限面：白名单 + 信任声明 + manifest 校验三重防线（v1）；沙箱 v2。
+- **CON-R004**：插件 = dsh 官方扩展点（bundle/profile），Hull 仅市场层，不旁路官方机制。
+- **CON-R002 精神**：插件数据由 dsh 管理（$DSH_HOME/profiles、bundles），Hull 只读回显不写。
+- **CON-R003**：插件操作与 dsh 升级/壳自更新互斥。
+- 来源白名单 + 哈希 + 禁 build script + 配置变更明示（v1 安全基线；签名/沙箱 v2）。
 
 ## 8. 未决项登记
 
 | 编号 | 问题 | 负责人 | 阻断等级 | 状态 | 结论 | 回写位置 |
 |:-----|:-----|:-------|:---------|:-----|:-----|:---------|
-| U-1 | dsh 插件渠道（`--patch` 官方插件协议） | PM | P2 | open | — | §4.1（v2 调研） |
-| U-2 | GitHub Releases 分发 | PM | P2 | open | — | §4.2（v2 备选） |
-| U-3 | 插件沙箱（utilityProcess 隔离） | PM | P2 | open | — | §4.4（v2） |
-| U-4 | 热加载（免重启） | PM | P2 | open | — | §4.3（v2） |
-| U-5 | manifest 能力声明/权限模型细化 | PM | P2 | open | — | §4.4（生态扩展） |
-| U-6 | 包哈希校验 | PM | P2 | open | — | §4.4（v2） |
+| U-1 | dsh 官方插件协议调研 | PM | — | **closed** | v2.0 已调研（bundle/profile/plugin add/热挂载；无官方市场） | §4.1 |
+| U-2 | 官方桌面壳市场（COMING SOON）未来接入 | PM | P2 | open | — | §4.2（官方 registry 上线时） |
+| U-3 | 严格 versions.json 兼容映射表 | PM | P2 | open | — | §4.7（v2） |
+| U-4 | 哈希校验增强（registry 提供 asset SHA） | PM | P2 | open | — | §4.4（v2） |
+| U-5 | 插件签名验证 | PM | P2 | open | — | §4.4（v2） |
+| U-6 | dsh 版本差异下的热挂载兼容性 | PM | P2 | open | — | §4.3（按 dsh 能力） |
 
 ## 9. 扫描待确认项
 
@@ -106,44 +112,43 @@
 
 | 编号 | 规则 | 来源 | 当前结论 | 变更状态 |
 |:-----|:-----|:-----|:---------|:---------|
-| CON-R-plugin-001 | 插件形态 = 壳插件（npm 包 + `hull-plugin.json`，加载进主进程扩展点）；dsh 插件渠道（`--patch`）v2，CON-R004 不破 | 调研 §1 | 生效 | 稳定 |
-| CON-R-plugin-002 | 分发 = npm registry（包名 `hull-plugin-<id>`，版本 latest/pinned 复用 dsh 通道模式）；GitHub Releases v2；自建注册表不做 | 调研 §2 | 生效 | 稳定 |
-| CON-R-plugin-003 | 插件目录 = `<userData>/plugins/<id>/`（staging 原子换入，CON-R005 模式）；不写 DSH_HOME（CON-R002） | 调研 §3 | 生效 | 稳定 |
-| CON-R-plugin-004 | 生命周期：安装（staging→校验→换入）/ 更新（版本检测→staging→旧版备份→替换）/ 卸载（二次确认→回收站可恢复）；生效需重启 | 调研 §3 | 生效 | 稳定 |
-| CON-R-plugin-005 | 加载时机 = 启动早期加载已信任插件（manifest 白名单 + 入口存在性复检）；加载/运行失败 → 隔离 + 禁用标记 + 日志，不阻断启动 | 调研 §3 | 生效 | 稳定 |
-| CON-R-plugin-006 | 安全三重防线：来源白名单（registry 前缀 + 包名规范）+ 安装前 manifest 校验 + 显式信任声明（主进程权限提示）；沙箱 v2 | 调研 §4 | 生效 | 稳定 |
-| CON-R-plugin-007 | 破坏性操作（安装/更新/卸载）二次确认；卸载进回收站可恢复（TTL/容量复用 skills 模式） | 调研 §4 | 生效 | 稳定 |
-| CON-R-plugin-008 | 入口 = 壳导航「插件」页（Skills 检查器后），市场浏览/已安装管理双 tab（复用 skills 检查器 UI 模式） | 调研 §5 | 生效 | 稳定 |
-| CON-R-plugin-009 | 互斥门控：插件安装/更新/卸载进行中禁用 dsh 升级与壳自更新入口（反之亦然） | 调研 §5 | 生效 | 稳定 |
-| CON-R-plugin-010 | 验收口径：安装→重启生效 / 更新→版本生效 / 卸载→回收站可恢复 / registry 不可达→降级提示（本地管理不受影响） | PRD + 调研 | 生效 | 稳定 |
+| CON-R-plugin-001 | 插件形态 = dsh 官方插件（npm bundle `dsh.bundle` + cordis.patch.yml + profile 组合）；Hull 不造平行格式；CON-R004 合规 | 调研 v2 §一 | 生效 | v2.0 重写 |
+| CON-R-plugin-002 | 发现 = plugins.json registry（JSON 指向 GitHub repo；提交=PR）；内存缓存 1h + snapshot 兜底 | 调研 v2 §二/§三 | 生效 | v2.0 重写 |
+| CON-R-plugin-003 | 分发 = npm / github:owner/repo / tgz（dsh 原生）；registry 条目声明安装源与 minDshVersion | 调研 v2 §一/§三 | 生效 | v2.0 重写 |
+| CON-R-plugin-004 | 生命周期委托 `dsh plugin add/update/remove`（Hull 编排：白名单校验 → 执行 → 验证可加载 → 回显）；热挂载 dsh 原生 | 调研 v2 §一 | 生效 | v2.0 重写 |
+| CON-R-plugin-005 | 安全：来源白名单（仅 registry URL）+ bundle manifest 校验 + 哈希校验 + pnpm 禁 build script + 配置变更明示 + 二次确认 | 调研 v2 §三 | 生效 | v2.0 重写 |
+| CON-R-plugin-006 | 插件数据由 dsh 管理（$DSH_HOME/profiles、bundles）；Hull 只读回显，不写 DSH_HOME（CON-R002 精神） | 调研 v2 §四 | 生效 | v2.0 重写 |
+| CON-R-plugin-007 | 互斥门控：插件安装/更新进行中禁用 dsh 升级与壳自更新入口（反之亦然） | 调研 v2 §四 | 生效 | v2.0 重写 |
+| CON-R-plugin-008 | 入口 = 壳导航「插件」页（Skills 检查器后），市场浏览/已安装管理双 tab | 调研 v2 §三 | 生效 | v2.0 重写 |
+| CON-R-plugin-009 | 降级：registry 不可达 → snapshot/缓存 + 提示；dsh 不可达 → 插件页降级引导；minDshVersion 不满足 → 安装前提示 | 调研 v2 §三 | 生效 | v2.0 重写 |
+| CON-R-plugin-010 | 验收口径：安装→dsh 侧生效 / 更新→版本生效 / 卸载→恢复 / 白名单外拒绝 / registry 不可达降级 | 调研 v2 §四 | 生效 | v2.0 重写 |
 
 ## 11. 页面交互规范
 
 | 页面/组件 | 角色 | 功能 | 权限 | 数据范围 |
 |:----------|:-----|:-----|:-----|:---------|
 | 导航「插件」入口 | 用户 | 进入插件页（Skills 检查器后） | 全量 | — |
-| 市场 tab | 用户 | 远程 registry 搜索/浏览（名称/描述/版本/安装数），安装入口 + 信任声明 | 全量 | registry 白名单 |
-| 已安装 tab | 用户 | 列表/更新/卸载/版本状态 | 全量 | `<userData>/plugins/` |
-| 卸载确认弹窗 | 用户 | 二次确认 + 回收站提示 | 全量 | — |
+| 市场 tab | 用户 | registry 搜索/浏览（名称/描述/版本/分类/安装数），安装入口 + 信任/变更明示 | 全量 | plugins.json registry |
+| 已安装 tab | 用户 | 列表/更新/卸载/状态（reconcile dsh 实际状态） | 全量 | dsh 已装插件（只读回显） |
+| 卸载确认弹窗 | 用户 | 二次确认 + 影响提示 | 全量 | — |
 
 ## 12. 不做事项
 
-- 自建插件注册表；
-- dsh 插件渠道（`--patch`，v2 调研 U-1）；
-- 插件沙箱（utilityProcess，v2 U-3）；
-- 热加载（v2 U-4）；
-- 插件收费/支付/评分体系；
-- 插件间依赖与冲突解决（v2）；
-- 插件远程代码签名验证（v2；v1 靠白名单 + 信任声明）。
+- 自造平行插件格式（v1.0 壳插件方案废弃）；
+- 自建中心化注册表后端（registry = JSON 文件 + PR 提交）；
+- 实现 dsh 侧插件能力（委托 `dsh plugin`）；
+- 插件签名验证 / 沙箱（v2，U-4/U-5）；
+- 严格 versions.json 映射表（v2，U-3）；
+- 收费/支付/评分体系；
+- 插件间依赖与冲突解决。
 
 ## 13. 依赖与复用
 
-- **npm 安装链**：pkgmgr / InstallFlow（CON-R-pkgmgr 系）——插件 npm install；
-- **原子替换/回滚**：`UpgradeExecutor`（skills/ops）staging→替换→验证→回滚模式；`SkillFsOps.writeFileSyncAtomic`；
-- **回收站**：`TrashManager`（TTL 30 天 + 500MB）卸载备份；
-- **哈希/版本检测**：`SkillsScanner` 指纹模式 + dsh registry 版本通道（latest/pinned）；
-- **互斥门控**：backup `canBackup` 门控先例；
-- **UI 模式**：skills 检查器双 tab + 空态引导。
+- **dsh 官方能力**：`dsh plugin add/update/remove`、热挂载、profile/bundle 管理（只调用，不实现）；
+- **外部参考实现**：社区 dsh-market（registry 协议 + 白名单 + 校验脚本，直接参照）；
+- **进程调用**：pkgmgr/spawnArgs（复用子进程调用 dsh CLI 的既有通道）；
+- **UI 模式**：skills 检查器双 tab + 空态引导；
+- **互斥门控**：backup `canBackup` 门控先例。
 
 ## 14. 子需求清单
 
@@ -153,18 +158,19 @@
 
 ### 15.1 关联
 
-- PRD（docs/prd/2026-09-07-plugin-market-prd.md）、调研（docs/research/2026-09-21-plugin-market调研.md）、规则索引（docs/spec/规则索引.md）、M1 共识（CON-R002/R003/R004 引用）、Skills 检查器共识（CON-R-skills 系复用）。
+- PRD（docs/prd/2026-09-07-plugin-market-prd.md）、调研（docs/research/2026-09-21-plugin-market调研.md，v2）、规则索引（docs/spec/规则索引.md）、M1 共识（CON-R002/R003/R004）、外部：deepseek-harness 官方插件文档 / dsh-market / Obsidian / Claude Code（调研 §二）。
 
 ### 15.2 版本记录
 
 | 版本 | 日期 | 变更摘要条目 | 说明 |
 |:-----|:-----|:-------------|:-----|
-| v1.0 | 2026-09-21 | 已登记（已发布） | 首次建立：从 PRD + 调研提取；登记 CON-R-plugin-001~010、U-1~U-6；判级复杂 |
+| v2.0 | 2026-09-21 | 已登记（已发布） | 架构级推翻 v1.0：外部调研确认 dsh 官方插件机制（bundle/profile/plugin add/热挂载）且无官方市场 → 形态改对接 dsh 生态；规则全重写 |
+| v1.0 | 2026-09-21 | 已登记（已发布） | 壳插件自造格式（npm 包 + hull-plugin.json + 主进程加载）——**已废弃**（v2.0 推翻） |
 
 ### 15.3 后续规划
 
 | 项 | 状态 | 说明 |
 |:---|:-----|:-----|
 | 扫描 + 拆子需求 | 待实现启动 | 顺序：扫描 → Gate B → 契约 → 判级确认 → 技术方案（复杂必产）→ 实现管道 |
-| dsh 插件渠道 | 排后（U-1） | 需调研 dsh 官方插件协议 |
-| 沙箱 / 热加载 / Releases / 哈希 | 排后（U-2~U-6） | v2 |
+| 官方桌面壳市场接入 | 排后（U-2） | 官方 COMING SOON，上线时评估接入 |
+| versions.json / 哈希 / 签名 | 排后（U-3~U-5） | v2 |
