@@ -16,6 +16,8 @@ files:
   - dist/**
   - src/renderer/**
   - package.json
+  # P5：插件市场 registry 内置兜底快照（registry.ts snapshotPath 加载；构建期冻结，脚本 scripts/fetch-plugin-snapshot.mjs 再生成）
+  - assets/plugins-registry-snapshot.json
 # 顶层不带 extraResources——per-platform 覆盖映射（PK2 三端 node 命名差异）
 mac:
   target:

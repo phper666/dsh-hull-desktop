@@ -352,3 +352,70 @@ export async function waitForSettingsTheme(userData: string, theme: string, time
   }
   throw new Error(`settings.json theme 未在 ${timeoutMs}ms 内变为 ${theme}`);
 }
+
+// ─────────── P5 插件市场 e2e 基建（fake dsh plugin fixture + 本地 registry） ───────────
+
+/** 轮询 fake dsh 插件 fixture（<userData>/fixture-plugins.json）满足谓词（安装/更新/卸载生效判定） */
+export async function waitForFixturePlugins(
+  userData: string,
+  predicate: (plugins: Array<{ id: string; name: string; version: string; profile?: string }>) => boolean,
+  timeoutMs = 30_000,
+): Promise<Array<{ id: string; name: string; version: string; profile?: string }>> {
+  const file = join(userData, 'fixture-plugins.json');
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const raw = JSON.parse(readFileSync(file, 'utf8')) as { plugins: Array<{ id: string; name: string; version: string; profile?: string }> };
+      if (predicate(raw.plugins ?? [])) return raw.plugins ?? [];
+    } catch {
+      /* 文件未落/暂不可读 */
+    }
+    await sleep(200);
+  }
+  throw new Error(`fixture-plugins.json 未在 ${timeoutMs}ms 内满足谓词`);
+}
+
+/** P5：本地插件 registry fixture（tests/fixtures/fake-plugin-registry.js 子进程；
+ *  HULL_E2E_REGISTRY 注入点，main 侧 HULL_E2E=1 时读 env 覆盖 url） */
+export interface FakePluginRegistry {
+  url: string;
+  close(): Promise<void>;
+}
+
+export function startFakePluginRegistry(entries?: unknown[]): Promise<FakePluginRegistry> {
+  return new Promise((resolve, reject) => {
+    const child: ChildProcess = spawn(process.execPath, [join(PROJECT_ROOT, 'tests', 'fixtures', 'fake-plugin-registry.js')], {
+      env: {
+        ...(process.env as Record<string, string>),
+        ...(entries ? { FAKE_PLUGIN_REGISTRY_JSON: JSON.stringify(entries) } : {}),
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let buf = '';
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error('fake-plugin-registry 启动超时'));
+    }, 10_000);
+    child.stdout?.on('data', (c: Buffer) => {
+      buf += c.toString();
+      const m = /listening on (\d+)/.exec(buf);
+      if (m) {
+        clearTimeout(timer);
+        const port = Number(m[1]);
+        resolve({
+          url: `http://127.0.0.1:${port}/plugins.json`,
+          close: () =>
+            new Promise<void>((r) => {
+              if (child.exitCode !== null) return r();
+              child.on('exit', () => r());
+              child.kill('SIGTERM');
+            }),
+        });
+      }
+    });
+    child.on('exit', (code) => {
+      clearTimeout(timer);
+      reject(new Error(`fake-plugin-registry 提前退出 code=${code}`));
+    });
+  });
+}

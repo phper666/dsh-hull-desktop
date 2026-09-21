@@ -60,6 +60,23 @@ contextBridge.exposeInMainWorld('hull', {
   showNotifs: () => invoke('hull:showNotifs'),
   /** N1：壳导航笔记入口 → main 切 view 到 placeholder:notes（镜像 showNotifs） */
   showNotes: () => invoke('hull:showNotes'),
+  /** P4：壳导航插件入口 → main 切 view 到 placeholder:plugin（镜像 showNotes，设计 §1.8/§1.9） */
+  showPlugin: () => invoke('hull:showPlugin'),
+
+  // ─────────── P4 插件市场桥（feishu-plugin-market-api-contract §接口清单；薄封装不持业务态） ───────────
+  /** 市场列表（{refresh?}；失败 plugin-registry-unreachable，loadRegistry 内部已回落缓存/snapshot 数据） */
+  pluginListRegistry: (payload?: { refresh?: boolean }) => invoke('hull:pluginListRegistry', payload),
+  /** reconcile 已装插件（InstalledPlugin[]；失败 plugin-profile-missing） */
+  getInstalledPlugins: () => invoke('hull:getInstalledPlugins'),
+  /** 安装两段式：{entryId} → {stage:'preview',preview}；{entryId,confirm:true} → {stage:'done',installed}。
+   *  URL 不经渲染层（entryId = registry 条目 name，主进程白名单反查，防绕过） */
+  pluginInstall: (payload: { entryId: string; confirm?: boolean }) => invoke('hull:pluginInstall', payload),
+  /** 更新：{id} → {updated}（未安装 plugin-not-installed；in-flight/门控 plugin-busy） */
+  pluginUpdate: (payload: { id: string }) => invoke('hull:pluginUpdate', payload),
+  /** 卸载：{id} → {removed:true}（未安装 plugin-not-installed） */
+  pluginUninstall: (payload: { id: string }) => invoke('hull:pluginUninstall', payload),
+  /** 插件页初始化：{canOperate, inflight, installedCount}（只读） */
+  getPluginStatus: () => invoke('hull:getPluginStatus'),
 
   // ─────────── B4 数据区块桥（feishu-backup-api-contract §1~§3） ───────────
   /** 执行备份（run）/ 清理旧备份（cleanup）；targetDir 缺省由主进程弹目录选择（仅 HULL_E2E=1 接受显式入参） */
