@@ -3,6 +3,15 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-09-21 插件市场需求交付完成——用户验收通过 + PR #19 合并
+
+- 类型：交付收尾（验收 + 合并 + 清理）
+- 内容：plugin-market（P1~P5）用户验收通过；PR #19 合并 main；worktree/分支清理；ticket P1~P5 移 Done
+- 实现留痕：unit 1343/1343 · integration 40/40 · e2e plugins 3/3（5 断言）+ cold-start 4/4 · semgrep 0 · oracle 评审 1 轮（🔴2/🟠4/🟡 关键 4 全修）
+- 交付期补充修复：`.gitignore` 白名单补 `plugins.js/plugins.test.js`（第五次静默忽略事故——不补则合并后 UI 404）
+- 遗留（登记）：真实 dsh 参数面实测（R1）· v1 updatable 死路径（R6 v2）· 插件签名/哈希（U-4/U-5）· 官方桌面壳市场接入（U-2）
+- 关联：docs/records/plugin-market-record.md · docs/api/feishu-plugin-market-api-contract.md · docs/design/plugin-market-design.md
+
 ## 2026-09-21 插件市场共识 v2.1——扫描 Q-101~Q-117 全数闭环
 
 - 类型：共识小版本（三角色扫描闭环回写）
