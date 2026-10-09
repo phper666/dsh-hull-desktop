@@ -22,10 +22,11 @@
     "verify:acceptance": "node scripts/verify-acceptance.mjs",
     "dev": "tsc && electron .",
     "fetch:node": "node scripts/fetch-node.mjs",
-    "pack": "tsc && electron-builder",
-    "pack:mac": "tsc && electron-builder --mac",
-    "pack:win": "tsc && electron-builder --win",
-    "pack:linux": "tsc && electron-builder --linux"
+    "snapshot": "node scripts/fetch-plugin-snapshot.mjs",
+    "pack": "tsc && npm run snapshot && electron-builder",
+    "pack:mac": "tsc && npm run snapshot && electron-builder --mac",
+    "pack:win": "tsc && npm run snapshot && electron-builder --win",
+    "pack:linux": "tsc && npm run snapshot && electron-builder --linux"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

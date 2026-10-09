@@ -459,6 +459,9 @@
     .toast { animation: toast-in var(--dur-med) var(--ease-out); }
   }
   @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+  /* P4 插件市场视图：占满内容区（同 #skills/#tokens 先例）；内层组件复用 skills.css .sk-* + 壳级 .empty-ico/.modal-wrap */
+  #plugin:not(.hidden) { position: absolute; inset: 0; z-index: 10; display: block; }
+  #plugin-root { width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; background: var(--hull-bg); color: var(--hull-text); font-size: var(--text-md); }
 </style>
 </head>
 <body data-theme="dark">
@@ -470,6 +473,8 @@
       <!-- N2 笔记（共识 v1.0：笔记入口位于任务看板之后，CON-R-notes-011） -->
       <button id="nav-notes" class="nav-item"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5h9.5L19 7v13.5H6a1.5 1.5 0 0 1-1.5-1.5v-14A1.5 1.5 0 0 1 6 3.5z"/><path d="M8 8.5h7M8 12h7M8 15.5h4" opacity="0.6"/></svg>笔记</button>
       <button id="nav-skills" class="nav-item"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5" opacity="0.55"/><rect x="4" y="13" width="7" height="7" rx="1.5" opacity="0.55"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Skills</button>
+      <!-- P4 插件市场（共识 v2.1：插件入口位于 Skills 检查器之后，CON-R-plugin-008） -->
+      <button id="nav-plugin" class="nav-item"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z"/></svg>插件</button>
       <button id="nav-tokens" class="nav-item"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19V12"/><path d="M12 19V8"/><path d="M19 19V5" opacity="0.55"/><path d="M3.5 20.5h17"/></svg>Token 消耗</button>
       <button id="nav-connections" class="nav-item"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 14.5a4.2 4.2 0 0 0 5.9 0l3-3a4.2 4.2 0 0 0-5.9-5.9l-1.4 1.4"/><path d="M14.5 9.5a4.2 4.2 0 0 0-5.9 0l-3 3a4.2 4.2 0 0 0 5.9 5.9l1.4-1.4" opacity="0.55"/></svg>工作台连接</button>
       <button id="nav-workflows" class="nav-item"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5.5" cy="12" r="2.5"/><path d="M10 12h4" opacity="0.6"/><circle cx="18.5" cy="12" r="2.5" opacity="0.55"/></svg>工作流</button>
@@ -538,6 +543,10 @@
     <!-- S1 Skills 检查器：view=placeholder:skills 时显示；数据经 window.skills 桥消费 -->
     <section id="skills" class="placeholder hidden">
       <div id="skills-root"></div>
+    </section>
+    <!-- P4 插件市场（市场/已安装双 tab；view=placeholder:plugin 时显示；数据经 window.hull.plugin* 桥消费） -->
+    <section id="plugin" class="placeholder hidden">
+      <div id="plugin-root"></div>
     </section>
     <!-- T-Token 消耗查看（Skills 之后；数据经 window.tokens 桥，main 只读扫描各平台会话） -->
     <section id="tokens" class="placeholder hidden">
@@ -819,7 +828,7 @@
   const bridge = window.hull;
   const PLACEHOLDER_PREFIX = 'placeholder:';
   // S8' S8'：sections 扩 1（settings）——view 2→3 态（official/board/settings）
-  const sections = ['starting', 'installing', 'failed', 'not-installed', 'board', 'notes', 'skills', 'tokens', 'connections', 'workflows', 'notifs', 'settings'];
+  const sections = ['starting', 'installing', 'failed', 'not-installed', 'board', 'notes', 'skills', 'plugin', 'tokens', 'connections', 'workflows', 'notifs', 'settings'];
 
   // 占位视图切换（view 字段驱动；official → 全隐藏）
   function setView(view) {
@@ -877,6 +886,7 @@
     'placeholder:board': 'nav-board',
     'placeholder:notes': 'nav-notes', // N2：view 5 态口径（CON-R-notes-011），笔记入口插于任务看板后
     'placeholder:skills': 'nav-skills',
+    'placeholder:plugin': 'nav-plugin',
     'placeholder:tokens': 'nav-tokens',
     'placeholder:connections': 'nav-connections',
     'placeholder:workflows': 'nav-workflows',
@@ -1843,6 +1853,12 @@
     setActive('nav-skills');
     if (bridge) await bridge.showSkills(); // main 切 view → placeholder:skills → section#skills 显示
   });
+  // P4 插件市场（Skills 之后；view 态由主进程侧接入，渲染层先接 bridge.showPlugin?.() typeof 守卫）
+  document.getElementById('nav-plugin').addEventListener('click', async () => {
+    setActive('nav-plugin');
+    if (bridge?.showPlugin) await bridge.showPlugin(); // main 切 view → placeholder:plugin → section#plugin 显示
+    window.__pluginsRefresh?.();
+  });
   // T-Token 消耗视图（Skills 之后；进入即拉新数据，粒度保持上次选择）
   document.getElementById('nav-tokens').addEventListener('click', async () => {
     setActive('nav-tokens');
@@ -1978,6 +1994,7 @@
 <script src="kanban.js"></script>
 <script src="skills.js"></script>
   <script src="tokens.js"></script>
+  <script src="plugins.js"></script>
   <script src="connections.js"></script>
   <script src="workflows.js"></script>
   <!-- U3 依赖图（kanban.js 之后加载；depgraph-core 供 kanban 摘要计数与单测共用，depgraph.js 挂 window.depgraph） -->

@@ -35,6 +35,9 @@ src/**/*.js.map
 !src/renderer/depgraph-core.test.js
 # N2 笔记视图手写源（同 notifs 先例——第四次静默忽略预防 2026-09-11：notes.js 未反排除不进版本库）
 !src/renderer/notes.js
+# plugin-market 插件页手写源（同 notes 先例——第五次静默忽略预防 2026-09-21：plugins.js 未反排除致 PR 缺失）
+!src/renderer/plugins.js
+!src/renderer/plugins.test.js
 !src/tokens/
 !src/tokens/**/*.ts
 # 更新缓存对账 + 下载记录（防陈旧差分基假回退）
