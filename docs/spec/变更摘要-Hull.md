@@ -3,6 +3,15 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-11-07 v0.1.9 发布——插件市场 + 备份恢复 + Token 修复
+
+- 类型：发版（CI 发布链 `.github/workflows/release.yml`，run `42251874174`）
+- 内容：三端 17 个资产（mac arm64/x64 dmg+zip、win exe×2、linux AppImage/deb）+ `latest*.yml`；CI 自动建 tag `v0.1.9` + Release + 发布说明（changelog + 平台状态）
+- 包含：插件市场（对接 dsh 生态，PR #19）· 插件运行时 profile 修正（PR #22）· 备份恢复（PR #14）· Token 增量扫描 + opencode v2 + WorkBuddy 口径（PR #18/#20/#21）· ACP 子进程泄漏修复（PR #17）
+- 发布后：CI 自动 bump `package.json` → **0.1.10**（`b3fb44f`）
+- 发版期修复：registry 快照脚本「拉取失败清空已入库快照」→ 改为保留非空快照（`ae8037c`）
+- 已知边界：插件「更新」按钮不可用（registry 无版本字段）· 插件签名/哈希未实现 · hull profile 一次性迁移后与 web 独立演进
+
 ## 2026-11-06 插件运行时 profile 修正——壳改 `--profile hull`（CON-R-plugin-012 → v2.2，PR #22）
 
 - 类型：架构级缺陷修复（规则修订 CON-R-plugin-012）
