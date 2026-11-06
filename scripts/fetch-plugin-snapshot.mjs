@@ -2,10 +2,12 @@
 /**
  * P5 registry snapshot 生成器：拉取社区 dsh-market plugins.json → normalizeEntries（与运行时
  * src/plugins/registry.ts 同源归一）→ 写 assets/plugins-registry-snapshot.json（registry.ts
- * snapshotPath 内置兜底，构建期冻结）。拉取失败 → 最小空列表 + _meta.error 注明来源失败。
+ * snapshotPath 内置兜底，构建期冻结）。
+ * 拉取失败：**保留已入库的非空快照**（构建期网络抖动/超时不得把 9111 条兜底清成 0 条）；
+ * 仅当没有可用快照时才写最小空列表 + _meta.error。
  * 用法：npm run build（tsc，dist 需含 registry.js）后 node scripts/fetch-plugin-snapshot.mjs
  */
-import { writeFileSync, existsSync } from 'node:fs';
+import { writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 
@@ -14,6 +16,16 @@ const __dirname = new URL('.', import.meta.url).pathname;
 
 const SOURCE_URL = process.env.PLUGIN_SNAPSHOT_URL ?? 'https://awesome-dsh-plugin.com/plugins.json';
 const OUT = join(__dirname, '..', 'assets', 'plugins-registry-snapshot.json');
+
+/** 读取现有快照的插件数（损坏/缺失 → 0） */
+function existingCount() {
+  try {
+    const j = JSON.parse(readFileSync(OUT, 'utf8'));
+    return Array.isArray(j.plugins) ? j.plugins.length : 0;
+  } catch {
+    return 0;
+  }
+}
 
 async function main() {
   const meta = { source: SOURCE_URL, fetchedAt: new Date().toISOString() };
@@ -32,7 +44,14 @@ async function main() {
     meta.count = entries.length;
     if (entries.length === 0) throw new Error('registry 数据为空或字段不合法');
   } catch (err) {
-    meta.error = `拉取失败，写入最小空列表：${err instanceof Error ? err.message : String(err)}`;
+    const kept = existingCount();
+    if (kept > 0) {
+      console.warn(
+        `[plugin-snapshot] 拉取失败，保留现有快照（${kept} 条，不覆盖）：${err instanceof Error ? err.message : String(err)}`,
+      );
+      return; // 构建继续用已入库快照，绝不因网络抖动降级为 0 条
+    }
+    meta.error = `拉取失败且无现有快照，写入最小空列表：${err instanceof Error ? err.message : String(err)}`;
     entries = [];
     meta.count = 0;
     console.warn(`[plugin-snapshot] ${meta.error}`);
