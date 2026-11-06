@@ -63,7 +63,7 @@ import { RestoreService } from '../backup/restoreService';
 import { readPending, readResult } from '../backup/result';
 import { Logger } from '../log/Logger';
 import { DshCliRunner } from '../plugins/cli';
-import { HULL_PLUGIN_PROFILE, reconcileInstalled } from '../plugins/profile';
+import { ensureHullProfile, HULL_PLUGIN_PROFILE, reconcileInstalled } from '../plugins/profile';
 import { loadRegistry } from '../plugins/registry';
 import { PluginInstaller } from '../plugins/installer';
 import type { GateDeps as PluginGateDeps } from '../plugins/gate';
@@ -325,6 +325,9 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   });
   // B5：导出/导入传输层（KanbanTransfer 默认装配 electron dialog + KanbanStore；2 IPC 已随 registerKanbanIpc 注册）
   // S2：overlay 管理栈（首装自动触发 / ensure 三态 / 取消）
+  // hull profile 就绪（插件市场装到 --profile hull，壳也用它启动，装完的插件才生效）：
+  // 必须在任何 runtime.start 之前；失败只 warn（ensureHullProfile 内部吞异常），不阻断启动。
+  ensureHullProfile({ logger });
   const runtime = new RuntimeManager({ userDataPath, logger });
   // S2：overlay 管理栈（首装自动触发 / ensure 三态 / 取消）
   const bundledNode = join(userDataPath, 'node', 'bin', 'node');

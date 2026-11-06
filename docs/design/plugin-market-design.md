@@ -59,14 +59,22 @@ export class DshCliRunner {
 // - DSH_HOME：不注入（dsh 管理自己的 $DSH_HOME；Hull 不触碰）
 ```
 
-### 1.2 profile.ts — profile 'hull' 管理（P1）
+### 1.2 profile.ts — profile 'hull' 管理与运行时一致（P1，v2.2 修订）
 
 ```ts
-export const HULL_PLUGIN_PROFILE = 'hull';
+export const HULL_DSH_PROFILE = 'hull';   // src/runtime/spawnArgs.ts 单一来源
+export const HULL_PLUGIN_PROFILE = HULL_DSH_PROFILE;
 
-// ensureProfile(): 调 dsh 列表/校验 profile 存在；不存在 → dsh 侧创建（插件操作前置）
+// ensureHullProfile({home?, logger?}) → { initialized, repaired, migratedPatch }
+//  - profile 不存在 → 从 profiles/web 复制（package.json/cordis.patch.yml/cordis.yml/pnpm-workspace.yaml）
+//    或写最小 package.json（bundles: dsh-base + dsh-web-app）
+//  - profile 存在 → 补齐缺失 bundles（幂等）
+//  - hull cordis.patch.yml 仍为 dsh 原始空模板 且 web 有真实配置 → 一次性逐字迁移
+//  - 任何异常 warn 不抛（启动不阻断）
 // 只读 reconcile：list 解析按 profile 过滤 bundles
 ```
+
+**运行时约束（v2.2）**：壳启动参数 = `--profile hull`（`dsh web` 是 `--profile web` 别名，两者 profile 独立——装到 hull 却跑 web 会导致插件永不加载）。`DSH_CLI_SIGNATURE` 同步为 `--profile hull --no-open --host 127.0.0.1 --port 0`（孤儿进程识别）。
 
 ### 1.3 registry.ts — 市场数据（P2）
 

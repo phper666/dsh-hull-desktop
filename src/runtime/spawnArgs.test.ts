@@ -47,13 +47,14 @@ function writePnpmLayout(overlay: string, pkgJson: Record<string, unknown> = { b
   symlinkSync(realDir, join(overlay, 'node_modules', '@deepseek-ai', 'dsh'), 'dir'); // symlink 布局
 }
 
-test('buildSpawnArgv：node 在前，--expose-internals 在入口前，--no-open 防自动开浏览器', () => {
+test('buildSpawnArgv：node 在前，--expose-internals 在入口前，--profile hull 在 app 参数前', () => {
   const argv = buildSpawnArgv('/usr/local/bin/node', '/tmp/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js');
   deepEqual(argv, [
     '/usr/local/bin/node',
     '--expose-internals',
     '/tmp/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js',
-    'web',
+    '--profile',
+    'hull',
     '--no-open',
     '--host',
     '127.0.0.1',
@@ -62,21 +63,24 @@ test('buildSpawnArgv：node 在前，--expose-internals 在入口前，--no-open
   ]);
   // 顺序断言：--expose-internals 是 node flag，必须位于入口之前
   ok(argv.indexOf('--expose-internals') < argv.indexOf('/tmp/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js'));
+  // --profile 是 dsh 顶层选项，必须在 app 参数（--no-open）之前
+  ok(argv.indexOf('--profile') < argv.indexOf('--no-open'));
+  ok(!argv.includes('web'), '不用 web 别名（= --profile web，插件永不加载）');
 });
 
-test('buildDshArgv：不含 node 自身，web 子命令与 --no-open 参数齐备', () => {
+test('buildDshArgv：不含 node 自身，--profile hull 与 --no-open 参数齐备', () => {
   const argv = buildDshArgv('/tmp/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js');
   deepEqual(argv, [
     '--expose-internals',
     '/tmp/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js',
-    'web',
+    '--profile',
+    'hull',
     '--no-open',
     '--host',
     '127.0.0.1',
     '--port',
     '0',
   ]);
-  ok(argv.includes('web'));
   ok(argv.includes('--no-open'));
 });
 
@@ -144,13 +148,17 @@ test('READY_LINE_RE 配合 cleanLine：ANSI 前缀 + CRLF 就绪行命中', () =
   equal(m![1], 'http://127.0.0.1:8080');
 });
 
-test('DSH_CLI_SIGNATURE：含三段签名，matchesDshSignature 校验', () => {
-  ok(DSH_CLI_SIGNATURE.includes('web'));
+test('DSH_CLI_SIGNATURE：与真实 argv 一致，且不匹配旧 web 形态', () => {
+  ok(DSH_CLI_SIGNATURE.includes('--profile hull'));
   ok(DSH_CLI_SIGNATURE.includes('--no-open'));
   ok(DSH_CLI_SIGNATURE.includes('--host 127.0.0.1'));
   ok(DSH_CLI_SIGNATURE.includes('--port 0'));
-  ok(matchesDshSignature('node --expose-internals /dsh/lib/bin.js web --no-open --host 127.0.0.1 --port 0'));
-  ok(!matchesDshSignature('node --expose-internals /dsh/lib/bin.js web --host 127.0.0.1 --port 0'), '缺 --no-open 不匹配');
+  // 自身 argv 必须匹配（孤儿进程识别口径与实际 spawn 一致）
+  const argv = buildDshArgv('/dsh/lib/bin.js');
+  ok(matchesDshSignature(`node ${argv.join(' ')}`), 'buildDshArgv 产物应匹配签名');
+  // 旧 web 形态 / 缺 --no-open / 别的 profile → 不匹配
+  ok(!matchesDshSignature('node --expose-internals /dsh/lib/bin.js web --no-open --host 127.0.0.1 --port 0'));
+  ok(!matchesDshSignature('node --expose-internals /dsh/lib/bin.js --profile hull --host 127.0.0.1 --port 0'), '缺 --no-open 不匹配');
   ok(!matchesDshSignature('node /other/web --host 127.0.0.1 --port 8080'));
 });
 

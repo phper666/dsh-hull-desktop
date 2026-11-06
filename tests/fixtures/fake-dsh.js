@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * fake dsh 脚本（S7 设计 D2/D5）：行为矩阵 FAKE_DSH_MODE env 注入。
- * 参数与真实 dsh CLI 同构：web --host 127.0.0.1 --port 0
- * （spawnArgs argv 顺序由集成测试验证——fake 接收同形 argv）。
+ * 参数与真实 dsh CLI 同构：`--profile hull --no-open --host 127.0.0.1 --port 0`（壳启动形态），
+ * 也兼容旧形态 `web --host 127.0.0.1 --port 0`（spawnArgs argv 顺序由集成测试验证）。
  *
  * FAKE_DSH_MODE：
  *   ready（默认）  → 起 node http server（127.0.0.1 随机端口）→ 输出就绪行 → 保持运行
@@ -12,6 +12,7 @@
  *
  * P5 插件子命令（HULL_E2E 语义，契约 §联调与测试场景 e2e 隔离）：
  *   plugin --profile hull <add|update|remove|list> [args]
+ *   也接受顶层形态 `--profile hull plugin <cmd> ...`（壳启动形）
  *   - 状态维护 <userData>/fixture-plugins.json（add=写入 / update=版本 bump / remove=删除 / list=输出 JSON 数组）
  *   - userData 推导：overlay 布局 <userData>/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js → 上溯 5 级；
  *     直接 spawn（integration）→ env HULL_FAKE_DSH_USER_DATA 覆盖
@@ -76,9 +77,9 @@ function bumpVersion(v) {
   return m ? `${m[1]}.${m[2]}.${Number(m[3]) + 1}` : '1.0.1';
 }
 
-function pluginMain(argv) {
+function pluginMain(argv, topProfile) {
   // argv：['plugin', '--profile', <profile>, <cmd>, ...args]（process.argv[0..1] = node/script 已剥）
-  let profile = 'hull';
+  let profile = topProfile || 'hull';
   let i = 1;
   if (argv[i] === '--profile') {
     profile = String(argv[i + 1] ?? 'hull');
@@ -133,8 +134,17 @@ function pluginMain(argv) {
   process.exit(0);
 }
 
-if (process.argv[2] === 'plugin') {
-  pluginMain(process.argv.slice(2));
+// 新形态：`dsh --profile hull --no-open …`（壳启动）。剥离顶层 `--profile <name>` 后
+// 再判定子命令；旧形态 `dsh web …` / `dsh plugin …` 仍兼容（既有测试）。
+let argv = process.argv.slice(2);
+let topProfile;
+if (argv[0] === '--profile') {
+  topProfile = String(argv[1] ?? '');
+  argv = argv.slice(2);
+}
+
+if (argv[0] === 'plugin') {
+  pluginMain(argv, topProfile);
   return; // pluginMain 内 process.exit，不可达（防误落 web 分支）
 }
 

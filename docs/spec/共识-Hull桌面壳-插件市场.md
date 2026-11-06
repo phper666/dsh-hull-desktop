@@ -6,7 +6,7 @@
 
 ## 1. 文档元信息
 
-- **本版本变更**：**v2.1**——三角色扫描 Q-101~Q-117 全数闭环回写（新增 §4.9 扫描定案 + CON-R-plugin-011/012：dsh CLI 通道服务 / `--profile` 独立管理策略）。
+- **本版本变更**：**v2.2**——运行时 profile 修正：壳改为 `--profile hull` 启动 + `ensureHullProfile()` 幂等初始化/修复/一次性 patch 迁移（CON-R-plugin-012 修订）。v2.1 为三角色扫描 Q-101~Q-117 全数闭环回写（§4.9 扫描定案 + CON-R-plugin-011/012）。
 - **历史变更摘要**：v2.0（架构级推翻 v1.0）——外部调研确认 dsh 官方插件机制（bundle/profile/`dsh plugin add`/热挂载）且 dsh 无官方市场、官方桌面壳市场 "COMING SOON"、社区 `dsh-market` 完整实现可参考 → 插件形态从「壳插件自造格式」改为「**对接 dsh 官方插件生态**」。规则 CON-R-plugin-001~010 全量重写；U-1 关闭、U-2~U-6 重登记。
 - **历史变更摘要**：v1.0（2026-09-21）——壳插件形态（npm 包 + hull-plugin.json 主进程加载）；**被 v2.0 推翻**。
 - **状态说明**：v2.0 已发布（基线）。**扫描/拆子需求未跑**——随实现启动补。
@@ -75,7 +75,13 @@
 > 三角色扫描全数闭环（BE 8 / FE 5 / QA 4），结论回写本节 + 规则 011/012。
 
 - **dsh CLI 通道（Q-101 → CON-R-plugin-011）**：主进程新建 dsh CLI 子进程服务——`spawnArgs.resolveNodePath` + overlay bin + DSH_HOME 环境隔离 + 120s 超时 + 统一 exit code/输出解析（JSON 优先）；与 dsh 升级/ACP 并发互斥；供 IPC。
-- **`--profile` 策略（Q-102 → CON-R-plugin-012）**：独立管理 profile `hull`（不污染用户业务 profile）；创建/校验存在性；reconcile 只读该 profile 的 bundles。
+- **`--profile` 策略（Q-102 → CON-R-plugin-012，v2.2 修订）**：**安装 profile = 运行时 profile = `hull`**。
+  - 前提事实（实测）：`dsh plugin --profile <n>` 只把依赖装进 `$DSH_HOME/profiles/<n>/`，profile 之间完全独立；`dsh web` 即 `--profile web`。故「装到 hull、跑 web」= 插件永不加载。
+  - 壳启动参数改为 `--profile hull`；启动前 `ensureHullProfile()` 幂等保证：profile 存在、bundles 含 `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app`。
+  - 首次创建：若 `profiles/web` 存在则复制 `package.json` / `cordis.patch.yml` / `cordis.yml` / `pnpm-workspace.yaml`（保留用户配置），否则写最小 package.json。
+  - 一次性迁移：hull 的 `cordis.patch.yml` 仍为 dsh 原始空模板、且 web 有真实配置 → 逐字复制（实测本机 398 行 provider/UI 配置，不迁移会导致壳内模型全丢）。
+  - 已知边界：迁移后两 profile 独立演进（web 的后续改动不同步到 hull）；异常一律 warn 不阻断启动。
+  - reconcile 只读该 profile 的 bundles（不变）。
 - **安装事务性（Q-103）**：先校验（白名单+manifest）→ `dsh plugin add` → 验证（dsh 列表含该 bundle 且文件就位）→ 失败清理该次痕迹并回显；不做跨命令回滚。
 - **registry 实现（Q-104/116）**：URL 可配（默认社区 dsh-market registry）；1h 内存缓存 + 内置 snapshot 兜底（打包 assets）+ 手动刷新；时钟可注入（测试）。
 - **来源白名单实现（Q-105）**：URL 必须**逐字命中当前 registry 列表对应条目** + scheme 仅 https；不接受列表外 URL；命令参数不拼接用户输入。
@@ -139,7 +145,7 @@
 | CON-R-plugin-009 | 降级：registry 不可达 → snapshot/缓存 + 提示；dsh 不可达 → 插件页降级引导；minDshVersion 不满足 → 安装前提示 | 调研 v2 §三 | 生效 | v2.0 重写 |
 | CON-R-plugin-010 | 验收口径：安装→dsh 侧生效 / 更新→版本生效 / 卸载→恢复 / 白名单外拒绝 / registry 不可达降级 | 调研 v2 §四 | 生效 | v2.0 重写 |
 | CON-R-plugin-011 | dsh CLI 通道服务：spawnArgs + overlay bin + DSH_HOME 隔离 + 120s 超时 + 统一输出解析；与 dsh 升级/ACP 互斥 | Q-101 扫描定案 | 生效 | v2.1 新增 |
-| CON-R-plugin-012 | `--profile` 独立管理策略：插件装到独立 profile `hull`（不污染用户业务 profile）；reconcile 只读该 profile | Q-102 扫描定案 | 生效 | v2.1 新增 |
+| CON-R-plugin-012 | **`--profile` 一致策略**：插件安装 profile 与壳运行时 profile **必须是同一个 `hull`**（否则装而不用）；壳启动前幂等初始化/修复 `$DSH_HOME/profiles/hull`（bundles 必含 `dsh-base` + `dsh-web-app`；hull 不存在时从 `web` 复制 package/patch/cordis.yml/pnpm-workspace；hull 的 `cordis.patch.yml` 仍为 dsh 原始模板时一次性迁移 `web` 的真实 patch，防模型/provider 配置丢失）；reconcile 只读该 profile | Q-102 扫描定案 + 2026-11-06 运行时修正（R1 前置实证：`dsh plugin --profile` 只装进该 profile 目录，`dsh web` = `--profile web`，两者独立 → 原实现装而不用） | 生效 | v2.2 修订 |
 
 ## 11. 页面交互规范
 
@@ -192,6 +198,7 @@
 
 | 版本 | 日期 | 变更摘要条目 | 说明 |
 |:-----|:-----|:-------------|:-----|
+| v2.2 | 2026-11-06 | 已登记 | 运行时 profile 修正（CON-R-plugin-012 修订）：装到 `hull` 但壳跑 `web` → 插件永不加载；改壳启动 `--profile hull` + `ensureHullProfile()`（补 bundles / 首次从 web 复制 / 原始模板 patch 一次性迁移） |
 | v2.1 | 2026-09-21 | 已登记（已发布） | 三角色扫描 Q-101~Q-117 全数闭环：dsh CLI 通道服务（011）/ `--profile` 独立管理策略（012）+ §4.9 扫描定案（事务性/registry/白名单/变更明示/reconcile/门控/UI/QA 隔离与验收断言） |
 | v2.0 | 2026-09-21 | 已登记（已发布） | 架构级推翻 v1.0：外部调研确认 dsh 官方插件机制且无官方市场 → 形态改对接 dsh 生态；规则全重写 |
 | v1.0 | 2026-09-21 | 已登记（已发布） | 壳插件自造格式（npm 包 + hull-plugin.json + 主进程加载）——**已废弃**（v2.0 推翻） |
