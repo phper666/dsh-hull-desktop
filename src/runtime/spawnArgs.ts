@@ -89,22 +89,41 @@ export function dshEntryPath(overlayDir: string): string {
 }
 
 /**
- * 完整 spawn 参数串：node 自身 + node flags + dsh 入口 + web 子命令。
+ * 壳托管的 dsh profile（单一来源）：插件市场装到 `--profile hull`，壳必须用同一 profile
+ * 启动才加载这些插件。plugins/profile.ts 的 HULL_PLUGIN_PROFILE 引用本常量。
+ */
+export const HULL_DSH_PROFILE = 'hull';
+
+/**
+ * 完整 spawn 参数串：node 自身 + node flags + dsh 入口 + profile + web 参数。
  * @param nodePath node 可执行路径（RuntimeManager.resolveNodePath——捆绑 node 优先）
  * @param entryPath dsh 真实 JS 入口（dshEntryPath(overlayDir) 解析，非 .bin shim）
  * --expose-internals 为 node flag，必须在脚本名之前（契约 §接口详情 #1）。
- * ⚠️ dsh CLI：`web` 子命令即 `--profile web` 别名，--profile 是顶层选项，
- * 不能跟在 web 后（实测 dsh 0.1.0-rc.7 报 unknown option '--profile'）。
+ * ⚠️ 不用 `web` 子命令：`web` 是 `--profile web` 的别名，而插件装在 `--profile hull`
+ * （plugins/profile.ts HULL_PLUGIN_PROFILE）——用 `web` 启动则装的插件永不加载（产品级缺陷）。
+ * `--profile` 是 dsh 顶层选项，必须在 app 参数（--no-open 等）之前；实测
+ * `dsh --profile hull --no-open --host 127.0.0.1 --port 0` 正常起 web app 并输出同一就绪行。
  * ⚠️ `--no-open`：dsh web 默认会用系统浏览器打开 UI（用户反馈「打开壳自动弹浏览器」）——
  * 壳内嵌官方 WebContentsView，不重复弹浏览器，必须显式 --no-open（dsh web --help 确认选项）。
  */
 export function buildSpawnArgv(nodePath: string, entryPath: string): string[] {
-  return [nodePath, '--expose-internals', entryPath, 'web', '--no-open', '--host', '127.0.0.1', '--port', '0'];
+  return [
+    nodePath,
+    '--expose-internals',
+    entryPath,
+    '--profile',
+    HULL_DSH_PROFILE,
+    '--no-open',
+    '--host',
+    '127.0.0.1',
+    '--port',
+    '0',
+  ];
 }
 
 /** spawn(nodePath, buildDshArgv(...)) 用的参数（不含 node 自身） */
 export function buildDshArgv(entryPath: string): string[] {
-  return ['--expose-internals', entryPath, 'web', '--no-open', '--host', '127.0.0.1', '--port', '0'];
+  return buildSpawnArgv('', entryPath).slice(1);
 }
 
 /** 就绪行正则（契约 §就绪行协议；匹配前须 strip ANSI CSI + trim）。
@@ -120,8 +139,9 @@ export function cleanLine(line: string): string {
   return line.replace(ANSI_CSI_RE, '').trim();
 }
 
-/** 命令行签名（兜底清理校验，防误杀用户手动跑的 dsh——其命令行不含该签名组合，设计 D3/§4.5） */
-export const DSH_CLI_SIGNATURE = 'web --no-open --host 127.0.0.1 --port 0';
+/** 命令行签名（兜底清理校验，防误杀用户手动跑的 dsh——其命令行不含该签名组合，设计 D3/§4.5）。
+ *  必须与 buildSpawnArgv 实际 argv 一致（`--profile hull` + 固定参数）。 */
+export const DSH_CLI_SIGNATURE = `--profile ${HULL_DSH_PROFILE} --no-open --host 127.0.0.1 --port 0`;
 
 /** 命令行是否含 dsh 签名（`ps -p <pid> -o command=` 输出校验用） */
 export function matchesDshSignature(commandLine: string): boolean {

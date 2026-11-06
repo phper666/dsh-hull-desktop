@@ -336,7 +336,8 @@ test('P2-① spawn 用真实入口路径（非 .bin shim）：args[1] = <overlay
   // args[0]=--expose-internals, args[1]=entry（包缺失 → <overlay>/lib/bin.js 兜底）
   equal(args[0], '--expose-internals');
   equal(args[1], join(userDataPath, 'dsh', 'lib', 'bin.js'));
-  ok(args.includes('web'));
+  ok(args.includes('--profile'));
+  ok(args.includes('hull'));
   ok(args.includes('--no-open'));
 });
 
