@@ -28,6 +28,7 @@ export interface CostInput {
 /** 2026-09 快照（$ / 1M tokens；主流档，非官方账单口径——估算用） */
 export const PRICING_SEED: Record<string, SeedEntry> = {
   // —— DeepSeek v4 / v3 ——
+  'deepseek-v4.1-flash': { input: 0.28, output: 0.42 }, // v4.1 flash 暂按 v4 flash 档假设，待真实账单对账
   'deepseek-v4-flash': { input: 0.28, output: 0.42 },
   'deepseek-v4': { input: 0.56, output: 1.68 },
   'deepseek-v4-pro': { input: 2.0, output: 8.0 },
@@ -83,10 +84,11 @@ export const PRICING_SEED: Record<string, SeedEntry> = {
   'minimax-m3': { input: 1.0, output: 8.0 },
 };
 
-/** 版本号归一：`4-5`→`4.5`（连字符版本）、`5.0`→`5`（去尾零）——别名表用规则替代，覆盖 claude-sonnet-4-5 / glm-5-3-flash / gpt-5.0 等 */
+/** 版本号归一：去尾部日期戳（`-261017`）、`4-5`→`4.5`（连字符版本）、`5.0`→`5`（去尾零）——覆盖 deepseek-v4-1-flash-261017 / claude-sonnet-4-5 / glm-5-3-flash / gpt-5.0 等 */
 function normalizeModel(s: string): string {
   return s
     .toLowerCase()
+    .replace(/-\d{6}$/, '') // 日期戳（-YYMMDD）先去掉，再按版本号归一，使同模型不同快照同键
     .replace(/(\d)-(\d)/g, '$1.$2')
     .replace(/(\d)\.0(?![0-9])/g, '$1');
 }
