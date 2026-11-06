@@ -13,8 +13,8 @@ import type { PlatformSource, UsageRecord } from './types';
 import { fileFingerprint } from './adapters/shared';
 import { scanAllSources } from './TokenUsageScanner';
 
-/** 聚合逻辑改版时 bump → 旧缓存自动失效重扫 */
-export const CACHE_VERSION = 1;
+/** 聚合/解析逻辑改版时 bump → 旧缓存自动失效重扫（2：workbuddy 改 JSONL 逐请求口径） */
+export const CACHE_VERSION = 2;
 
 export interface BucketTotals {
   inputTokens: number;
