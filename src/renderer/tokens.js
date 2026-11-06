@@ -237,7 +237,8 @@
       const rowsHtml = rows
         .map((r) => {
           const plat = `<span class="tk-pname"><i class="dot" style="background:${platColor(r.platform)}"></i>${esc(PLATFORM_NAMES[r.platform] || r.platform)}</span>`;
-          const model = `<span class="tk-mname">${esc(r.model)}</span>`;
+          // 按平台聚合行无 model 维度（aggregator 以 platform 为键），显示 — 而非兜底的 unknown
+          const model = `<span class="tk-mname">${mode === 'platform' ? '—' : esc(r.model)}</span>`;
           return `<tr>
             <td class="${mode === 'model' ? 'tk-sub' : ''}">${plat}</td>
             <td class="${mode === 'platform' ? 'tk-sub' : ''}">${model}</td>

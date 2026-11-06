@@ -1,76 +1,113 @@
 import { test } from 'node:test';
-import { equal, ok } from 'node:assert/strict';
-import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { deepEqual, equal, ok } from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createWorkbuddySource, parseWorkbuddySource, workbuddyDbPath } from './workbuddy';
+import { createWorkbuddySource, parseWorkbuddyLine, workbuddyProjectsDir } from './workbuddy';
 
-/** 建 session_usage fixture → db 路径 */
-function makeWorkbuddyDb(dir: string, rows: Array<{ session_id: string; used: number; size: number; updated_at: number }>): string {
-  const dbPath = join(dir, 'workbuddy.db');
-  const db = new DatabaseSync(dbPath);
-  try {
-    db.exec('CREATE TABLE session_usage (session_id TEXT PRIMARY KEY, used INTEGER, size INTEGER, updated_at INTEGER, credit_json TEXT)');
-    const ins = db.prepare('INSERT INTO session_usage (session_id, used, size, updated_at, credit_json) VALUES (?, ?, ?, ?, ?)');
-    for (const r of rows) ins.run(r.session_id, r.used, r.size, r.updated_at, '{}');
-  } finally {
-    db.close();
-  }
-  return dbPath;
+const TS = 1783363097608;
+
+/** 组装一行 JSONL message（providerData.usage 逐请求） */
+function usageLine(usage: Record<string, unknown>, model: unknown = 'glm-5.3-flash'): string {
+  return JSON.stringify({
+    timestamp: TS,
+    type: 'message',
+    role: 'assistant',
+    providerData: { model, requestModelId: 'auto', usage },
+  });
 }
 
-test('workbuddy：session_usage 总量映射（used→输出侧、updated_at→ISO）', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'hull-workbuddy-'));
-  try {
-    const dbPath = makeWorkbuddyDb(dir, [
-      { session_id: 's1', used: 81420, size: 168000, updated_at: 1787642132430 },
-      { session_id: 's2', used: 94514, size: 1000000, updated_at: 1781256397050 },
-    ]);
-    const recs = parseWorkbuddySource(dbPath);
-    equal(recs.length, 2);
-    equal(recs[0].platform, 'workbuddy');
-    equal(recs[0].model, 'unknown', '模型哈希不可拆 → unknown');
-    equal(recs[0].outputTokens, 81420, 'used 全记输出侧（无拆分信息）');
-    equal(recs[0].inputTokens, 0);
-    ok(recs[0].ts.startsWith('2026'), 'updated_at unix ms → ISO');
-    ok(recs[1].ts < recs[0].ts, '行序按插入序（时间语义在 ts）');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+test('workbuddy：usage 行口径 = input 扣缓存、cacheRead 单列、output 不叠加 reasoning', () => {
+  const r = parseWorkbuddyLine(
+    usageLine({
+      requests: 1,
+      inputTokens: 3505216,
+      outputTokens: 6602,
+      totalTokens: 3511818,
+      inputTokensDetails: [{ cached_tokens: 2535616 }],
+      outputTokensDetails: [{ reasoning_tokens: 214 }],
+    }),
+    ''
+  );
+  ok(r);
+  equal(r.platform, 'workbuddy');
+  equal(new Date(r.ts).getTime(), TS, 'timestamp(ms) → ISO');
+  equal(r.model, 'glm-5.3-flash');
+  equal(r.inputTokens, 3505216 - 2535616, 'inputTokens 含缓存命中 → 扣掉');
+  equal(r.cacheReadTokens, 2535616);
+  equal(r.outputTokens, 6602, 'reasoning 是 output 子集，不叠加');
+  equal(r.reasoningTokens, 214, 'reasoning 仅展示');
+  equal(r.cacheWriteTokens, 0);
+  equal(
+    r.inputTokens + r.outputTokens + r.cacheReadTokens + r.cacheWriteTokens,
+    3511818,
+    '与 aggregator 同式 == usage.totalTokens（对齐 TokenTracker）'
+  );
 });
 
-test('workbuddy：db 缺失/表缺失/used 或 updated_at 为空 → [] 不抛', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'hull-workbuddy-emp-'));
-  try {
-    equal(parseWorkbuddySource(join(dir, 'no-such.db')).length, 0, 'db 缺失 → []');
-    const dbPath = join(dir, 'empty.db');
-    const db = new DatabaseSync(dbPath);
-    try {
-      db.exec('CREATE TABLE session_usage (session_id TEXT, used INTEGER, updated_at INTEGER, size INTEGER, credit_json TEXT)');
-    } finally {
-      db.close();
-    }
-    equal(parseWorkbuddySource(dbPath).length, 0, '空表 → []');
-    const db2 = makeWorkbuddyDb(dir, [{ session_id: 's3', used: 100, size: 10, updated_at: 0 }]);
-    equal(parseWorkbuddySource(db2).length, 1, 'updated_at=0（unix 1970）是合法时间戳 → 计入');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+test('workbuddy：model=auto → unknown；多段 cached 求和；input<cached 夹到 0', () => {
+  const auto = parseWorkbuddyLine(
+    usageLine({ inputTokens: 100, outputTokens: 10, inputTokensDetails: [{ cached_tokens: 40 }, { cached_tokens: 30 }] }, 'auto'),
+    ''
+  );
+  ok(auto);
+  equal(auto.model, 'unknown', 'auto 无法解析 → unknown（成本列「—」）');
+  equal(auto.cacheReadTokens, 70, '多段 cached_tokens 求和');
+  equal(auto.inputTokens, 30);
+
+  const clamped = parseWorkbuddyLine(usageLine({ inputTokens: 100, outputTokens: 0, inputTokensDetails: [{ cached_tokens: 300 }] }), '');
+  ok(clamped);
+  equal(clamped.inputTokens, 0, '脏数据（cached > input）→ 夹到 0，不出负数');
+  equal(clamped.cacheReadTokens, 300);
+
+  equal(parseWorkbuddyLine(usageLine({ inputTokens: 5, outputTokens: 5 }, 'gpt-x'), '')?.model, 'gpt-x');
+  equal(
+    parseWorkbuddyLine(JSON.stringify({ timestamp: TS, providerData: { usage: { inputTokens: 5, outputTokens: 5 } } }), '')?.model,
+    'unknown',
+    'model 缺失 → unknown'
+  );
 });
 
-test('workbuddy：createWorkbuddySource 平台源形态（listFiles 仅 db 存在时返回）', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'hull-workbuddy-src-'));
+test('workbuddy：非 usage 行 / 坏 JSON / 无 timestamp / 全零 → 跳过；function_call 带 usage 计入', () => {
+  equal(parseWorkbuddyLine(JSON.stringify({ timestamp: TS, type: 'reasoning', providerData: { reasoning: 'x' } }), ''), null, '无 usage 对象');
+  equal(parseWorkbuddyLine(JSON.stringify({ timestamp: TS, type: 'file-history-snapshot' }), ''), null);
+  equal(parseWorkbuddyLine('{not json', ''), null, '坏 JSON');
+  equal(parseWorkbuddyLine(JSON.stringify({ type: 'message', providerData: { usage: { inputTokens: 1 } } }), ''), null, '无 timestamp → 跳过（不 mtime 兜底）');
+  equal(parseWorkbuddyLine(JSON.stringify({ timestamp: 'oops', providerData: { usage: { inputTokens: 1 } } }), ''), null, '非法 timestamp');
+  equal(parseWorkbuddyLine(usageLine({ inputTokens: 0, outputTokens: 0, totalTokens: 0 }), ''), null, '全零行');
+
+  // 实测：今日 14 条 usage 行中 12 条是 function_call 且带 providerData.usage —— 不能按 type 过滤
+  const fc = parseWorkbuddyLine(
+    JSON.stringify({ timestamp: TS, type: 'function_call', providerData: { model: 'glm-5.3-flash', usage: { inputTokens: 243885, outputTokens: 527, inputTokensDetails: [{ cached_tokens: 8576 }] } } }),
+    ''
+  );
+  ok(fc, 'function_call + usage 也是用量行');
+  equal(fc.inputTokens, 243885 - 8576);
+});
+
+test('workbuddy：listFiles 递归收集 **/*.jsonl（嵌套 subagents、非 jsonl 忽略、目录缺失 → []）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-workbuddy-jsonl-'));
   try {
+    const projects = join(dir, '.workbuddy', 'projects');
+    mkdirSync(join(projects, 'p1', 'subagents'), { recursive: true });
+    writeFileSync(join(projects, 'a.jsonl'), '');
+    writeFileSync(join(projects, 'p1', 'b.jsonl'), '');
+    writeFileSync(join(projects, 'p1', 'subagents', 'agent-c.jsonl'), '');
+    writeFileSync(join(projects, 'p1', 'note.txt'), '');
+    writeFileSync(join(projects, 'top.db'), '');
+
     const src = createWorkbuddySource(dir);
     equal(src.platform, 'workbuddy');
-    equal(src.home, join(dir, '.workbuddy', 'workbuddy.db'));
-    equal(workbuddyDbPath(dir), src.home);
-    equal(src.listFiles().length, 0, 'db 不存在 → 空文件集（scanAllSources 跳过）');
-    mkdirSync(join(dir, '.workbuddy'), { recursive: true });
-    makeWorkbuddyDb(join(dir, '.workbuddy'), [{ session_id: 's4', used: 77, size: 10, updated_at: 1787642132430 }]);
-    equal(src.listFiles().length, 1, 'db 存在 → 列入扫描');
+    equal(src.home, projects);
+    equal(workbuddyProjectsDir(dir), projects);
+    deepEqual(
+      src.listFiles().map((f) => f.slice(projects.length + 1)).sort(),
+      ['a.jsonl', 'p1/b.jsonl', 'p1/subagents/agent-c.jsonl']
+    );
+
+    rmSync(projects, { recursive: true, force: true });
+    equal(src.listFiles().length, 0, 'projects 目录缺失 → []（scanAllSources 跳过）');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
