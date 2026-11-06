@@ -3,6 +3,15 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-11-06 Token 适配器修复——opencode v2 数据源 + WorkBuddy 口径对齐（PR #20/#21）
+
+- 类型：缺陷修复（Token 用量可见性 / 对账口径），无规则变更
+- opencode v2（PR #20）：v2 把 assistant 用量写入 `session_message`（`type='assistant'`），旧 `message` 表停更 → 原适配器只读 `message` 导致 v2 用量全不可见。改双表合并：v2 全量 + v1 按 `(session_id,time_created)` 补差集（实测重叠 14,947/14,954，绝不相加）；模型取 `data.model.id`；SQL `json_extract` 投影（5.7GB 库全量解析 52.5s → ~10s）；定价补 `deepseek-v4.1-flash`（暂按 v4 flash 档假设，待账单对账）+ normalize 去 6 位日期戳
+- WorkBuddy（PR #21）：原读 `workbuddy.db#session_usage.used`（会话级粗粒度，今日 254K）≠ token 口径；改读 `~/.workbuddy/projects/**/*.jsonl` 逐请求 `providerData.usage`（今日 3,511,818，与 TokenTracker 逐位一致）。口径：`input = inputTokens − Σcached`、`cacheRead = Σcached`、`output = outputTokens`（reasoning 为 output 子集不叠加）；过滤条件按「有 `providerData.usage`」而非 `type=message`（今日 14 条中 12 条是 `function_call`）
+- 缓存：`CACHE_VERSION` → **3**（2 = opencode 解析变更；3 = workbuddy 口径变更，避免继续用旧桶）
+- 验证：tsc 0 · unit **1349/1349** · 真实库冒烟（opencode today 311 条 / workbuddy today 3,511,818 / unknown 0）
+- 已知：opencode 与 TT 残差 ~0.6M（reasoning 并入 output 的既有约定 + 截图时点）；workbuddy `model: "auto"` → unknown → 成本「—」
+
 ## 2026-09-21 插件市场需求交付完成——用户验收通过 + PR #19 合并
 
 - 类型：交付收尾（验收 + 合并 + 清理）
