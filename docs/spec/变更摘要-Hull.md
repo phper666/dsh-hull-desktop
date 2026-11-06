@@ -3,6 +3,15 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-11-06 插件运行时 profile 修正——壳改 `--profile hull`（CON-R-plugin-012 → v2.2，PR #22）
+
+- 类型：架构级缺陷修复（规则修订 CON-R-plugin-012）
+- 缺陷：`dsh plugin --profile hull` 只把包装进 `$DSH_HOME/profiles/hull`（profile 彼此独立），而壳启动 `dsh web` = `--profile web` → **装的插件永不加载**
+- 修正：启动参数改 `--profile hull`（顶层选项在 app 参数前）；`DSH_CLI_SIGNATURE` 同步（孤儿识别）；新增 `ensureHullProfile()`（幂等、异常不阻断）：不存在→从 `profiles/web` 复制 package/patch/cordis.yml/pnpm-workspace（或写最小 package.json）；存在→补 `dsh-web-app` bundle；hull patch 仍为 dsh 原始空模板且 web 有真实配置→**一次性逐字迁移**（本机 398 行 provider/UI 配置，不迁移则壳内模型全丢）
+- 常量单点：`HULL_DSH_PROFILE`（spawnArgs）→ `HULL_PLUGIN_PROFILE` 引用，杜绝两处漂移
+- 验证：tsc 0 · unit **1359/1359** · integration 40/40 · e2e cold-start+plugins **7/7** · 真实 dsh 冒烟 ready 行正常 + 迁移后 `diff hull web` IDENTICAL + 二次调用幂等
+- 已知边界：迁移一次性（两 profile 此后独立演进）；hull patch 已被非模板内容写过则不迁移（可能缺模型配置）；旧 `web ...` 形态进程不再被签名匹配
+
 ## 2026-11-06 Token 适配器修复——opencode v2 数据源 + WorkBuddy 口径对齐（PR #20/#21）
 
 - 类型：缺陷修复（Token 用量可见性 / 对账口径），无规则变更
