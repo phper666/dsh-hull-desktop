@@ -27,6 +27,39 @@ function makeMessageDb(dir: string, rows: Array<{ id: string; time_created: numb
 const msgData = (role: string, tokens: unknown, modelID?: string, extra: Record<string, unknown> = {}): string =>
   JSON.stringify({ role, ...(modelID ? { modelID } : {}), ...(tokens !== undefined ? { tokens } : {}), ...extra });
 
+/** v2 session_message 表 fixture（type 列区分角色；data 无 role，model 为对象）；可选同库附带 v1 message 表 */
+function makeV2Db(
+  dir: string,
+  v2Rows: Array<{ id: string; type?: string; session_id?: string; time_created: number | null; data: string }>,
+  v1Rows?: Array<{ id: string; session_id?: string; time_created: number | null; data: string }>,
+  name = 'opencode.db',
+): string {
+  const dbPath = join(dir, name);
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec('CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER, data TEXT)');
+    const ins2 = db.prepare('INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES (?,?,?,?,?,?,?)');
+    v2Rows.forEach((r, i) => ins2.run(r.id, r.session_id ?? 'ses_x', r.type ?? 'assistant', i, r.time_created, r.time_created, r.data));
+    if (v1Rows) {
+      db.exec('CREATE TABLE message (id TEXT, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)');
+      const ins1 = db.prepare('INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?,?,?,?,?)');
+      for (const r of v1Rows) ins1.run(r.id, r.session_id ?? 'ses_x', r.time_created, r.time_created, r.data);
+    }
+  } finally {
+    db.close();
+  }
+  return dbPath;
+}
+
+/** v2 data JSON 构造：无 role，model 为对象 {id,providerID,variant} */
+const v2Data = (tokens: unknown, model?: string | Record<string, unknown>, extra: Record<string, unknown> = {}): string =>
+  JSON.stringify({
+    time: { created: 1 },
+    ...(model ? { model: typeof model === 'string' ? { id: model } : model } : {}),
+    ...(tokens !== undefined ? { tokens } : {}),
+    ...extra,
+  });
+
 // 真实格式样本：按月 JSON 数组，每条含 totals + byModel（2 模型）——token-history 降级源格式
 const ENTRY = {
   sessionID: 'ses_faa0e8ea8ffeTZylJzRTHnlOYu',
@@ -240,6 +273,105 @@ test('parseOpenCodeMessages：cache.read 回退行独立计（不差分钳制）
     equal(recs[1].cacheReadTokens, 70528, 'cache.read 回退仍全量计（非 max(0) 钳制的 0）');
     equal(recs[1].model, 'big-pickle', '各行模型独立归属');
     equal(recs[1].outputTokens, 165 + 212);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── opencode v2：session_message 表（data 无 role，model 为对象）──
+
+test('parseOpenCodeMessages：v2-only 库（session_message）→ 正确产出，model 取 data.model.id', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-oc-v2-'));
+  try {
+    const t1 = 1793900000000;
+    const t2 = 1793903600000;
+    const dbPath = makeV2Db(dir, [
+      { id: 'e1', time_created: t1, data: v2Data({ input: 1000, output: 200, reasoning: 50, total: 1250, cache: { read: 400, write: 20 } }, 'deepseek-v4.1-flash') },
+      { id: 'e2', time_created: t2, data: v2Data({ input: 300, output: 40, reasoning: 5, cache: { read: 0, write: 0 } }, { id: 'glm-5.3-flash', providerID: 'opencode-go', variant: 'max' }) },
+    ]);
+    const recs = parseOpenCodeMessages(dbPath);
+    equal(recs.length, 2);
+    equal(recs[0].model, 'deepseek-v4.1-flash', 'model 取 data.model.id');
+    equal(recs[0].ts, new Date(t1).toISOString());
+    equal(recs[0].inputTokens, 1000);
+    equal(recs[0].outputTokens, 250, 'output 含 reasoning（口径不变）');
+    equal(recs[0].cacheReadTokens, 400);
+    equal(recs[0].cacheWriteTokens, 20);
+    equal(recs[0].reasoningTokens, 50);
+    equal(recs[1].model, 'glm-5.3-flash');
+    equal(recs[1].outputTokens, 45);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('parseOpenCodeMessages：v1+v2 重叠库 → v2 全量 + v1 差集（session_id+time_created 去重，不重复计）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-oc-v2overlap-'));
+  try {
+    const shared = { input: 100, output: 10, reasoning: 1, cache: { read: 5, write: 0 } };
+    const dbPath = makeV2Db(
+      dir,
+      [
+        { id: 'e1', time_created: 1000, data: v2Data(shared, 'deepseek-v4.1-flash') },
+        { id: 'e2', time_created: 2000, data: v2Data(shared, 'deepseek-v4.1-flash') },
+      ],
+      [
+        // 与 v2 完全对齐的两行（重复，应被差集排除）
+        { id: 'm1', time_created: 1000, data: msgData('assistant', shared, 'deepseek-v4.1-flash') },
+        { id: 'm2', time_created: 2000, data: msgData('assistant', shared, 'deepseek-v4.1-flash') },
+        // v2 缺失（v1 独有，应补回）
+        { id: 'm3', time_created: 3000, data: msgData('assistant', shared, 'deepseek-flash') },
+        // 非 assistant（始终跳过）
+        { id: 'm4', time_created: 4000, data: msgData('user', shared, 'deepseek-flash') },
+      ],
+    );
+    const recs = parseOpenCodeMessages(dbPath);
+    equal(recs.length, 3, '2 v2 + 1 v1 独有（v1 重叠两行不计）');
+    equal(recs.filter((r) => r.ts === new Date(1000).toISOString()).length, 1, '1447 对齐行只计一次');
+    equal(recs.filter((r) => r.ts === new Date(3000).toISOString()).length, 1, 'v1 独有行补回');
+    equal(recs.find((r) => r.ts === new Date(3000).toISOString())?.model, 'deepseek-flash');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('parseOpenCodeMessages：v2 无 tokens / 非 assistant / 全零 → 跳过；model 缺失 → unknown', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-oc-v2def-'));
+  try {
+    const t = 1793900000000;
+    const dbPath = makeV2Db(dir, [
+      { id: 'a', type: 'user', time_created: t, data: v2Data({ input: 9, output: 9, cache: { read: 0, write: 0 } }, 'm1') }, // 非 assistant → 跳过
+      { id: 'b', time_created: t, data: v2Data(undefined, 'm2') }, // 无 tokens → 跳过
+      { id: 'c', time_created: t, data: v2Data({ input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, 'm3') }, // 全零 → 跳过
+      { id: 'd', time_created: null, data: v2Data({ input: 5, output: 1, cache: { read: 0, write: 0 } }, 'm4') }, // 无 ts → 跳过
+      { id: 'e', time_created: t, data: v2Data({ input: 7, output: 2, cache: { read: 0, write: 0 } }) }, // 无 model → unknown
+    ]);
+    const recs = parseOpenCodeMessages(dbPath);
+    equal(recs.length, 1, '只留有值 assistant 行');
+    equal(recs[0].model, 'unknown');
+    equal(recs[0].inputTokens, 7);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('createOpenCodeSource：db 只有 v2 session_message 表 → 视为可用主源（不降级 token-history）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-oc-v2pick-'));
+  try {
+    const rel = join(dir, '.local', 'share', 'opencode');
+    mkdirSync(rel, { recursive: true });
+    makeV2Db(rel, [{ id: 'e1', time_created: 1793900000000, data: v2Data({ input: 11, output: 3, cache: { read: 0, write: 0 } }, 'deepseek-v4.1-flash') }]);
+    const th = join(dir, '.opencode', 'token-history');
+    mkdirSync(th, { recursive: true });
+    writeFileSync(join(th, '2026-09.json'), JSON.stringify([ENTRY]));
+
+    const src = createOpenCodeSource(dir);
+    const files = src.listFiles();
+    equal(files.length, 1);
+    ok(files[0].endsWith('opencode.db'), 'listFiles 返回 db（v2 表可用）');
+    const recs = src.parseFile?.(src.readFile?.(files[0]) ?? '', FALLBACK) ?? [];
+    equal(recs.length, 1, 'v2 db 数据生效');
+    ok(recs.every((r) => r.model !== 'new-api/glm-5.3-flash'), 'token-history 诱饵未混入');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
