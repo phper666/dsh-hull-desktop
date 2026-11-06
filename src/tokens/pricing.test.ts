@@ -34,6 +34,18 @@ test('matchPrice：包含匹配（seed key ∈ model，取最长 key）', () => 
   equal(matchPrice('mimo-v2.5-prox')?.input, PRICING_SEED['mimo-v2.5-pro'].input);
 });
 
+test('matchPrice：deepseek-v4.1-flash 两个真实写法同键命中（去日期戳，不再误配 v4 高价档）', () => {
+  for (const m of ['deepseek-v4.1-flash', 'deepseek-v4-1-flash-261017', 'opencode-go/deepseek-v4.1-flash']) {
+    const p = matchPrice(m);
+    equal(p?.input, 0.28, `${m} input`);
+    equal(p?.output, 0.42, `${m} output`);
+  }
+  // 防回归：v4 / v4-pro 仍按各自档位
+  equal(matchPrice('deepseek-v4')?.input, PRICING_SEED['deepseek-v4'].input);
+  equal(matchPrice('deepseek-v4-pro')?.input, PRICING_SEED['deepseek-v4-pro'].input);
+  equal(matchPrice('glm-5-3-flash')?.input, PRICING_SEED['glm-5.3-flash'].input);
+});
+
 test('matchPrice：未命中 → null（诚实不估算）', () => {
   equal(matchPrice('unknown'), null);
   equal(matchPrice('opencode/hy3'), null);

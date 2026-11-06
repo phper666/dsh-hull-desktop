@@ -13,8 +13,8 @@ import type { PlatformSource, UsageRecord } from './types';
 import { fileFingerprint } from './adapters/shared';
 import { scanAllSources } from './TokenUsageScanner';
 
-/** 聚合逻辑改版时 bump → 旧缓存自动失效重扫 */
-export const CACHE_VERSION = 1;
+/** 聚合逻辑改版时 bump → 旧缓存自动失效重扫（2：opencode 改读 v2 session_message 双表合并） */
+export const CACHE_VERSION = 2;
 
 export interface BucketTotals {
   inputTokens: number;
