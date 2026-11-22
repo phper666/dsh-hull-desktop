@@ -12,13 +12,14 @@ import {
   KANBAN_EXEC_IPC_CHANNELS,
   KANBAN_IPC_CHANNELS,
   NOTES_IPC_CHANNELS,
+  PATH_SEGMENTS_IPC_CHANNELS,
   PLUGIN_IPC_CHANNELS,
   SKILLS_IPC_CHANNELS,
   SHELL_PATH_IPC_CHANNELS,
   STORAGE_IPC_CHANNELS,
 } from './ipc-channels';
 
-test('白名单计数：B1 21（含 getExecutionLog + updateComment），B3 10，B4 5，S1+S2 12，dialog/shell 2，N1 notes 14，B4 备份/恢复 4，P4 插件市场 6，存储 2，shell PATH 1，共面 77', () => {
+test('白名单计数：B1 21（含 getExecutionLog + updateComment），B3 10，B4 5，S1+S2 12，dialog/shell 2，N1 notes 14，B4 备份/恢复 4，P4 插件市场 6，存储 2，shell PATH 1，PATH 分段 1，共面 78', () => {
   equal(KANBAN_IPC_CHANNELS.length, 21, 'B1 16 数据原语 + createColumn（BUG-1 修复）+ B5 2 导出/导入 + getExecutionLog（Q-回复落盘）+ Q-026 updateComment');
   equal(KANBAN_EXEC_IPC_CHANNELS.length, 10, 'B3 10 执行控制');
   equal(SKILLS_IPC_CHANNELS.length, 12, 'S1 4 skills:* + S2 7 操作 + hull:showSkills 导航');
@@ -27,7 +28,8 @@ test('白名单计数：B1 21（含 getExecutionLog + updateComment），B3 10�
   equal(PLUGIN_IPC_CHANNELS.length, 6, 'P4 插件市场 6 通道（feishu-plugin-market-api-contract §接口清单）');
   equal(STORAGE_IPC_CHANNELS.length, 2, '存储占用/清理 2 通道');
   equal(SHELL_PATH_IPC_CHANNELS.length, 1, '用户 shell PATH 1 通道');
-  equal(ALL_IPC_CHANNELS.length, 77);
+  equal(PATH_SEGMENTS_IPC_CHANNELS.length, 1, '生效 PATH 分段 1 通道');
+  equal(ALL_IPC_CHANNELS.length, 78);
 });
 
 test('唯一性：全部 channel 无重复', () => {
@@ -44,6 +46,7 @@ test('前缀规约：kanban: | skills: | hull:showSkills | hull:openPath（壳�
         (PLUGIN_IPC_CHANNELS as readonly string[]).includes(c) ||
         (STORAGE_IPC_CHANNELS as readonly string[]).includes(c) ||
         (SHELL_PATH_IPC_CHANNELS as readonly string[]).includes(c) ||
+        (PATH_SEGMENTS_IPC_CHANNELS as readonly string[]).includes(c) ||
         c === 'hull:showSkills' ||
         c === 'hull:showNotes' ||
         c === 'hull:openPath' ||
@@ -136,13 +139,20 @@ test('B1/B3 交集为空（数据原语与执行控制不重叠）', () => {
 
 test('Q-026 kanban:updateComment 通道入白名单（B1 → 21）', () => {
   ok(KANBAN_IPC_CHANNELS.includes('kanban:updateComment' as never), '通道存在');
-  equal(ALL_IPC_CHANNELS.length, 77);
+  equal(ALL_IPC_CHANNELS.length, 78);
 });
 
 test('shell PATH 通道入白名单（hull:getShellPath）', () => {
   equal(SHELL_PATH_IPC_CHANNELS.length, 1);
   ok(SHELL_PATH_IPC_CHANNELS.includes('hull:getShellPath'));
   ok((ALL_IPC_CHANNELS as readonly string[]).includes('hull:getShellPath'));
+});
+
+test('生效 PATH 分段通道入白名单（hull:getResolvedPath，77 → 78）', () => {
+  equal(PATH_SEGMENTS_IPC_CHANNELS.length, 1);
+  ok(PATH_SEGMENTS_IPC_CHANNELS.includes('hull:getResolvedPath'));
+  ok((ALL_IPC_CHANNELS as readonly string[]).includes('hull:getResolvedPath'));
+  equal(ALL_IPC_CHANNELS.length, 78);
 });
 
 test('B4 备份/恢复 channel 完整（feishu-backup-api-contract §接口清单 + hull:restart）', () => {

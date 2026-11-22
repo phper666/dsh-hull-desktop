@@ -124,7 +124,11 @@ export const STORAGE_IPC_CHANNELS = ['hull:getStorageInfo', 'hull:clearStorage']
  *  桥见 window.hull.getShellPath。失败返回 { ok:false, message } 不抛） */
 export const SHELL_PATH_IPC_CHANNELS = ['hull:getShellPath'] as const;
 
-/** 全部 channel 白名单（B1+B5+B3+B4+S1+dialog+N1 notes+B4 备份/恢复+P4 插件市场+存储+shell PATH 共面） */
+/** 生效 PATH 分段解析 1 channel（设置页按来源展示；main 纯计算，不启动/重启 dsh，
+ *  桥见 window.hull.getResolvedPath。失败返回 { ok:false, message } 不抛） */
+export const PATH_SEGMENTS_IPC_CHANNELS = ['hull:getResolvedPath'] as const;
+
+/** 全部 channel 白名单（B1+B5+B3+B4+S1+dialog+N1 notes+B4 备份/恢复+P4 插件市场+存储+shell PATH+PATH 分段共面） */
 export const ALL_IPC_CHANNELS = [
   ...KANBAN_IPC_CHANNELS,
   ...KANBAN_EXEC_IPC_CHANNELS,
@@ -136,6 +140,7 @@ export const ALL_IPC_CHANNELS = [
   ...PLUGIN_IPC_CHANNELS,
   ...STORAGE_IPC_CHANNELS,
   ...SHELL_PATH_IPC_CHANNELS,
+  ...PATH_SEGMENTS_IPC_CHANNELS,
 ] as const;
 
 export type KanbanIpcChannel = (typeof KANBAN_IPC_CHANNELS)[number];

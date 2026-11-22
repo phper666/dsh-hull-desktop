@@ -6,7 +6,7 @@ import { basename, isAbsolute, join, sep } from 'node:path';
 
 import { acquireSingleInstanceLock } from '../runtime/SingleInstance';
 import { RuntimeManager, type CrashInfo } from '../runtime/RuntimeManager';
-import { matchesDshSignature, resolveNodePath } from '../runtime/spawnArgs';
+import { matchesDshSignature, resolveNodePath, resolvePathSegments } from '../runtime/spawnArgs';
 import { DshMissingError, HullError } from '../shared/errors';
 import { HullUpdatePhase, InstallPhase, RuntimePhase, UpgradePhase } from '../shared/types';
 import { OverlayManager } from '../overlay/OverlayManager';
@@ -1051,6 +1051,30 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     if (quitting) return { ok: false, message: '正在退出' };
     try {
       return { ok: true, data: await readShellPath() };
+    } catch (err) {
+      return { ok: false, message: (err as Error).message };
+    }
+  });
+  // 生效 PATH 分段（设置页按来源展示；纯计算，不启动/重启 dsh）
+  ipcMain.handle('hull:getResolvedPath', async () => {
+    try {
+      const s = settings.getSettings();
+      const segments = resolvePathSegments({
+        basePath: process.env.PATH ?? process.env.Path,
+        nodePath: resolveNodePath(userDataPath, process.platform),
+        home: homedir(),
+        extraPath: s.extraPath,
+        preferExtraPath: s.preferExtraPath,
+      });
+      // raw：实际生效串（不存在的白名单候选只供 UI 标灰，不进 PATH）
+      const raw = segments
+        .filter((segment) => segment.source !== 'whitelist' || segment.exists)
+        .map((segment) => segment.path)
+        .join(process.platform === 'win32' ? ';' : ':');
+      return {
+        ok: true,
+        data: { segments, raw, preferExtraPath: s.preferExtraPath, extraPathCount: s.extraPath.length },
+      };
     } catch (err) {
       return { ok: false, message: (err as Error).message };
     }
