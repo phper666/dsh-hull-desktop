@@ -3,6 +3,21 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-11-22 自定义 PATH 设置 + 存储占用/清理（设置页）
+
+- 类型：功能（设置页两块新能力），无共识规则变更
+- **PATH**：设置新增 `extraPath: string[]` / `preferExtraPath: boolean`（字段级扩展，schemaVersion 仍 4；读写同源规范化：trim/去空/去重/`~` 展开）
+  - 默认顺序：**内置 node 目录 → extraPath → 系统 PATH → 常见目录白名单**（保证 dsh 一定找得到 node）
+  - `preferExtraPath=true`：extraPath 提到内置 node 之前（可覆盖 node 版本，UI 有风险提示）
+  - `augmentPathEnv` 扩两可选参数，老调用行为不变；`RuntimeManager`/`ACPProvider` 同源接线；设置变更只更新内存值，**需重启 dsh 生效**（UI 提示 + 复用 `hull:restart`）
+  - 备份恢复合并保留设备本地 PATH 字段（换机无意义）
+- **存储占用**：新增 `StorageService`（`src/storage/`）
+  - 三类：`chromium-cache`（Cache/Code Cache/GPUCache/Dawn*）/ `logs` / `dsh-previous`（回滚包，`clearable=canRollback()`，note 提示清后无法回滚）
+  - 逻辑字节统计（非磁盘块，与 du 差 10–20%）；userData 路径守卫（resolve 后前缀校验，越界不 stat 不删）
+  - IPC `hull:getStorageInfo` / `hull:clearStorage(ids)`（白名单 74→76）+ preload 桥
+- **UI**：设置 → dsh 运行时「环境变量 PATH」（多行输入/校验/优先开关/生效预览/重启提示）；设置 → 数据「存储占用」（可回收合计 + 分类·路径·大小表 + 勾选清理 + 二次确认 + 释放量反馈）
+- 验证：tsc 0 · unit **1378/1378**（+14）· integration 40/40 · e2e settings+cold-start 6/7（E2E-06 托盘已知偶发，单独跑通过）· 真实 userData：合计 1071MB、可回收 525MB
+
 ## 2026-11-22 子进程 PATH 补全——修复打包版内 node/npm 不可用（PR #23）
 
 - 类型：缺陷修复（运行时环境）
