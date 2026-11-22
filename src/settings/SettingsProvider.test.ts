@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
-import { equal, ok, throws } from 'node:assert/strict';
+import { deepEqual, equal, ok, throws } from 'node:assert/strict';
 import { chmodSync, existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { SettingsProvider, type PkgMgrName, type ThemeName } from './SettingsProvider';
@@ -453,4 +453,58 @@ test('N1-④ set notesDir 相对路径/空串 → notes-dir-invalid 拒绝写盘
     );
   }
   ok(!existsSync(join(dir, 'settings.json')), '拒绝写盘：settings.json 不产生');
+});
+
+// ── 自定义 PATH（extraPath / preferExtraPath，字段级扩展不 bump schemaVersion） ──
+test('extraPath：缺省 [] + preferExtraPath 默认 false，schemaVersion 仍 4', () => {
+  const { provider } = makeProvider({ 'settings.json': JSON.stringify({ closeToQuit: true }) });
+  const s = provider.getSettings();
+  deepEqual(s.extraPath, []);
+  equal(s.preferExtraPath, false);
+  equal(s.schemaVersion, 4);
+});
+
+test('extraPath：读取规范化——trim/去空/去重保序/展开 ~ 与 ~/x', () => {
+  const { provider } = makeProvider({
+    'settings.json': JSON.stringify({
+      extraPath: ['  /opt/bin  ', '', '~', '~/tools', '/opt/bin', 42, null],
+      preferExtraPath: true,
+    }),
+  });
+  const s = provider.getSettings();
+  deepEqual(s.extraPath, ['/opt/bin', homedir(), join(homedir(), 'tools')]);
+  equal(s.preferExtraPath, true);
+});
+
+test('extraPath：坏值容错——非数组 → []，preferExtraPath 非 boolean → false', () => {
+  const { provider } = makeProvider({
+    'settings.json': JSON.stringify({ extraPath: '/opt/bin', preferExtraPath: 'yes' }),
+  });
+  const s = provider.getSettings();
+  deepEqual(s.extraPath, []);
+  equal(s.preferExtraPath, false);
+});
+
+test('extraPath：set 写路径同样规范化落盘（防渲染层脏数据）', () => {
+  const { provider, dir } = makeProvider({});
+  provider.set({ extraPath: ['  /a  ', '/a', '', '~/b'] as unknown as string[], preferExtraPath: 'yes' as unknown as boolean });
+  const onDisk = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as {
+    extraPath: string[];
+    preferExtraPath: boolean;
+    schemaVersion: number;
+  };
+  deepEqual(onDisk.extraPath, ['/a', join(homedir(), 'b')]);
+  equal(onDisk.preferExtraPath, false);
+  equal(onDisk.schemaVersion, 4);
+});
+
+test('extraPath：migrate 旧文件无字段 → 默认补齐', () => {
+  const { provider, dir } = makeProvider({ 'settings.json': JSON.stringify({ closeToQuit: true, schemaVersion: 3 }) });
+  provider.migrate();
+  const parsed = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as {
+    extraPath: string[];
+    preferExtraPath: boolean;
+  };
+  deepEqual(parsed.extraPath, []);
+  equal(parsed.preferExtraPath, false);
 });

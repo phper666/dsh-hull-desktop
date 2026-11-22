@@ -52,6 +52,7 @@ export function resolveBundledNpx(userDataPath: string, platform: NodeJS.Platfor
  * Finder 启动的进程 PATH 仅 `/usr/bin:/bin:/usr/sbin:/sbin`，dsh 命令执行走 no-shell
  * execFile（不吃 shell profile）→ 子命令找不到 node/npm。顺序：
  * 1. 捆绑 node 目录（nodePath !== 'node' 时；保证 node/npm/npx 可解析）
+ * 1b. 用户自定义目录（settings.extraPath；preferExtraPath=true 时排到捆绑 node 目录之前）
  * 2. 原 PATH 条目（保序、去空）
  * 3. 常见用户工具目录（仅存在才加）：macOS/Linux homebrew/local/cargo/bun；
  *    Windows %APPDATA%\npm / %LOCALAPPDATA%\Programs\nodejs
@@ -65,14 +66,20 @@ export function augmentPathEnv(opts: {
   platform?: NodeJS.Platform;
   exists?: (p: string) => boolean;
   env?: NodeJS.ProcessEnv;
+  /** 用户自定义目录（settings.extraPath；`~` 展开由 settings 层完成，此处按字面拼） */
+  extraPath?: string[];
+  /** true：自定义目录排在捆绑 node 目录之前（settings.preferExtraPath，默认 false） */
+  preferExtraPath?: boolean;
 }): string {
   const platform = opts.platform ?? process.platform;
   const exists = opts.exists ?? existsSync;
   const env = opts.env ?? process.env;
   const p = platform === 'win32' ? win32 : posix;
   const delimiter = platform === 'win32' ? ';' : ':';
-  const segments: string[] = [];
-  if (opts.nodePath !== 'node') segments.push(p.dirname(opts.nodePath));
+  const extra = (opts.extraPath ?? []).filter((entry) => entry);
+  const bundled = opts.nodePath !== 'node' ? [p.dirname(opts.nodePath)] : [];
+  // extraPath 中的 `~` 不在此展开（settings 层已规范化；这里按字面保留）
+  const segments: string[] = opts.preferExtraPath ? [...extra, ...bundled] : [...bundled, ...extra];
   for (const entry of (opts.basePath ?? '').split(delimiter)) {
     if (entry) segments.push(entry);
   }

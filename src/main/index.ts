@@ -1,4 +1,4 @@
-import { app, clipboard, dialog, ipcMain, nativeTheme, safeStorage, shell } from 'electron';
+import { app, clipboard, dialog, ipcMain, nativeTheme, safeStorage, session, shell } from 'electron';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -39,6 +39,7 @@ import { checkLatestVersion } from '../updater/registry';
 import { WindowManager } from '../window/WindowManager';
 import { TrayController } from '../tray/TrayController';
 import { SettingsProvider } from '../settings/SettingsProvider';
+import { StorageService, STORAGE_ENTRY_IDS, type StorageEntry } from '../storage/StorageService';
 import { ChannelService } from '../channel/ChannelService';
 import { KanbanStore } from '../kanban/KanbanStore';
 import { registerKanbanIpc } from '../kanban/KanbanIpc';
@@ -173,7 +174,14 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   const providerManager = new ProviderManager({
     // nodePath 与 RuntimeManager 同源解析（spawnArgs 单一修改点）：捆绑 node 优先，
     // 打包版 GUI PATH 无 node，缺省 'node' 会 spawn ENOENT（0.1.7 实测弹框缺陷）
-    acpFactory: () => new ACPProvider({ overlayDir: join(userDataPath, 'dsh'), nodePath: resolveNodePath(userDataPath), logger }),
+    acpFactory: () =>
+      new ACPProvider({
+        overlayDir: join(userDataPath, 'dsh'),
+        nodePath: resolveNodePath(userDataPath),
+        extraPath: settings.getSettings().extraPath,
+        preferExtraPath: settings.getSettings().preferExtraPath,
+        logger,
+      }),
   });
   // B4 收口：真实 ACP provider 显式实例化（供 ApprovalManager 审批链路接线 permission 事件；
   // 仅 HULL_EXEC_PROVIDER=mock 时回落 ProviderManager 的 MockProvider，不接 permission 事件）
@@ -328,7 +336,17 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   // hull profile 就绪（插件市场装到 --profile hull，壳也用它启动，装完的插件才生效）：
   // 必须在任何 runtime.start 之前；失败只 warn（ensureHullProfile 内部吞异常），不阻断启动。
   ensureHullProfile({ logger });
-  const runtime = new RuntimeManager({ userDataPath, logger });
+  const runtime = new RuntimeManager({
+    userDataPath,
+    logger,
+    extraPath: settings.getSettings().extraPath,
+    preferExtraPath: settings.getSettings().preferExtraPath,
+  });
+  // 自定义 PATH 设置变更：只更新内存值供下次 spawn 使用（不自动重启 dsh；UI 用 hull:restart 生效）
+  settings.on('changed', (s) => {
+    runtime.setPathSettings(s.extraPath, s.preferExtraPath);
+    acpProvider?.setPathSettings(s.extraPath, s.preferExtraPath);
+  });
   // S2：overlay 管理栈（首装自动触发 / ensure 三态 / 取消）
   const bundledNode = join(userDataPath, 'node', 'bin', 'node');
   // P1：包管理器执行器抽象（npm/pnpm 两实现；P1 阶段默认 npm，P3 接 settings.packageManager 字段；yarn 已移除）
@@ -370,6 +388,17 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     runNpmInstall: (stagingDir, targetVersion) => toRunNpmInstall(newPkgMgrRunner(), pkgMgrOptions)(stagingDir, targetVersion), // 委托 pkgMgrRunner（错误码透传）
   });
   installLineTarget.fn = (line) => overlay.onPkgMgrLine(line);
+  // 存储占用/清理（设置页「存储」区块）：Chromium 缓存交给 session 清（延迟取 defaultSession——
+  // 本段在 app.whenReady 之前执行）；dsh-previous clearable 同源 overlay.canRollback（无备份不可清）。
+  const storage = new StorageService({
+    userDataPath,
+    logger,
+    canRollback: () => overlay.canRollback(),
+    clearChromium: async () => {
+      await session.defaultSession.clearCache();
+      await session.defaultSession.clearCodeCaches({});
+    },
+  });
   // PK2：捆绑 node 解压接入（CON-R-packaging-003）——打包后 resources/node → <userData>/node；
   // dev 无打包资源 → extractBundledNode 抛错 → InstallFlow dev 分支告警跳过 → PATH 兜底（CON-R-packaging-008）
   const installFlow = new InstallFlow({
@@ -991,6 +1020,31 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   });
 
   ipcMain.handle('hull:getDshStatus', async () => winMgr.hullStatus());
+
+  // 存储占用/清理（设置页）：ids 必须字符串数组 + 白名单（防渲染层传任意 id/路径）
+  ipcMain.handle('hull:getStorageInfo', async () => {
+    if (quitting) return { ok: false, message: '正在退出' };
+    try {
+      return { ok: true, data: await storage.info() };
+    } catch (err) {
+      return { ok: false, message: (err as Error).message };
+    }
+  });
+  ipcMain.handle('hull:clearStorage', async (_e, ids: unknown) => {
+    if (quitting) return { ok: false, message: '正在退出' };
+    if (
+      !Array.isArray(ids) ||
+      ids.some((id) => typeof id !== 'string' || !STORAGE_ENTRY_IDS.includes(id as StorageEntry['id']))
+    ) {
+      return { ok: false, message: '无效的清理项' };
+    }
+    try {
+      const result = await storage.clear(ids as StorageEntry['id'][]);
+      return { ok: true, data: { freedBytes: result.freedBytes, info: result.info } };
+    } catch (err) {
+      return { ok: false, message: (err as Error).message };
+    }
+  });
   // S8' §4.3 H1：壳导航设置入口 → 主进程切 settings 视图（独立窗口移除，S8' D1）。
   // 原 hull:openSettings（独立 SettingsWindow）已删——showSettings 封装 showPlaceholder + 推送。
   ipcMain.handle('hull:showSettings', async () => {

@@ -336,3 +336,45 @@ test('augmentPathEnv：win32 分隔符 + %APPDATA%\\npm / %LOCALAPPDATA%\\Progra
     'C:\\Users\\u\\node;C:\\Windows\\system32;C:\\Windows;C:\\Users\\u\\AppData\\Roaming\\npm',
   );
 });
+
+test('augmentPathEnv：extraPath 默认排在捆绑 node 目录之后（preferExtraPath=false）', () => {
+  const PATH = augmentPathEnv({
+    basePath: '/usr/bin:/bin',
+    nodePath: '/bundle/node/bin/node',
+    extraPath: ['/custom/a', '/custom/b'],
+    preferExtraPath: false,
+    platform: 'darwin',
+    exists: () => false,
+  });
+  equal(PATH, '/bundle/node/bin:/custom/a:/custom/b:/usr/bin:/bin');
+});
+
+test('augmentPathEnv：preferExtraPath=true → extraPath 在捆绑 node 目录之前', () => {
+  const PATH = augmentPathEnv({
+    basePath: '/usr/bin:/bin',
+    nodePath: '/bundle/node/bin/node',
+    extraPath: ['/custom/a', '/custom/b'],
+    preferExtraPath: true,
+    platform: 'darwin',
+    exists: () => false,
+  });
+  equal(PATH, '/custom/a:/custom/b:/bundle/node/bin:/usr/bin:/bin');
+});
+
+test('augmentPathEnv：extraPath 空/重复丢弃；~ 原样保留（展开由 settings 层负责）；仍未传 → 老行为不变', () => {
+  const PATH = augmentPathEnv({
+    basePath: '/usr/bin:/custom/a',
+    nodePath: '/bundle/node/bin/node',
+    extraPath: ['', '/custom/a', '~/tools', '~/tools'],
+    platform: 'darwin',
+    exists: () => false,
+  });
+  equal(PATH, '/bundle/node/bin:/custom/a:~/tools:/usr/bin');
+  const legacy = augmentPathEnv({
+    basePath: '/usr/bin:/bin',
+    nodePath: '/bundle/node/bin/node',
+    platform: 'darwin',
+    exists: () => false,
+  });
+  equal(legacy, '/bundle/node/bin:/usr/bin:/bin');
+});

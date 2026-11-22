@@ -77,6 +77,8 @@ function settings(base: string, over: Partial<HullSettings> = {}): HullSettings 
     packageManager: 'pnpm',
     notifPrefs: { ...DEFAULT_NOTIF_PREFS },
     notesDir: join(base, 'notes'),
+    extraPath: [],
+    preferExtraPath: false,
     ...over,
   };
 }
