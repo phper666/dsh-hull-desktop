@@ -47,19 +47,18 @@ export function resolveBundledNpx(userDataPath: string, platform: NodeJS.Platfor
   return existsSync(cliJs) ? { nodePath: nodePath.replace(/\\/g, '/'), cliJs } : undefined;
 }
 
-/**
- * 组装 dsh 子进程 PATH（修复打包版命令找不到 node/npm）：
- * Finder 启动的进程 PATH 仅 `/usr/bin:/bin:/usr/sbin:/sbin`，dsh 命令执行走 no-shell
- * execFile（不吃 shell profile）→ 子命令找不到 node/npm。顺序：
- * 1. 捆绑 node 目录（nodePath !== 'node' 时；保证 node/npm/npx 可解析）
- * 1b. 用户自定义目录（settings.extraPath；preferExtraPath=true 时排到捆绑 node 目录之前）
- * 2. 原 PATH 条目（保序、去空）
- * 3. 常见用户工具目录（仅存在才加）：macOS/Linux homebrew/local/cargo/bun；
- *    Windows %APPDATA%\npm / %LOCALAPPDATA%\Programs\nodejs
- * 全部去重（同路径保留首次出现 → 首段优先）。纯函数：exists/platform/env 可注入。
- * shortcut: 白名单候选目录（非登录 shell 全量解析），新工具目录需在此补充
- */
-export function augmentPathEnv(opts: {
+/** PATH 分段来源：捆绑 node 目录 / 用户自定义 / 原 PATH / 常见工具目录白名单 */
+export type PathSegmentSource = 'bundled' | 'custom' | 'system' | 'whitelist';
+
+/** 生效 PATH 的一段（exists 仅用于 UI 标注灰显，不参与过滤） */
+export interface PathSegment {
+  path: string;
+  source: PathSegmentSource;
+  exists: boolean;
+}
+
+/** resolvePathSegments / augmentPathEnv 共用参数（纯函数：exists/platform/env 可注入） */
+export interface PathSegmentsOptions {
   basePath?: string;
   nodePath: string;
   home?: string;
@@ -70,7 +69,21 @@ export function augmentPathEnv(opts: {
   extraPath?: string[];
   /** true：自定义目录排在捆绑 node 目录之前（settings.preferExtraPath，默认 false） */
   preferExtraPath?: boolean;
-}): string {
+}
+
+/**
+ * 按来源解析生效 PATH 分段（设置页展示；与 augmentPathEnv 同一套组装/去重逻辑）：
+ * 1. 捆绑 node 目录（nodePath !== 'node' 时；保证 node/npm/npx 可解析）
+ * 1b. 用户自定义目录（settings.extraPath；preferExtraPath=true 时排到捆绑 node 目录之前）
+ * 2. 原 PATH 条目（保序、去空）
+ * 3. 常见用户工具目录白名单：macOS/Linux homebrew/local/cargo/bun；
+ *    Windows %APPDATA%\npm / %LOCALAPPDATA%\Programs\nodejs
+ * 全部去重（同路径保留首次出现 → 首段优先，source 取首现来源）。
+ * 与 augmentPathEnv 的唯一差异：白名单候选即使不存在也返回（exists=false，UI 标灰）；
+ * PATH 实际值由 augmentPathEnv 剔除不存在的白名单候选（保持既有逐字节行为）。
+ * shortcut: 白名单候选目录（非登录 shell 全量解析），新工具目录需在此补充
+ */
+export function resolvePathSegments(opts: PathSegmentsOptions): PathSegment[] {
   const platform = opts.platform ?? process.platform;
   const exists = opts.exists ?? existsSync;
   const env = opts.env ?? process.env;
@@ -79,9 +92,12 @@ export function augmentPathEnv(opts: {
   const extra = (opts.extraPath ?? []).filter((entry) => entry);
   const bundled = opts.nodePath !== 'node' ? [p.dirname(opts.nodePath)] : [];
   // extraPath 中的 `~` 不在此展开（settings 层已规范化；这里按字面保留）
-  const segments: string[] = opts.preferExtraPath ? [...extra, ...bundled] : [...bundled, ...extra];
+  const ordered: Array<Omit<PathSegment, 'exists'>> = [];
+  const custom = extra.map((path): Omit<PathSegment, 'exists'> => ({ path, source: 'custom' }));
+  const bundledSegments = bundled.map((path): Omit<PathSegment, 'exists'> => ({ path, source: 'bundled' }));
+  ordered.push(...(opts.preferExtraPath ? [...custom, ...bundledSegments] : [...bundledSegments, ...custom]));
   for (const entry of (opts.basePath ?? '').split(delimiter)) {
-    if (entry) segments.push(entry);
+    if (entry) ordered.push({ path: entry, source: 'system' });
   }
   const candidates =
     platform === 'win32'
@@ -97,18 +113,33 @@ export function augmentPathEnv(opts: {
           opts.home ? p.join(opts.home, '.bun', 'bin') : '',
         ];
   for (const candidate of candidates) {
-    if (candidate && exists(candidate)) segments.push(candidate);
+    if (candidate) ordered.push({ path: candidate, source: 'whitelist' });
   }
   const seen = new Set<string>();
-  const result: string[] = [];
-  for (const segment of segments) {
+  const result: PathSegment[] = [];
+  for (const segment of ordered) {
     // Windows 路径大小写不敏感：同一目录不同大小写视为重复
-    const key = platform === 'win32' ? segment.toLowerCase() : segment;
+    const key = platform === 'win32' ? segment.path.toLowerCase() : segment.path;
     if (seen.has(key)) continue;
     seen.add(key);
-    result.push(segment);
+    result.push({ ...segment, exists: exists(segment.path) });
   }
-  return result.join(delimiter);
+  return result;
+}
+
+/**
+ * 组装 dsh 子进程 PATH（修复打包版命令找不到 node/npm）：
+ * Finder 启动的进程 PATH 仅 `/usr/bin:/bin:/usr/sbin:/sbin`，dsh 命令执行走 no-shell
+ * execFile（不吃 shell profile）→ 子命令找不到 node/npm。组装/去重委托 resolvePathSegments；
+ * 白名单候选仍仅存在才进 PATH（既有行为，不存在的候选只供设置页标灰展示）。
+ */
+export function augmentPathEnv(opts: PathSegmentsOptions): string {
+  const platform = opts.platform ?? process.platform;
+  const delimiter = platform === 'win32' ? ';' : ':';
+  return resolvePathSegments(opts)
+    .filter((segment) => segment.source !== 'whitelist' || segment.exists)
+    .map((segment) => segment.path)
+    .join(delimiter);
 }
 
 /** dsh 可执行文件绝对路径（overlay 布局：<overlayDir>/bin/dsh，S2 首装按此落位）。

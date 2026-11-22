@@ -16,6 +16,8 @@ import {
   resolveNodePath,
   resolveBundledNpx,
   augmentPathEnv,
+  resolvePathSegments,
+  type PathSegmentsOptions,
 } from './spawnArgs';
 
 const tempDirs: string[] = [];
@@ -377,4 +379,128 @@ test('augmentPathEnv：extraPath 空/重复丢弃；~ 原样保留（展开由 s
     exists: () => false,
   });
   equal(legacy, '/bundle/node/bin:/usr/bin:/bin');
+});
+
+// ─────────────── 生效 PATH 分段（设置页按来源展示，resolvePathSegments） ───────────────
+
+test('resolvePathSegments：默认顺序 bundled → custom → system → whitelist（白名单不存在也返回）', () => {
+  const segments = resolvePathSegments({
+    basePath: '/usr/bin:/bin',
+    nodePath: '/bundle/node/bin/node',
+    home: '/home/u',
+    platform: 'darwin',
+    extraPath: ['/custom/a'],
+    exists: (p) => p === '/opt/homebrew/bin',
+  });
+  deepEqual(
+    segments.map((s) => `${s.source}:${s.path}`),
+    [
+      'bundled:/bundle/node/bin',
+      'custom:/custom/a',
+      'system:/usr/bin',
+      'system:/bin',
+      'whitelist:/opt/homebrew/bin',
+      'whitelist:/usr/local/bin',
+      'whitelist:/home/u/.local/bin',
+      'whitelist:/home/u/.cargo/bin',
+      'whitelist:/home/u/.bun/bin',
+    ],
+  );
+});
+
+test('resolvePathSegments：preferExtraPath=true → custom 在 bundled 之前', () => {
+  const segments = resolvePathSegments({
+    basePath: '/usr/bin',
+    nodePath: '/bundle/node/bin/node',
+    home: '/home/u',
+    platform: 'darwin',
+    extraPath: ['/custom/a', '/custom/b'],
+    preferExtraPath: true,
+    exists: () => false,
+  });
+  deepEqual(
+    segments.map((s) => `${s.source}:${s.path}`),
+    [
+      'custom:/custom/a',
+      'custom:/custom/b',
+      'bundled:/bundle/node/bin',
+      'system:/usr/bin',
+      'whitelist:/opt/homebrew/bin',
+      'whitelist:/usr/local/bin',
+      'whitelist:/home/u/.local/bin',
+      'whitelist:/home/u/.cargo/bin',
+      'whitelist:/home/u/.bun/bin',
+    ],
+  );
+});
+
+test('resolvePathSegments：去重保留首现 source（system 与 whitelist 重复 → 保留 system；custom 与 system 重复 → 保留 custom）', () => {
+  const segments = resolvePathSegments({
+    basePath: '/usr/local/bin:/usr/bin',
+    nodePath: 'node',
+    home: '/home/u',
+    platform: 'darwin',
+    extraPath: ['/usr/bin'],
+    exists: (p) => p === '/usr/local/bin',
+  });
+  deepEqual(
+    segments.map((s) => `${s.source}:${s.path}`),
+    [
+      'custom:/usr/bin',
+      'system:/usr/local/bin',
+      'whitelist:/opt/homebrew/bin',
+      'whitelist:/home/u/.local/bin',
+      'whitelist:/home/u/.cargo/bin',
+      'whitelist:/home/u/.bun/bin',
+    ],
+  );
+  equal(segments.filter((s) => s.path === '/usr/local/bin').length, 1, 'system/whitelist 重复只留一段');
+  equal(segments.find((s) => s.path === '/usr/local/bin')?.source, 'system', '保留首现 system source');
+});
+
+test('resolvePathSegments：exists 仅标注不过滤（注入 true/false 逐段正确）', () => {
+  const segments = resolvePathSegments({
+    basePath: '/usr/bin',
+    nodePath: '/bundle/node/bin/node',
+    home: '/home/u',
+    platform: 'darwin',
+    exists: (p) => p === '/usr/bin' || p === '/usr/local/bin',
+  });
+  equal(segments.find((s) => s.path === '/usr/bin')?.exists, true);
+  equal(segments.find((s) => s.path === '/bundle/node/bin')?.exists, false);
+  equal(segments.find((s) => s.path === '/usr/local/bin')?.exists, true);
+  equal(segments.find((s) => s.path === '/opt/homebrew/bin')?.exists, false);
+  ok(segments.some((s) => s.source === 'whitelist' && !s.exists), '不存在的白名单候选仍在结果中');
+});
+
+test('augmentPathEnv 与 resolvePathSegments 防漂移：全部存在时输出等于 map(path).join(delimiter)', () => {
+  const opts: PathSegmentsOptions = {
+    basePath: '/usr/bin:/bin',
+    nodePath: '/bundle/node/bin/node',
+    home: '/home/u',
+    platform: 'darwin',
+    extraPath: ['/custom/a'],
+    exists: () => true,
+  };
+  equal(augmentPathEnv(opts), resolvePathSegments(opts).map((s) => s.path).join(':'));
+});
+
+test('augmentPathEnv 边界：不存在的白名单候选只展示不进 PATH（既有行为逐字节保持）', () => {
+  const opts: PathSegmentsOptions = {
+    basePath: '/usr/bin:/bin',
+    nodePath: '/bundle/node/bin/node',
+    home: '/home/u',
+    platform: 'darwin',
+    exists: (p) => p === '/opt/homebrew/bin',
+  };
+  const segments = resolvePathSegments(opts);
+  ok(segments.some((s) => s.path === '/usr/local/bin' && !s.exists), '不存在候选返回给 UI');
+  equal(
+    augmentPathEnv(opts),
+    segments
+      .filter((s) => s.source !== 'whitelist' || s.exists)
+      .map((s) => s.path)
+      .join(':'),
+  );
+  equal(augmentPathEnv(opts), '/bundle/node/bin:/usr/bin:/bin:/opt/homebrew/bin');
 });

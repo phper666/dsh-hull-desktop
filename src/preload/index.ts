@@ -126,6 +126,8 @@ contextBridge.exposeInMainWorld('hull', {
   clearStorage: (ids: string[]) => invoke('hull:clearStorage', ids),
   /** 用户 shell PATH（{ ok, data: { shell, dirs, elapsedMs } } 或 { ok:false, message }） */
   getShellPath: () => invoke('hull:getShellPath'),
+  /** 生效 PATH 分段（{ ok, data: { segments, raw, preferExtraPath, extraPathCount } } 或 { ok:false, message }） */
+  getResolvedPath: () => invoke('hull:getResolvedPath'),
   /** 复制文本到剪贴板（dsh web 地址复制；走主进程，渲染侧 file:// 无 clipboard 权限） */
   copyText: (text: string) => ipcRenderer.invoke('hull:copyText', text),
   /** 打开外部浏览器（dsh web 地址浏览器访问；主进程校验 http/https） */
