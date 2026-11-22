@@ -373,6 +373,11 @@
   .st-hero { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: var(--space-1); }
   .st-hero b { font-size: var(--text-2xl); font-weight: 700; color: var(--hull-text); font-variant-numeric: tabular-nums; }
   .st-hero span { font-size: var(--text-xs); color: var(--hull-text-sub); }
+  /* 统计进行中：数字变灰（不重绘表格，避免闪烁） */
+  .st-hero.st-loading b { color: var(--hull-text-sub); }
+  .st-meta { margin-top: 2px; font-size: var(--text-xs); color: var(--hull-text-muted); font-variant-numeric: tabular-nums; }
+  #settings .path-env-msg { max-width: 340px; text-align: right; font-size: var(--text-xs); color: var(--hull-success); }
+  #settings .path-env-msg.is-err { color: var(--hull-danger); }
   .st-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
   .st-table th { padding: var(--space-2) var(--space-4); text-align: left; font-size: var(--text-xs); font-weight: 600; color: var(--hull-text-muted); background: var(--hull-bg); border-bottom: 1px solid var(--hull-border); }
   .st-table td { padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--hull-border); vertical-align: top; color: var(--hull-text-dim); }
@@ -713,7 +718,8 @@
             <div class="info">
               <div class="label">存储占用</div>
               <div class="sub">缓存、日志与上一版本 dsh 运行时可回收；未勾选项仅展示，不动</div>
-              <div class="st-hero"><span>可回收</span><b id="storage-clearable">—</b><span id="storage-total"></span></div>
+              <div class="st-hero" id="storage-hero"><span>可回收</span><b id="storage-clearable">—</b><span id="storage-total"></span></div>
+              <div class="st-meta" id="storage-updated"></div>
             </div>
             <div class="control">
               <button id="storage-refresh" class="sbtn">重新统计</button>
@@ -789,8 +795,10 @@
               <div class="sub">dsh 内执行命令依赖 PATH；壳默认把内置 node 放在第一位，保证 node / npm 可用</div>
             </div>
             <div class="control">
+              <button id="path-read-env" class="sbtn" title="读取登录 shell 中的 PATH，合并到下方列表">读取系统环境变量</button>
               <textarea id="extraPath" class="input extra-path-input" rows="4" spellcheck="false" aria-label="自定义 PATH 目录（一行一个）"
                 placeholder="/opt/homebrew/bin&#10;~/.nvm/versions/node/v24.16.0/bin"></textarea>
+              <div id="path-read-env-msg" class="path-env-msg" role="status"></div>
               <div id="extraPath-error" class="error-text" role="alert"></div>
             </div>
           </div>
@@ -1061,8 +1069,9 @@
     // 自定义 PATH（dsh 区块）+ 存储占用（数据区块）
     extraPath: 'extraPath', extraPathError: 'extraPath-error', preferExtraPath: 'preferExtraPath',
     preferExtraPathWarn: 'preferExtraPath-warn', pathRestartRow: 'path-restart-row', restartDsh: 'restart-dsh',
-    pathPreview: 'path-preview',
+    pathPreview: 'path-preview', pathReadEnv: 'path-read-env', pathReadEnvMsg: 'path-read-env-msg',
     storageRefresh: 'storage-refresh', storageClear: 'storage-clear', storageBody: 'storage-body',
+    storageHero: 'storage-hero', storageUpdated: 'storage-updated',
     storageClearable: 'storage-clearable', storageTotal: 'storage-total', storageAlert: 'storage-alert',
   };
   for (const k of Object.keys(SETT_IDS)) {
@@ -1371,11 +1380,32 @@
   }
 
   // ── 存储占用（数据区块；getStorageInfo / clearStorage 由主进程提供，桥未就绪降级不报错）──
-  const storage = { loaded: false, loading: false, data: null };
+  const storage = { loaded: false, loading: false, data: null, sig: null };
   // 契约格式化：< 1 MB 用 KB（1 位小数）；>= 1 MB 复用 fmtBytes（MB/GB 均 1 位小数）
   const fmtSize = (b) => (Number(b) < 1048576 ? (Math.max(0, Number(b) || 0) / 1024).toFixed(1) + ' KB' : fmtBytes(Number(b) || 0));
   function storageBridge(name) {
     return bridge && typeof bridge[name] === 'function' ? bridge[name].bind(bridge) : null;
+  }
+  // 只取会显示/影响可回收量的字段做签名，避免服务端附带的时间戳等抖动字段干扰「无变化」判定
+  function storageSig(d) {
+    if (!d) return null;
+    return JSON.stringify({
+      c: d.clearableBytes, t: d.totalBytes,
+      e: (d.entries || []).map((e) => [e.id, e.bytes, !!e.clearable, e.paths || []]),
+    });
+  }
+  // 进行中状态（首次加载与强制刷新共用）：按钮置灰+文案、hero 数字变灰；表格不重绘
+  function setStorageBusy(on) {
+    storage.loading = on;
+    const btn = sett.els.storageRefresh;
+    if (btn) { btn.disabled = on; btn.textContent = on ? '统计中…' : '重新统计'; }
+    if (sett.els.storageHero) sett.els.storageHero.classList.toggle('st-loading', on);
+  }
+  function storageUpdatedText(elapsedMs, unchanged) {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const at = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    return `更新于 ${at} · 耗时 ${(elapsedMs / 1000).toFixed(1)}s${unchanged ? '（无变化）' : ''}`;
   }
   function storageAlertMsg(msg) {
     if (!sett.els.storageAlert) return;
@@ -1416,9 +1446,11 @@
       return;
     }
     if (storage.loading || (storage.loaded && !force)) return;
-    storage.loading = true;
+    setStorageBusy(true);
     storageAlertMsg('');
+    // 首次加载没有旧表可留：显示「统计中…」；已有表格时保留，仅置灰 hero（不闪烁）
     if (!storage.loaded) sett.els.storageBody.innerHTML = '<div class="st-empty">统计中…</div>';
+    const t0 = performance.now();
     try {
       const r = await call();
       if (!r || r.ok === false) {
@@ -1426,13 +1458,17 @@
         if (!storage.loaded) sett.els.storageBody.innerHTML = '<div class="st-empty">读取失败</div>';
         return;
       }
+      const sig = storageSig(r.data);
+      const unchanged = storage.sig !== null && sig === storage.sig;
+      storage.sig = sig;
       storage.loaded = true;
       renderStorage(r.data);
+      if (sett.els.storageUpdated) sett.els.storageUpdated.textContent = storageUpdatedText(performance.now() - t0, unchanged);
     } catch (err) {
       storageAlertMsg((err && err.message) || '读取存储占用失败');
       if (!storage.loaded) sett.els.storageBody.innerHTML = '<div class="st-empty">读取失败</div>';
     } finally {
-      storage.loading = false;
+      setStorageBusy(false);
     }
   }
   function confirmClearStorage(ids) {
@@ -1580,14 +1616,14 @@
     if (sett.els.pathRestartRow) sett.els.pathRestartRow.classList.remove('hidden');
   }
   async function commitExtraPath() {
-    if (!sett.els.extraPath) return;
+    if (!sett.els.extraPath) return true;
     const { dirs, bad } = parseExtraPath(sett.els.extraPath.value);
     if (bad.length) {
       setError(sett.els.extraPathError, `需以 / 或 ~ 开头：${bad.slice(0, 3).join('、')}${bad.length > 3 ? ' 等' : ''}`);
-      return;
+      return false;
     }
     const saved = (sett.state.settings && sett.state.settings.extraPath) || [];
-    if (dirs.join('\n') === saved.join('\n')) { setError(sett.els.extraPathError, ''); return; }
+    if (dirs.join('\n') === saved.join('\n')) { setError(sett.els.extraPathError, ''); return true; }
     const ok = await setSetting({ extraPath: dirs }, sett.els.extraPathError);
     if (ok) {
       if (sett.state.settings) sett.state.settings.extraPath = dirs;
@@ -1595,6 +1631,56 @@
     } else {
       sett.els.extraPath.value = saved.join('\n');
       renderPathState();
+    }
+    return ok;
+  }
+  // 读取登录 shell 的 PATH（桥由主进程提供；缺失则按钮禁用）。合并进 textarea：去重（忽略首尾空白与末尾 /），只追加新目录
+  function showPathEnvMsg(msg, isErr) {
+    if (!sett.els.pathReadEnvMsg) return;
+    sett.els.pathReadEnvMsg.textContent = msg || '';
+    sett.els.pathReadEnvMsg.classList.toggle('is-err', !!isErr);
+  }
+  async function readShellPath() {
+    const btn = sett.els.pathReadEnv;
+    if (!btn || !sett.els.extraPath) return;
+    const call = bridge && typeof bridge.getShellPath === 'function' ? bridge.getShellPath.bind(bridge) : null;
+    if (!call) return;
+    btn.disabled = true;
+    btn.textContent = '读取中…';
+    showPathEnvMsg('');
+    const t0 = performance.now();
+    try {
+      const r = await call();
+      if (!r || r.ok === false) {
+        showPathEnvMsg(`读取失败：${(r && r.message) || '未知错误'}`, true);
+        return;
+      }
+      const d = r.data || {};
+      const norm = (p) => String(p || '').trim().replace(/\/+$/, '');
+      const seen = new Set(parseExtraPath(sett.els.extraPath.value).dirs.map(norm));
+      const added = [];
+      for (const p of Array.isArray(d.dirs) ? d.dirs : []) {
+        const n = norm(p);
+        if (!n || seen.has(n)) continue;
+        seen.add(n);
+        added.push(n);
+      }
+      const secs = ((Number(d.elapsedMs) || Math.round(performance.now() - t0)) / 1000).toFixed(1);
+      if (!added.length) {
+        showPathEnvMsg('没有新增目录（已是最新）');
+        return;
+      }
+      const base = sett.els.extraPath.value.replace(/\s+$/, '');
+      sett.els.extraPath.value = (base ? base + '\n' : '') + added.join('\n');
+      renderPathState();
+      const ok = await commitExtraPath();
+      if (ok) showPathEnvMsg(`已添加 ${added.length} 个目录（来源 ${d.shell || '登录 shell'}，耗时 ${secs}s）`);
+      else showPathEnvMsg('目录已读取，但保存失败', true);
+    } catch (err) {
+      showPathEnvMsg(`读取失败：${(err && err.message) || '未知错误'}`, true);
+    } finally {
+      btn.disabled = !(bridge && typeof bridge.getShellPath === 'function');
+      btn.textContent = '读取系统环境变量';
     }
   }
   if (sett.els.extraPath) {
@@ -1604,6 +1690,14 @@
       sett.state.editing.extraPath = false;
       commitExtraPath();
     });
+  }
+  if (sett.els.pathReadEnv) {
+    if (bridge && typeof bridge.getShellPath === 'function') {
+      sett.els.pathReadEnv.addEventListener('click', readShellPath);
+    } else {
+      sett.els.pathReadEnv.disabled = true;
+      sett.els.pathReadEnv.title = '当前版本不支持';
+    }
   }
   if (sett.els.preferExtraPath) {
     sett.els.preferExtraPath.addEventListener('click', async () => {
