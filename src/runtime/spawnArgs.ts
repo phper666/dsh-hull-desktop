@@ -1,4 +1,4 @@
-import { dirname, isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join, posix, win32 } from 'node:path';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 
 /**
@@ -45,6 +45,63 @@ export function resolveBundledNpx(userDataPath: string, platform: NodeJS.Platfor
   );
   const cliJs = join(npmBin, 'npx-cli.js').replace(/\\/g, '/');
   return existsSync(cliJs) ? { nodePath: nodePath.replace(/\\/g, '/'), cliJs } : undefined;
+}
+
+/**
+ * 组装 dsh 子进程 PATH（修复打包版命令找不到 node/npm）：
+ * Finder 启动的进程 PATH 仅 `/usr/bin:/bin:/usr/sbin:/sbin`，dsh 命令执行走 no-shell
+ * execFile（不吃 shell profile）→ 子命令找不到 node/npm。顺序：
+ * 1. 捆绑 node 目录（nodePath !== 'node' 时；保证 node/npm/npx 可解析）
+ * 2. 原 PATH 条目（保序、去空）
+ * 3. 常见用户工具目录（仅存在才加）：macOS/Linux homebrew/local/cargo/bun；
+ *    Windows %APPDATA%\npm / %LOCALAPPDATA%\Programs\nodejs
+ * 全部去重（同路径保留首次出现 → 首段优先）。纯函数：exists/platform/env 可注入。
+ * shortcut: 白名单候选目录（非登录 shell 全量解析），新工具目录需在此补充
+ */
+export function augmentPathEnv(opts: {
+  basePath?: string;
+  nodePath: string;
+  home?: string;
+  platform?: NodeJS.Platform;
+  exists?: (p: string) => boolean;
+  env?: NodeJS.ProcessEnv;
+}): string {
+  const platform = opts.platform ?? process.platform;
+  const exists = opts.exists ?? existsSync;
+  const env = opts.env ?? process.env;
+  const p = platform === 'win32' ? win32 : posix;
+  const delimiter = platform === 'win32' ? ';' : ':';
+  const segments: string[] = [];
+  if (opts.nodePath !== 'node') segments.push(p.dirname(opts.nodePath));
+  for (const entry of (opts.basePath ?? '').split(delimiter)) {
+    if (entry) segments.push(entry);
+  }
+  const candidates =
+    platform === 'win32'
+      ? [
+          env.APPDATA ? p.join(env.APPDATA, 'npm') : '',
+          env.LOCALAPPDATA ? p.join(env.LOCALAPPDATA, 'Programs', 'nodejs') : '',
+        ]
+      : [
+          '/opt/homebrew/bin',
+          '/usr/local/bin',
+          opts.home ? p.join(opts.home, '.local', 'bin') : '',
+          opts.home ? p.join(opts.home, '.cargo', 'bin') : '',
+          opts.home ? p.join(opts.home, '.bun', 'bin') : '',
+        ];
+  for (const candidate of candidates) {
+    if (candidate && exists(candidate)) segments.push(candidate);
+  }
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const segment of segments) {
+    // Windows 路径大小写不敏感：同一目录不同大小写视为重复
+    const key = platform === 'win32' ? segment.toLowerCase() : segment;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(segment);
+  }
+  return result.join(delimiter);
 }
 
 /** dsh 可执行文件绝对路径（overlay 布局：<overlayDir>/bin/dsh，S2 首装按此落位）。

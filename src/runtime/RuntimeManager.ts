@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { spawn, spawnSync, type StdioOptions } from 'node:child_process';
 import { existsSync, promises as fsPromises, unlinkSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 
@@ -13,7 +14,7 @@ import {
 } from '../shared/types';
 import { HullError, StartTimeoutError, SpawnFailedError, DshMissingError, ChildExitedError } from '../shared/errors';
 import { ReadinessProbe, type ProbeResult } from './ReadinessProbe';
-import { buildSpawnArgv, dshEntryPath, resolveNodePath } from './spawnArgs';
+import { buildSpawnArgv, dshEntryPath, resolveNodePath, augmentPathEnv } from './spawnArgs';
 
 export type { RuntimeLogger, ChildLike } from '../shared/types';
 
@@ -174,7 +175,7 @@ export class RuntimeManager extends EventEmitter {
         detached: true,
         cwd: overlayDir,
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: sanitizeSpawnEnv(),
+        env: sanitizeSpawnEnv(nodePath),
       });
     } catch (err) {
       this.transition(RuntimePhase.Failed, `dsh 启动失败: ${(err as Error).message}`);
@@ -390,14 +391,21 @@ export class RuntimeManager extends EventEmitter {
  * spawn 环境净化（P2 CON-R-pkgmgr-005，VS Code 实践 / lib-3 调研）：
  * - 注入 ELECTRON_RUN_AS_NODE=1：即使 nodeBin 是捆绑 node 也统一（防被 Electron 环境变量污染）
  * - 剥离 NODE_OPTIONS + 所有 ELECTRON_* 变量：防宿主 Electron 的 node 参数/环境泄漏进 dsh 子进程
- * - 其余环境变量原样透传（PATH 等）
+ * - PATH 补全（augmentPathEnv）：Finder 启动 PATH 精简，dsh 内 no-shell execFile 找不到 node/npm；
+ *   先删大小写变体（Windows env 名大小写不敏感，避免 Path/PATH 双键）再写 PATH
+ * - 其余环境变量原样透传
  */
-function sanitizeSpawnEnv(): NodeJS.ProcessEnv {
+function sanitizeSpawnEnv(nodePath: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   delete env.NODE_OPTIONS;
   for (const key of Object.keys(env)) {
-    if (key.startsWith('ELECTRON_')) delete env[key];
+    if (key.startsWith('ELECTRON_') || key.toUpperCase() === 'PATH') delete env[key];
   }
   env.ELECTRON_RUN_AS_NODE = '1';
+  env.PATH = augmentPathEnv({
+    basePath: process.env.PATH ?? process.env.Path,
+    nodePath,
+    home: homedir(),
+  });
   return env;
 }

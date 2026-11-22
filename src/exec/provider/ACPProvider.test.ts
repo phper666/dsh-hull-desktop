@@ -22,7 +22,7 @@ import { deepEqual, equal, ok, rejects } from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 
 import { ACPProvider, buildPromptText } from './ACPProvider';
 import type { ExecutionEvent, ExecutionResult, ExecutionTask } from './ExecutionProvider';
@@ -1017,12 +1017,12 @@ test('Q-027 cancel 兜底：cancel 后未退出 → grace 窗口后 SIGTERM（O-
 
 test('nodePath 注入：execute 与 listModels 的 spawn 均用注入路径（不再裸 \'node\' 走 PATH）', async () => {
   const h = new Harness();
-  const spawnLog: { cmd: string; args: string[] }[] = [];
+  const spawnLog: { cmd: string; args: string[]; opts?: { env?: NodeJS.ProcessEnv } }[] = [];
   const provider = new ACPProvider({
     nodePath: '/bundled/node/bin/node',
     settingsPath: join(tmpdir(), 'hull-no-settings.yaml'),
-    spawnFn: ((cmd: string, args: string[], _opts: never) => {
-      spawnLog.push({ cmd, args });
+    spawnFn: ((cmd: string, args: string[], opts: never) => {
+      spawnLog.push({ cmd, args, opts: opts as { env?: NodeJS.ProcessEnv } });
       h.child = new FakeChild();
       return h.child;
     }) as never,
@@ -1030,14 +1030,16 @@ test('nodePath 注入：execute 与 listModels 的 spawn 均用注入路径（�
   // execute 路径（connect）
   provider.execute(TASK, h.handlers);
   equal(spawnLog[0].cmd, '/bundled/node/bin/node');
+  // PATH 补全：捆绑 node 目录首位（dsh 内 no-shell execFile 靠它找 node/npm）
+  equal(spawnLog[0].opts?.env?.PATH?.split(delimiter)[0], '/bundled/node/bin');
   // listModels 路径（fetchModels）——新 provider 实例避开 modelsCache
   const h2 = new Harness();
-  const spawnLog2: { cmd: string; args: string[] }[] = [];
+  const spawnLog2: { cmd: string; args: string[]; opts?: { env?: NodeJS.ProcessEnv } }[] = [];
   const provider2 = new ACPProvider({
     nodePath: '/bundled/node/bin/node',
     settingsPath: join(tmpdir(), 'hull-no-settings.yaml'),
-    spawnFn: ((cmd: string, args: string[], _opts: never) => {
-      spawnLog2.push({ cmd, args });
+    spawnFn: ((cmd: string, args: string[], opts: never) => {
+      spawnLog2.push({ cmd, args, opts: opts as { env?: NodeJS.ProcessEnv } });
       h2.child = new FakeChild();
       return h2.child;
     }) as never,
@@ -1050,6 +1052,7 @@ test('nodePath 注入：execute 与 listModels 的 spawn 均用注入路径（�
   respond(h2.child!, ns.id!, { sessionId: 's', configOptions: [] });
   await p;
   equal(spawnLog2[0].cmd, '/bundled/node/bin/node');
+  equal(spawnLog2[0].opts?.env?.PATH?.split(delimiter)[0], '/bundled/node/bin');
 });
 
 test('fetchModels spawn 异步失败（ENOENT）→ 吸收为 reject 不炸主进程（unhandled \'error\' 回归）', async () => {

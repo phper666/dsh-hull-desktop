@@ -15,6 +15,7 @@ import {
   matchesDshSignature,
   resolveNodePath,
   resolveBundledNpx,
+  augmentPathEnv,
 } from './spawnArgs';
 
 const tempDirs: string[] = [];
@@ -275,4 +276,63 @@ test('resolveNodePath/resolveBundledNpx：win32 布局——node.exe 在根（�
   } finally {
     if (saved !== undefined) process.env.HULL_NODE_PATH = saved;
   }
+});
+
+// ─────────────── 修复：GUI 启动 PATH 精简 → dsh 子进程 PATH 补全（augmentPathEnv） ───────────────
+
+test('augmentPathEnv：捆绑 node（非 \'node\'）→ 其目录首位，原 PATH 保序', () => {
+  const PATH = augmentPathEnv({
+    basePath: '/usr/bin:/bin',
+    nodePath: '/bundle/node/bin/node',
+    home: '/home/u',
+    platform: 'darwin',
+    exists: () => false,
+  });
+  equal(PATH, '/bundle/node/bin:/usr/bin:/bin');
+});
+
+test('augmentPathEnv：dev（nodePath=\'node\'）不加首段，其余规则仍生效', () => {
+  const PATH = augmentPathEnv({
+    basePath: '/usr/bin:/bin',
+    nodePath: 'node',
+    home: '/home/u',
+    platform: 'darwin',
+    exists: (p) => p === '/opt/homebrew/bin' || p === '/home/u/.cargo/bin',
+  });
+  equal(PATH, '/usr/bin:/bin:/opt/homebrew/bin:/home/u/.cargo/bin');
+});
+
+test('augmentPathEnv：去重且首次位置优先（原 PATH 里的 node 目录不重复追加）', () => {
+  const PATH = augmentPathEnv({
+    basePath: '/bundle/node/bin:/usr/bin:/usr/bin:/bin:/usr/local/bin',
+    nodePath: '/bundle/node/bin/node',
+    home: '/home/u',
+    platform: 'darwin',
+    exists: (p) => p === '/usr/local/bin', // 已存在 → 不重复追加
+  });
+  equal(PATH, '/bundle/node/bin:/usr/bin:/bin:/usr/local/bin');
+});
+
+test('augmentPathEnv：空条目丢弃 + 不存在候选跳过 + 无 home 不拼 home 目录', () => {
+  const PATH = augmentPathEnv({
+    basePath: ':/usr/bin::/bin:',
+    nodePath: 'node',
+    platform: 'darwin',
+    exists: (p) => p === '/usr/local/bin',
+  });
+  equal(PATH, '/usr/bin:/bin:/usr/local/bin');
+});
+
+test('augmentPathEnv：win32 分隔符 + %APPDATA%\\npm / %LOCALAPPDATA%\\Programs\\nodejs（存在才加）+ 大小写不敏感去重', () => {
+  const PATH = augmentPathEnv({
+    basePath: 'C:\\Windows\\system32;;C:\\Windows;c:\\users\\u\\node',
+    nodePath: 'C:\\Users\\u\\node\\node.exe',
+    platform: 'win32',
+    env: { APPDATA: 'C:\\Users\\u\\AppData\\Roaming', LOCALAPPDATA: 'C:\\Users\\u\\AppData\\Local' },
+    exists: (p) => p === 'C:\\Users\\u\\AppData\\Roaming\\npm',
+  });
+  equal(
+    PATH,
+    'C:\\Users\\u\\node;C:\\Windows\\system32;C:\\Windows;C:\\Users\\u\\AppData\\Roaming\\npm',
+  );
 });

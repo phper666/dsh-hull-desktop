@@ -27,7 +27,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { NOOP_LOGGER, type RuntimeLogger } from '../../shared/types';
-import { dshBinPath } from '../../runtime/spawnArgs';
+import { dshBinPath, augmentPathEnv } from '../../runtime/spawnArgs';
 import type {
   ExecutionEvent,
   ExecutionHandlers,
@@ -261,6 +261,23 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
     this.nodePath = options.nodePath ?? 'node';
   }
 
+  /**
+   * spawn 环境：补全 PATH（捆绑 node 目录优先 + 常见工具目录）——打包版 PATH 精简，
+   * dsh 内 no-shell execFile 找不到 node/npm。先删大小写变体再写 PATH（Windows 不敏感）。
+   */
+  private spawnEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    for (const key of Object.keys(env)) {
+      if (key.toUpperCase() === 'PATH') delete env[key];
+    }
+    env.PATH = augmentPathEnv({
+      basePath: process.env.PATH ?? process.env.Path,
+      nodePath: this.nodePath,
+      home: homedir(),
+    });
+    return { ...env, ...extra };
+  }
+
   execute(task: ExecutionTask, handlers: ExecutionHandlers): { cancel(): Promise<void> } {
     // 每 execute 一个执行状态容器（cancel/完成 恰好一次）
     const state = this.newState();
@@ -398,7 +415,7 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
     const child = this.spawnFn(this.nodePath, ['--expose-internals', bin, '--profile', 'acp'], {
       cwd: dir,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, DSH_HOME: tmpHome },
+      env: this.spawnEnv({ DSH_HOME: tmpHome }),
     });
     this.logger.info(`[Q-023] 模型清单探测子进程已启动 pid=${child.pid ?? '?'}`);
     this.activeChildren.add(child);
@@ -480,6 +497,7 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
       child = this.spawnFn(this.nodePath, ['--expose-internals', bin, '--profile', 'acp'], {
         cwd: overlayDir,
         stdio: ['pipe', 'pipe', 'pipe'],
+        env: this.spawnEnv(),
       });
     } catch (err) {
       this.settleFailure(task, handlers, state, `dsh ACP 子进程启动失败: ${(err as Error).message}`);

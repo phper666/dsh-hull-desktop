@@ -3,7 +3,7 @@ import { equal, deepEqual, ok, throws, rejects } from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 
 import { RuntimeManager, type CrashInfo, type RuntimeLogger, type SpawnFn } from './RuntimeManager';
 import { RuntimePhase } from '../shared/types';
@@ -236,6 +236,9 @@ test('⑮ node 解析：捆绑路径 <userData>/node/bin/node 优先于 PATH', a
     writeFileSync(join(userDataPath, 'node', 'bin', 'node'), '#!/bin/sh\n');
     await mgr.start();
     equal(getLastSpawn()?.cmd, join(userDataPath, 'node', 'bin', 'node'));
+    // PATH 补全：捆绑 node 目录必须首位（GUI 启动 PATH 精简，dsh 内 no-shell execFile 靠它找 node/npm）
+    const spawnPath = getLastSpawn()?.opts?.env?.PATH ?? '';
+    equal(spawnPath.split(delimiter)[0], join(userDataPath, 'node', 'bin'), `PATH 首位应为捆绑 node 目录: ${spawnPath}`);
   } finally {
     if (prev !== undefined) process.env.HULL_NODE_PATH = prev;
   }
