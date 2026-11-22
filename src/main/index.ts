@@ -40,6 +40,7 @@ import { WindowManager } from '../window/WindowManager';
 import { TrayController } from '../tray/TrayController';
 import { SettingsProvider } from '../settings/SettingsProvider';
 import { StorageService, STORAGE_ENTRY_IDS, type StorageEntry } from '../storage/StorageService';
+import { readShellPath } from '../system/ShellPath';
 import { ChannelService } from '../channel/ChannelService';
 import { KanbanStore } from '../kanban/KanbanStore';
 import { registerKanbanIpc } from '../kanban/KanbanIpc';
@@ -1041,6 +1042,15 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     try {
       const result = await storage.clear(ids as StorageEntry['id'][]);
       return { ok: true, data: { freedBytes: result.freedBytes, info: result.info } };
+    } catch (err) {
+      return { ok: false, message: (err as Error).message };
+    }
+  });
+  // 用户 shell PATH（`-ilc` 加载 rc；失败不抛，壳内展示错误原因）
+  ipcMain.handle('hull:getShellPath', async () => {
+    if (quitting) return { ok: false, message: '正在退出' };
+    try {
+      return { ok: true, data: await readShellPath() };
     } catch (err) {
       return { ok: false, message: (err as Error).message };
     }
