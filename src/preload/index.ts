@@ -124,6 +124,8 @@ contextBridge.exposeInMainWorld('hull', {
   getStorageInfo: () => invoke('hull:getStorageInfo'),
   /** 清理存储（ids 白名单主进程强校验；返回 { freedBytes, info }） */
   clearStorage: (ids: string[]) => invoke('hull:clearStorage', ids),
+  /** 用户 shell PATH（{ ok, data: { shell, dirs, elapsedMs } } 或 { ok:false, message }） */
+  getShellPath: () => invoke('hull:getShellPath'),
   /** 复制文本到剪贴板（dsh web 地址复制；走主进程，渲染侧 file:// 无 clipboard 权限） */
   copyText: (text: string) => ipcRenderer.invoke('hull:copyText', text),
   /** 打开外部浏览器（dsh web 地址浏览器访问；主进程校验 http/https） */

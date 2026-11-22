@@ -94,8 +94,12 @@ export class StorageService {
         note: '清理后无法回滚到上一版 dsh',
       },
     ];
+    // 并行测量全部路径后回填（避免并发改同一累加器；dsh-previous 串行测量需数秒）
+    const sizes = await Promise.all(entries.flatMap((entry) => entry.paths.map((path) => this.measure(path))));
+    let cursor = 0;
     for (const entry of entries) {
-      for (const path of entry.paths) entry.bytes += await this.measure(path);
+      entry.bytes = sizes.slice(cursor, cursor + entry.paths.length).reduce((sum, size) => sum + size, 0);
+      cursor += entry.paths.length;
     }
     return {
       totalBytes: entries.reduce((sum, entry) => sum + entry.bytes, 0),
@@ -145,7 +149,8 @@ export class StorageService {
     return { freedBytes, info, skipped };
   }
 
-  /** 递归尺寸（异步；不存在/不可读 = 0；越界路径拒绝） */
+  /** 递归尺寸（异步；不存在/不可读 = 0；越界路径拒绝）
+   *  同层子目录与文件 stat 全部并行（libuv 线程池自然限流），几十万文件不再逐个串行。 */
   private async measure(target: string): Promise<number> {
     if (!this.isInside(target)) return 0;
     let entries: Dirent[];
@@ -154,20 +159,19 @@ export class StorageService {
     } catch {
       return 0; // 目录不存在（未生成缓存/日志）
     }
-    let total = 0;
-    for (const entry of entries) {
-      const child = join(target, entry.name);
-      if (entry.isDirectory()) {
-        total += await this.measure(child);
-      } else if (entry.isFile() && this.isInside(child)) {
+    const sizes = await Promise.all(
+      entries.map(async (entry): Promise<number> => {
+        const child = join(target, entry.name);
+        if (entry.isDirectory()) return this.measure(child);
+        if (!entry.isFile() || !this.isInside(child)) return 0;
         try {
-          total += (await this.fs.stat(child)).size;
+          return (await this.fs.stat(child)).size;
         } catch {
-          /* 竞态删除 */
+          return 0; // 竞态删除
         }
-      }
-    }
-    return total;
+      })
+    );
+    return sizes.reduce((sum, size) => sum + size, 0);
   }
 
   private async removeContents(paths: string[]): Promise<void> {
