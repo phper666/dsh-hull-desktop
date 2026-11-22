@@ -3,6 +3,15 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-11-22 设置页打磨——存储刷新反馈 + 读取系统环境变量（用户实测反馈）
+
+- 类型：功能/体验修复
+- **存储统计提速**：`StorageService.info()` 串行 → `Promise.all`（同层目录/文件并行），实测 **2.5–2.8s → 0.8s**，字节完全一致；`measure()` 不存在=0、权限跳过、越界守卫不变
+- **刷新反馈**：点「重新统计」立即置灰「统计中…」+ hero 载入态（表格不重绘避免闪烁）；完成显示「更新于 HH:MM:SS · 耗时 X.Xs」，结果与上次相同追加「（无变化）」
+- **读取系统环境变量**：新 IPC `hull:getShellPath`（白名单 76→77）——`$SHELL -ilc 'printf "__HULL_PATH__%s" "$PATH"'`，3s 超时 SIGKILL、末标记解析、仅保留存在目录、非法 shell 回退 `/bin/zsh`；UI 按钮把结果**合并去重**进 textarea，提示来源/新增数/耗时，失败不动输入
+- 验证：tsc 0 · unit **1384/1384**（+6）· integration 40/40 · e2e settings 3/3 · 存储 0.8s（du 对照：chromium 8.7MB / logs 356KB / dsh-previous 651MB）
+- 已知边界：`-ilc` 会加载用户 rc（本机 1.5s，可能有副作用）；Windows 无 `$SHELL` 回退（暂未做 PowerShell 分支）；路径按字符串去重（`//Users/...` 双斜杠保留）
+
 ## 2026-11-22 自定义 PATH 设置 + 存储占用/清理（设置页）
 
 - 类型：功能（设置页两块新能力），无共识规则变更
