@@ -367,7 +367,44 @@
   .error-text { font-size: var(--text-xs); color: var(--hull-danger); max-width: 240px; text-align: right; }
   .channel-wrap { display: flex; gap: var(--space-2); align-items: center; }
   /* 设置页：自定义 PATH 输入 + 存储占用表（仅组合既有 token/类，无新视觉语言） */
-  #settings .extra-path-input { width: 340px; font-size: var(--text-sm); font-family: var(--font-mono); resize: vertical; }
+  /* 自定义 PATH：整块宽度编辑器（列表默认视图 / 批量编辑共用 #extraPath 数据） */
+  .srow--path-head { border-bottom: none; padding-bottom: var(--space-2); }
+  .path-editor { padding: 0 var(--space-4) var(--space-3); border-bottom: 1px solid var(--hull-border); }
+  .path-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-2); }
+  .path-toolbar-ops { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+  .path-toolbar-ops .sbtn { margin: 0; }
+  .path-count { font-size: var(--text-xs); color: var(--hull-text-muted); font-variant-numeric: tabular-nums; }
+  .path-list { max-height: 240px; overflow-y: auto; overflow-x: hidden; border: 1px solid var(--hull-border); border-radius: var(--radius-md); background: var(--hull-panel); }
+  .path-row { display: flex; align-items: center; gap: var(--space-2); padding: 2px var(--space-2) 2px var(--space-3); border-bottom: 1px solid var(--hull-border); }
+  .path-row:last-child { border-bottom: none; }
+  .path-idx { width: 18px; flex-shrink: 0; text-align: right; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--hull-text-sub); font-variant-numeric: tabular-nums; }
+  .path-input { flex: 1; min-width: 0; border: 1px solid transparent; border-radius: var(--radius-sm); padding: 4px 6px; background: transparent; color: var(--hull-text); font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.5; outline: none; text-overflow: ellipsis; white-space: nowrap; transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out); }
+  .path-input:hover { background: var(--hull-bg); border-color: var(--hull-border); }
+  .path-input:focus { background: var(--hull-panel); border-color: var(--hull-accent); box-shadow: 0 0 0 2px var(--hull-accent-soft); }
+  .path-input.is-invalid, .path-input.is-invalid:focus { border-color: var(--hull-danger); background: var(--hull-danger-faint); }
+  .path-del { flex-shrink: 0; width: 22px; height: 22px; margin: 0; padding: 0; line-height: 1; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--hull-text-sub); font-size: var(--text-lg); opacity: 0.35; transition: opacity var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+  .path-row:hover .path-del, .path-del:focus-visible { opacity: 1; }
+  .path-del:hover { background: var(--hull-danger-soft); color: var(--hull-danger); }
+  .path-empty { padding: var(--space-3) var(--space-4); font-size: var(--text-sm); color: var(--hull-text-dim); border: 1px dashed var(--hull-border); border-radius: var(--radius-md); }
+  #settings .extra-path-input { width: 100%; box-sizing: border-box; font-size: var(--text-sm); font-family: var(--font-mono); line-height: 1.6; resize: vertical; }
+  #settings .path-editor .path-env-msg { max-width: none; text-align: left; margin-top: var(--space-1); }
+  #settings .path-editor .error-text { max-width: none; text-align: left; }
+  /* 生效 PATH 分段预览 */
+  .path-preview-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; margin: var(--space-2) 0; }
+  .path-preview-head .sbtn { margin: 0; }
+  .path-summary { font-size: var(--text-xs); color: var(--hull-text-muted); font-variant-numeric: tabular-nums; }
+  .path-segments { max-height: 240px; overflow-y: auto; overflow-x: hidden; border: 1px solid var(--hull-border); border-radius: var(--radius-md); background: var(--hull-panel); }
+  .path-segments .path-empty { border: none; border-radius: 0; }
+  .path-seg { display: flex; align-items: center; gap: var(--space-2); padding: 3px var(--space-3); border-bottom: 1px solid var(--hull-border); }
+  .path-seg:last-child { border-bottom: none; }
+  .path-seg.is-missing .path-seg-path { color: var(--hull-text-sub); opacity: 0.7; }
+  .path-seg-path { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--text-sm); color: var(--hull-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .path-seg-miss { flex-shrink: 0; font-size: var(--text-xs); color: var(--hull-text-sub); background: var(--hull-border); border-radius: var(--radius-pill); padding: 0 6px; }
+  .path-src { flex-shrink: 0; min-width: 46px; text-align: center; }
+  .path-src--bundled { background: var(--hull-accent-soft); color: var(--hull-accent-hover); }
+  .path-src--custom { background: var(--hull-purple-soft); color: var(--hull-purple); }
+  .path-src--system { background: var(--hull-border); color: var(--hull-text-muted); }
+  .path-src--whitelist { background: var(--hull-warning-soft); color: var(--hull-warning-alt); }
   .st-details { padding: var(--space-3) var(--space-4); }
   .st-details summary { cursor: pointer; font-size: var(--text-sm); color: var(--hull-text-dim); }
   .st-hero { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: var(--space-1); }
@@ -789,18 +826,28 @@
               <div id="channel-error" class="error-text" role="alert"></div>
             </div>
           </div>
-          <div class="srow" style="align-items: flex-start">
+          <div class="srow srow--path-head">
             <div class="info">
               <div class="label">环境变量 PATH</div>
-              <div class="sub">dsh 内执行命令依赖 PATH；壳默认把内置 node 放在第一位，保证 node / npm 可用</div>
+              <div class="sub">dsh 内执行命令依赖 PATH；壳默认把内置 node 放在第一位，保证 node / npm 可用。一行一个目录，按回车或失焦保存。</div>
             </div>
-            <div class="control">
-              <button id="path-read-env" class="sbtn" title="读取登录 shell 中的 PATH，合并到下方列表">读取系统环境变量</button>
-              <textarea id="extraPath" class="input extra-path-input" rows="4" spellcheck="false" aria-label="自定义 PATH 目录（一行一个）"
-                placeholder="/opt/homebrew/bin&#10;~/.nvm/versions/node/v24.16.0/bin"></textarea>
-              <div id="path-read-env-msg" class="path-env-msg" role="status"></div>
-              <div id="extraPath-error" class="error-text" role="alert"></div>
+          </div>
+          <div class="path-editor">
+            <div class="path-toolbar">
+              <span class="path-count" id="path-count">已添加 0 个目录</span>
+              <div class="path-toolbar-ops">
+                <button id="path-add" class="sbtn" title="追加一个空目录行">添加目录</button>
+                <button id="path-read-env" class="sbtn" title="读取登录 shell 中的 PATH，合并到下方列表">读取系统环境变量</button>
+                <button id="path-batch-toggle" class="sbtn" aria-pressed="false" title="切换列表 / 批量文本编辑">批量编辑</button>
+              </div>
             </div>
+            <div id="path-list" class="path-list" role="list" aria-label="自定义 PATH 目录"></div>
+            <div id="path-empty" class="path-empty">未添加自定义目录（dsh 默认使用壳内置 node + 系统 PATH）</div>
+            <!-- 批量编辑视图：默认隐藏，与列表共用同一份数据与保存逻辑 -->
+            <textarea id="extraPath" class="input extra-path-input hidden" rows="8" spellcheck="false" aria-label="自定义 PATH 目录（一行一个）"
+              placeholder="/opt/homebrew/bin&#10;~/.nvm/versions/node/v24.16.0/bin"></textarea>
+            <div id="path-read-env-msg" class="path-env-msg" role="status"></div>
+            <div id="extraPath-error" class="error-text" role="alert"></div>
           </div>
           <div class="srow">
             <div class="info">
@@ -817,10 +864,14 @@
             </div>
             <div class="control"><button id="restart-dsh" class="sbtn">重启 dsh</button></div>
           </div>
-          <details class="st-details">
+          <details class="st-details" id="path-details">
             <summary>查看当前生效 PATH</summary>
-            <pre id="path-preview" class="up-output" style="margin: var(--space-2) 0 0"></pre>
-            <div class="hint" style="text-align: left">系统段由主进程拼接，实际以重启 dsh 后为准（此处仅预览自定义段）。</div>
+            <div class="path-preview-head">
+              <span class="path-summary" id="path-summary">—</span>
+              <button id="path-copy" class="sbtn" title="复制完整 PATH">复制完整 PATH</button>
+            </div>
+            <div id="path-segments" class="path-segments" role="list" aria-label="生效 PATH 分段"><div class="path-empty">展开后加载…</div></div>
+            <div class="hint" style="text-align: left">系统段由主进程拼接，实际以重启 dsh 后为准；此处展示当前解析结果。</div>
           </details>
           <div class="srow">
             <div class="info">
@@ -1069,7 +1120,10 @@
     // 自定义 PATH（dsh 区块）+ 存储占用（数据区块）
     extraPath: 'extraPath', extraPathError: 'extraPath-error', preferExtraPath: 'preferExtraPath',
     preferExtraPathWarn: 'preferExtraPath-warn', pathRestartRow: 'path-restart-row', restartDsh: 'restart-dsh',
-    pathPreview: 'path-preview', pathReadEnv: 'path-read-env', pathReadEnvMsg: 'path-read-env-msg',
+    pathReadEnv: 'path-read-env', pathReadEnvMsg: 'path-read-env-msg',
+    pathCount: 'path-count', pathAdd: 'path-add', pathBatchToggle: 'path-batch-toggle',
+    pathList: 'path-list', pathEmpty: 'path-empty',
+    pathDetails: 'path-details', pathSummary: 'path-summary', pathCopy: 'path-copy', pathSegments: 'path-segments',
     storageRefresh: 'storage-refresh', storageClear: 'storage-clear', storageBody: 'storage-body',
     storageHero: 'storage-hero', storageUpdated: 'storage-updated',
     storageClearable: 'storage-clearable', storageTotal: 'storage-total', storageAlert: 'storage-alert',
@@ -1589,7 +1643,7 @@
 
   // ── 自定义 PATH（extraPath / preferExtraPath；dsh 区块，紧跟版本通道）──
   // 解析规则：一行一个、空行忽略、需以 / 或 ~ 开头、重复去重。
-  // 预览只拼自定义段 + 内置 node 占位；系统段由主进程拼接，不伪造完整值。
+  // 数据唯一来源 = #extraPath textarea；列表视图只是它的可编辑呈现，保存逻辑共用。
   function parseExtraPath(text) {
     const dirs = [];
     const bad = [];
@@ -1604,20 +1658,81 @@
   function preferPathOn() {
     return !!(sett.els.preferExtraPath && sett.els.preferExtraPath.getAttribute('aria-checked') === 'true');
   }
-  function renderPathState() {
+  function isValidPathDir(p) { return p.startsWith('/') || p.startsWith('~'); }
+  function pathText() { return sett.els.extraPath ? sett.els.extraPath.value : ''; }
+  function pathLines() { return String(pathText()).split(/\r?\n/).map((s) => s.trim()).filter(Boolean); }
+  function pathBatchOn() { return !!(sett.els.pathBatchToggle && sett.els.pathBatchToggle.getAttribute('aria-pressed') === 'true'); }
+  function pathListBusy() { return !!(sett.els.pathList && sett.els.pathList.contains(document.activeElement)); }
+  function pathRows() { return sett.els.pathList ? Array.from(sett.els.pathList.querySelectorAll('.path-row')) : []; }
+  // 行内值已偏离 textarea（如非法值尚未保存）→ 不因轮询重建列表，避免吞掉用户输入
+  function pathListDirty() {
+    const rows = pathRows();
+    if (!rows.length) return false;
+    const rowValues = rows.map((row) => {
+      const inp = row.querySelector('.path-input');
+      return inp ? inp.value.trim() : '';
+    }).filter(Boolean);
+    return JSON.stringify(rowValues) !== JSON.stringify(pathLines());
+  }
+  function refreshPathCount() {
+    if (!sett.els.pathCount) return;
+    sett.els.pathCount.textContent = `已添加 ${parseExtraPath(pathText()).dirs.length} 个目录`;
+  }
+  function renumberPathRows() {
+    pathRows().forEach((row, i) => {
+      const idx = row.querySelector('.path-idx');
+      const inp = row.querySelector('.path-input');
+      if (idx) idx.textContent = String(i + 1);
+      if (inp) inp.setAttribute('aria-label', `目录 ${i + 1}`);
+    });
+  }
+  // 列表 → textarea（空行丢弃）；保存仍走 commitExtraPath
+  function syncPathFromList() {
     if (!sett.els.extraPath) return;
-    const { dirs } = parseExtraPath(sett.els.extraPath.value);
-    const inner = '<内置 node>/bin';
-    const segs = preferPathOn() ? [...dirs, inner] : [inner, ...dirs];
-    if (sett.els.pathPreview) sett.els.pathPreview.textContent = segs.join(':') + ':…系统 PATH（主进程拼接，重启后为准）';
+    const lines = pathRows().map((row) => {
+      const inp = row.querySelector('.path-input');
+      return inp ? inp.value.trim() : '';
+    }).filter(Boolean);
+    sett.els.extraPath.value = lines.join('\n');
+    refreshPathCount();
+  }
+  function renderPathList() {
+    if (!sett.els.pathList) return;
+    const lines = pathLines();
+    sett.els.pathList.innerHTML = lines.map((p, i) => {
+      const bad = !isValidPathDir(p);
+      return `<div class="path-row" role="listitem">
+        <span class="path-idx">${i + 1}</span>
+        <input class="path-input${bad ? ' is-invalid' : ''}" value="${esc(p)}" title="${esc(p)}" spellcheck="false"${bad ? ' aria-invalid="true"' : ''} aria-label="目录 ${i + 1}">
+        <button type="button" class="path-del" title="删除该目录" aria-label="删除 ${esc(p)}">×</button>
+      </div>`;
+    }).join('');
+    sett.els.pathList.classList.toggle('hidden', pathBatchOn() || lines.length === 0);
+    if (sett.els.pathEmpty) sett.els.pathEmpty.classList.toggle('hidden', pathBatchOn() || lines.length > 0);
+    refreshPathCount();
+  }
+  // 批量编辑 ↔ 列表切换（共用 textarea 数据）
+  function setPathBatch(on) {
+    if (sett.els.pathBatchToggle) {
+      sett.els.pathBatchToggle.setAttribute('aria-pressed', String(on));
+      sett.els.pathBatchToggle.textContent = on ? '列表视图' : '批量编辑';
+    }
+    if (on) syncPathFromList();
+    if (sett.els.extraPath) sett.els.extraPath.classList.toggle('hidden', !on);
+    renderPathList();
+    if (on && sett.els.extraPath) sett.els.extraPath.focus();
+  }
+  // 本地态：仅控制误用提示（生效分段由桥返回，见下方 loadResolvedPath）
+  function renderPathState() {
     if (sett.els.preferExtraPathWarn) sett.els.preferExtraPathWarn.classList.toggle('hidden', !preferPathOn());
   }
   function markPathChanged() {
     if (sett.els.pathRestartRow) sett.els.pathRestartRow.classList.remove('hidden');
+    if (sett.els.pathDetails && sett.els.pathDetails.open) loadResolvedPath();
   }
   async function commitExtraPath() {
     if (!sett.els.extraPath) return true;
-    const { dirs, bad } = parseExtraPath(sett.els.extraPath.value);
+    const { dirs, bad } = parseExtraPath(pathText());
     if (bad.length) {
       setError(sett.els.extraPathError, `需以 / 或 ~ 开头：${bad.slice(0, 3).join('、')}${bad.length > 3 ? ' 等' : ''}`);
       return false;
@@ -1627,14 +1742,20 @@
     const ok = await setSetting({ extraPath: dirs }, sett.els.extraPathError);
     if (ok) {
       if (sett.state.settings) sett.state.settings.extraPath = dirs;
+      const normalized = dirs.join('\n');
+      if (sett.els.extraPath.value !== normalized && !pathListBusy()) {
+        sett.els.extraPath.value = normalized;
+        renderPathList();
+      }
       markPathChanged();
     } else {
       sett.els.extraPath.value = saved.join('\n');
+      renderPathList();
       renderPathState();
     }
     return ok;
   }
-  // 读取登录 shell 的 PATH（桥由主进程提供；缺失则按钮禁用）。合并进 textarea：去重（忽略首尾空白与末尾 /），只追加新目录
+  // 读取登录 shell 的 PATH（桥由主进程提供；缺失则按钮禁用）。合并进列表：去重（忽略首尾空白与末尾 /），只追加新目录
   function showPathEnvMsg(msg, isErr) {
     if (!sett.els.pathReadEnvMsg) return;
     sett.els.pathReadEnvMsg.textContent = msg || '';
@@ -1657,7 +1778,7 @@
       }
       const d = r.data || {};
       const norm = (p) => String(p || '').trim().replace(/\/+$/, '');
-      const seen = new Set(parseExtraPath(sett.els.extraPath.value).dirs.map(norm));
+      const seen = new Set(parseExtraPath(pathText()).dirs.map(norm));
       const added = [];
       for (const p of Array.isArray(d.dirs) ? d.dirs : []) {
         const n = norm(p);
@@ -1670,9 +1791,9 @@
         showPathEnvMsg('没有新增目录（已是最新）');
         return;
       }
-      const base = sett.els.extraPath.value.replace(/\s+$/, '');
+      const base = pathText().replace(/\s+$/, '');
       sett.els.extraPath.value = (base ? base + '\n' : '') + added.join('\n');
-      renderPathState();
+      renderPathList();
       const ok = await commitExtraPath();
       if (ok) showPathEnvMsg(`已添加 ${added.length} 个目录（来源 ${d.shell || '登录 shell'}，耗时 ${secs}s）`);
       else showPathEnvMsg('目录已读取，但保存失败', true);
@@ -1685,11 +1806,59 @@
   }
   if (sett.els.extraPath) {
     sett.els.extraPath.addEventListener('focus', () => { sett.state.editing.extraPath = true; });
-    sett.els.extraPath.addEventListener('input', renderPathState);
+    sett.els.extraPath.addEventListener('input', () => { renderPathState(); refreshPathCount(); });
     sett.els.extraPath.addEventListener('blur', () => {
       sett.state.editing.extraPath = false;
       commitExtraPath();
     });
+  }
+  // 列表视图：行内编辑（回车/失焦保存，非法值标红不保存）、删除行
+  if (sett.els.pathList) {
+    sett.els.pathList.addEventListener('focusout', (e) => {
+      const inp = e.target && e.target.closest ? e.target.closest('.path-input') : null;
+      if (!inp) return;
+      const v = inp.value.trim();
+      const bad = !!v && !isValidPathDir(v);
+      inp.classList.toggle('is-invalid', bad);
+      if (bad) inp.setAttribute('aria-invalid', 'true'); else inp.removeAttribute('aria-invalid');
+      inp.title = v;
+      if (bad) { setError(sett.els.extraPathError, `需以 / 或 ~ 开头：${v}`); return; }
+      syncPathFromList();
+      commitExtraPath();
+    });
+    sett.els.pathList.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.target.classList.contains('path-input')) { e.preventDefault(); e.target.blur(); }
+    });
+    sett.els.pathList.addEventListener('click', (e) => {
+      const btn = e.target.closest ? e.target.closest('.path-del') : null;
+      const row = btn ? btn.closest('.path-row') : null;
+      if (!row) return;
+      row.remove();
+      renumberPathRows();
+      syncPathFromList();
+      renderPathList();
+      commitExtraPath();
+    });
+  }
+  if (sett.els.pathAdd) {
+    sett.els.pathAdd.addEventListener('click', () => {
+      if (pathBatchOn()) setPathBatch(false);
+      const row = document.createElement('div');
+      row.className = 'path-row';
+      row.setAttribute('role', 'listitem');
+      row.innerHTML = '<span class="path-idx"></span><input class="path-input" value="" spellcheck="false" aria-label="新目录"><button type="button" class="path-del" title="删除该目录" aria-label="删除该目录">×</button>';
+      if (sett.els.pathList) {
+        sett.els.pathList.classList.remove('hidden');
+        sett.els.pathList.appendChild(row);
+      }
+      if (sett.els.pathEmpty) sett.els.pathEmpty.classList.add('hidden');
+      renumberPathRows();
+      const inp = row.querySelector('.path-input');
+      if (inp) inp.focus();
+    });
+  }
+  if (sett.els.pathBatchToggle) {
+    sett.els.pathBatchToggle.addEventListener('click', () => setPathBatch(!pathBatchOn()));
   }
   if (sett.els.pathReadEnv) {
     if (bridge && typeof bridge.getShellPath === 'function') {
@@ -1710,10 +1879,68 @@
       markPathChanged();
     });
   }
+  // ── 生效 PATH 分段预览（桥 window.hull.getResolvedPath；缺失则降级为提示）──
+  const PATH_SRC_LABEL = { bundled: '内置', custom: '自定义', system: '系统', whitelist: '白名单' };
+  function pathPreviewSupported() { return !!(bridge && typeof bridge.getResolvedPath === 'function'); }
+  function renderResolvedPath(d) {
+    if (!sett.els.pathSegments) return;
+    const segs = Array.isArray(d.segments) ? d.segments : [];
+    if (sett.els.pathSummary) {
+      sett.els.pathSummary.textContent = segs.length
+        ? `共 ${segs.length} 段 · ${d.preferExtraPath ? '自定义在前' : '内置 node 在前'}`
+        : '共 0 段';
+    }
+    sett.els.pathSegments.dataset.raw = d.raw || '';
+    sett.els.pathSegments.innerHTML = segs.map((s) => {
+      const src = PATH_SRC_LABEL[s.source] ? s.source : 'system';
+      const miss = s.exists === false;
+      return `<div class="path-seg${miss ? ' is-missing' : ''}" role="listitem">
+        <span class="badge path-src path-src--${src}">${PATH_SRC_LABEL[src]}</span>
+        <span class="path-seg-path" title="${esc(s.path)}">${esc(s.path)}</span>
+        ${miss ? '<span class="path-seg-miss">不存在</span>' : ''}
+      </div>`;
+    }).join('') || '<div class="path-empty">未解析到 PATH 段</div>';
+  }
+  async function loadResolvedPath() {
+    if (!sett.els.pathSegments) return;
+    if (!pathPreviewSupported()) {
+      if (sett.els.pathSummary) sett.els.pathSummary.textContent = '';
+      sett.els.pathSegments.dataset.raw = '';
+      sett.els.pathSegments.innerHTML = '<div class="path-empty">当前版本不支持预览</div>';
+      return;
+    }
+    sett.els.pathSegments.innerHTML = '<div class="path-empty">加载中…</div>';
+    try {
+      const r = await bridge.getResolvedPath();
+      if (!r || r.ok === false) {
+        sett.els.pathSegments.innerHTML = `<div class="path-empty">读取失败：${esc((r && r.message) || '未知错误')}</div>`;
+        return;
+      }
+      renderResolvedPath(r.data || {});
+    } catch (err) {
+      sett.els.pathSegments.innerHTML = `<div class="path-empty">读取失败：${esc((err && err.message) || '未知错误')}</div>`;
+    }
+  }
+  if (sett.els.pathDetails) {
+    sett.els.pathDetails.addEventListener('toggle', () => {
+      if (sett.els.pathDetails.open) loadResolvedPath();
+    });
+  }
+  if (sett.els.pathCopy) {
+    sett.els.pathCopy.addEventListener('click', async () => {
+      const raw = (sett.els.pathSegments && sett.els.pathSegments.dataset.raw) || '';
+      if (!raw) { toast('PATH 尚未加载'); return; }
+      if (!bridge || typeof bridge.copyText !== 'function') { toast('复制入口未就绪'); return; }
+      try {
+        const r = await bridge.copyText(raw);
+        toast(r && r.ok === false ? (r.message || '复制失败') : '完整 PATH 已复制');
+      } catch { toast('复制失败'); }
+    });
+  }
   if (sett.els.restartDsh) {
     sett.els.restartDsh.addEventListener('click', () => {
       // hull:restart 语义 = 重启应用（dsh 随应用一并重启，新 PATH 随之生效）
-      const { dirs } = parseExtraPath(sett.els.extraPath ? sett.els.extraPath.value : '');
+      const { dirs } = parseExtraPath(pathText());
       const wrap = document.createElement('div');
       wrap.className = 'note-modal';
       wrap.innerHTML = `<div class="note-modal-box"><h3>重启使 PATH 生效</h3>
@@ -1733,6 +1960,7 @@
     });
   }
   renderPathState();
+  renderPathList();
 
   // ── V2b 通知偏好（notifPrefs 子字段 patch；每次以当前完整子对象提交） ──
   function notifPatch(sub) {
@@ -1822,6 +2050,7 @@
     }
     if (sett.els.preferExtraPath) sett.els.preferExtraPath.setAttribute('aria-checked', String(s.preferExtraPath === true));
     renderPathState();
+    if (!sett.state.editing.extraPath && !pathListBusy() && !pathListDirty()) renderPathList();
     if (!sett.state.editing.pinned) {
       sett.els.channel.value = s.channel;
       sett.els.pinnedVersion.value = s.pinnedVersion || '';
