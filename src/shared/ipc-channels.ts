@@ -116,7 +116,11 @@ export const PLUGIN_IPC_CHANNELS = [
   'hull:getPluginStatus',
 ] as const;
 
-/** 全部 channel 白名单（B1+B5+B3+B4+S1+dialog+N1 notes+B4 备份/恢复+P4 插件市场 共面） */
+/** 存储占用/清理 2 channel（设置页「存储」区块；注册见 src/main/index.ts，
+ *  桥见 window.hull.getStorageInfo/clearStorage。清理 id 主进程白名单强校验） */
+export const STORAGE_IPC_CHANNELS = ['hull:getStorageInfo', 'hull:clearStorage'] as const;
+
+/** 全部 channel 白名单（B1+B5+B3+B4+S1+dialog+N1 notes+B4 备份/恢复+P4 插件市场+存储 共面） */
 export const ALL_IPC_CHANNELS = [
   ...KANBAN_IPC_CHANNELS,
   ...KANBAN_EXEC_IPC_CHANNELS,
@@ -126,6 +130,7 @@ export const ALL_IPC_CHANNELS = [
   ...NOTES_IPC_CHANNELS,
   ...BACKUP_IPC_CHANNELS,
   ...PLUGIN_IPC_CHANNELS,
+  ...STORAGE_IPC_CHANNELS,
 ] as const;
 
 export type KanbanIpcChannel = (typeof KANBAN_IPC_CHANNELS)[number];

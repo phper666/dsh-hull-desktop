@@ -120,6 +120,10 @@ contextBridge.exposeInMainWorld('hull', {
   dismissHullUpdate: () => ipcRenderer.invoke('hull:dismissHullUpdate'),
   /** 打开数据目录（诊断） */
   openDataDir: () => ipcRenderer.invoke('hull:openDataDir'),
+  /** 存储占用（设置页：网页缓存/日志/上一版 dsh 尺寸） */
+  getStorageInfo: () => invoke('hull:getStorageInfo'),
+  /** 清理存储（ids 白名单主进程强校验；返回 { freedBytes, info }） */
+  clearStorage: (ids: string[]) => invoke('hull:clearStorage', ids),
   /** 复制文本到剪贴板（dsh web 地址复制；走主进程，渲染侧 file:// 无 clipboard 权限） */
   copyText: (text: string) => ipcRenderer.invoke('hull:copyText', text),
   /** 打开外部浏览器（dsh web 地址浏览器访问；主进程校验 http/https） */

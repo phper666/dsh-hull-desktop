@@ -32,6 +32,8 @@ function makeLocal(userDataPath: string): HullSettings {
     packageManager: 'pnpm',
     notifPrefs: { ...DEFAULT_NOTIF_PREFS },
     notesDir: join(userDataPath, 'local-notes'),
+    extraPath: [],
+    preferExtraPath: false,
   };
 }
 

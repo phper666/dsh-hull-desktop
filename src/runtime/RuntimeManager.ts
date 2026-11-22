@@ -66,6 +66,10 @@ export interface RuntimeManagerOptions {
   sleep?: (ms: number) => Promise<void>;
   /** 进程组 kill 实现（默认 process.kill；测试注入记录信号序列） */
   killFn?: (pid: number, signal: NodeJS.Signals | number) => boolean;
+  /** 用户自定义 PATH 目录（settings.extraPath；~ 已由 settings 层展开） */
+  extraPath?: string[];
+  /** 自定义目录是否优先于捆绑 node 目录（settings.preferExtraPath，默认 false） */
+  preferExtraPath?: boolean;
 }
 
 /**
@@ -102,6 +106,9 @@ export class RuntimeManager extends EventEmitter {
   private readonly now: () => number;
   private readonly sleepImpl: (ms: number) => Promise<void>;
   private readonly killFn: (pid: number, signal: NodeJS.Signals | number) => boolean;
+  /** 自定义 PATH 目录（settings 变更经 setPathSettings 更新；不重启，下次 spawn 生效） */
+  private extraPath: string[];
+  private preferExtraPath: boolean;
   protected child: ChildLike | null = null;
 
   constructor(options: RuntimeManagerOptions) {
@@ -116,6 +123,16 @@ export class RuntimeManager extends EventEmitter {
     this.now = options.now ?? Date.now;
     this.sleepImpl = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
     this.killFn = options.killFn ?? ((pid, signal) => process.kill(pid, signal));
+    this.extraPath = options.extraPath ?? [];
+    this.preferExtraPath = options.preferExtraPath ?? false;
+  }
+
+  /**
+   * 设置变更后更新 PATH 配置（不自动重启 dsh——UI 提示 + hull:restart 生效；仅影响后续 spawn）。
+   */
+  setPathSettings(extraPath: string[], preferExtraPath: boolean): void {
+    this.extraPath = extraPath;
+    this.preferExtraPath = preferExtraPath;
   }
 
   /** 状态变更通知（契约 #4）：每次成功迁移 emit snapshot */
@@ -175,7 +192,7 @@ export class RuntimeManager extends EventEmitter {
         detached: true,
         cwd: overlayDir,
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: sanitizeSpawnEnv(nodePath),
+        env: sanitizeSpawnEnv(nodePath, this.extraPath, this.preferExtraPath),
       });
     } catch (err) {
       this.transition(RuntimePhase.Failed, `dsh 启动失败: ${(err as Error).message}`);
@@ -395,7 +412,7 @@ export class RuntimeManager extends EventEmitter {
  *   先删大小写变体（Windows env 名大小写不敏感，避免 Path/PATH 双键）再写 PATH
  * - 其余环境变量原样透传
  */
-function sanitizeSpawnEnv(nodePath: string): NodeJS.ProcessEnv {
+function sanitizeSpawnEnv(nodePath: string, extraPath: string[] = [], preferExtraPath = false): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   delete env.NODE_OPTIONS;
   for (const key of Object.keys(env)) {
@@ -406,6 +423,8 @@ function sanitizeSpawnEnv(nodePath: string): NodeJS.ProcessEnv {
     basePath: process.env.PATH ?? process.env.Path,
     nodePath,
     home: homedir(),
+    extraPath,
+    preferExtraPath,
   });
   return env;
 }

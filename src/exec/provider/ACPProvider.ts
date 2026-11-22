@@ -196,6 +196,10 @@ export interface ACPProviderOptions {
    * 同源解析（spawnArgs 单一修改点）。
    */
   nodePath?: string;
+  /** 用户自定义 PATH 目录（settings.extraPath；~ 已由 settings 层展开） */
+  extraPath?: string[];
+  /** 自定义目录是否优先于捆绑 node 目录（settings.preferExtraPath，默认 false） */
+  preferExtraPath?: boolean;
 }
 
 /** 权限请求上下文（ApprovalManager 消费；B2 非阻塞弹窗数据源） */
@@ -229,6 +233,9 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
    * → spawn ENOENT；fetchModels 未挂 error handler → unhandled 'error' → 主进程弹框。
    */
   private readonly nodePath: string;
+  /** 自定义 PATH 目录（settings 变更经 setPathSettings 更新；下次 spawn 生效） */
+  private extraPath: string[];
+  private preferExtraPath: boolean;
   /** Q-018：listModels 进程内缓存（overlayDir → {at, groups}） */
   private readonly modelsCache = new Map<string, { at: number; data: ModelOption[] }>();
   /** 全部 dsh ACP 子进程登记（探测 + 会话）：退出编排统一 kill，防孤儿（E2E-05 泄漏根因） */
@@ -259,6 +266,14 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
     this.settingsPath = options.settingsPath;
     this.listModelsTimeoutMs = options.listModelsTimeoutMs ?? 45_000;
     this.nodePath = options.nodePath ?? 'node';
+    this.extraPath = options.extraPath ?? [];
+    this.preferExtraPath = options.preferExtraPath ?? false;
+  }
+
+  /** 设置变更后更新 PATH 配置（不重启 dsh；仅影响后续 spawn）。 */
+  setPathSettings(extraPath: string[], preferExtraPath: boolean): void {
+    this.extraPath = extraPath;
+    this.preferExtraPath = preferExtraPath;
   }
 
   /**
@@ -274,6 +289,8 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
       basePath: process.env.PATH ?? process.env.Path,
       nodePath: this.nodePath,
       home: homedir(),
+      extraPath: this.extraPath,
+      preferExtraPath: this.preferExtraPath,
     });
     return { ...env, ...extra };
   }

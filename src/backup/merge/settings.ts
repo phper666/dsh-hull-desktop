@@ -120,6 +120,9 @@ export function mergeSettings(
       packageManager,
       notifPrefs,
       notesDir,
+      // 自定义 PATH 是设备本地路径（换机无意义）→ 备份合并保留本地值
+      extraPath: local.extraPath,
+      preferExtraPath: local.preferExtraPath,
     },
     conflicts,
     notices,

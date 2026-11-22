@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 
 import { normalizeNotifPrefs, DEFAULT_NOTIF_PREFS, type NotifPrefs } from '../notifications/prefs';
@@ -45,6 +46,10 @@ export interface HullSettings {
   notifPrefs: NotifPrefs;
   /** 笔记根目录（N1 契约：绝对路径；缺省 <userData>/notes/；改址不迁移 CON-R-notes-001/010） */
   notesDir: string;
+  /** 用户自定义 PATH 目录（默认 []；~ 在读取/写入时展开；字段级扩展不 bump schemaVersion） */
+  extraPath: string[];
+  /** 自定义 PATH 目录是否优先于捆绑 node 目录（默认 false；字段级扩展不 bump schemaVersion） */
+  preferExtraPath: boolean;
 }
 
 /** 当前 schema 版本（S4 bump 1→2，S5 两字段再 bump 2→3，N1 notesDir bump 3→4——无迁移语义，读路径缺省补齐） */
@@ -61,6 +66,8 @@ const DEFAULT_SETTINGS: Omit<HullSettings, 'notesDir'> = {
   theme: 'system',  // CON-R-theme-004（v1.3）：默认跟随系统——仅对「从未设置过主题」的用户生效，已保存值不受影响
   packageManager: 'pnpm',
   notifPrefs: DEFAULT_NOTIF_PREFS,
+  extraPath: [],
+  preferExtraPath: false,
 };
 
 export interface SettingsProviderOptions {
@@ -83,6 +90,27 @@ function isValidRegistry(url: string): boolean {
 /** 包管理器名校验（npm/pnpm 二选一；非法 → 默认 pnpm，CON-R-pkgmgr-008） */
 function isValidPkgMgr(value: unknown): value is PkgMgrName {
   return value === 'npm' || value === 'pnpm';
+}
+
+/**
+ * 自定义 PATH 目录归一化（读取/写入同源，防渲染层脏数据）：
+ * 非数组 → []；仅保留字符串、trim、去空、展开 `~` / `~/x` 为用户 home、去重（保序）。
+ */
+export function normalizeExtraPath(value: unknown, home: string = homedir()): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    let entry = item.trim();
+    if (!entry) continue;
+    if (entry === '~') entry = home;
+    else if (entry.startsWith('~/')) entry = join(home, entry.slice(2));
+    if (seen.has(entry)) continue;
+    seen.add(entry);
+    out.push(entry);
+  }
+  return out;
 }
 
 /**
@@ -144,6 +172,8 @@ export class SettingsProvider extends EventEmitter {
       obj.theme === 'dark' || obj.theme === 'light' || obj.theme === 'system' ? obj.theme : DEFAULT_SETTINGS.theme;
     const packageManager: PkgMgrName =
       obj.packageManager === 'npm' || obj.packageManager === 'pnpm' ? obj.packageManager : DEFAULT_SETTINGS.packageManager;
+    const extraPath = normalizeExtraPath(obj.extraPath);
+    const preferExtraPath = typeof obj.preferExtraPath === 'boolean' ? obj.preferExtraPath : DEFAULT_SETTINGS.preferExtraPath;
     if (
       typeof obj.closeToQuit !== 'boolean' ||
       typeof obj.schemaVersion !== 'number' ||
@@ -153,6 +183,8 @@ export class SettingsProvider extends EventEmitter {
       (typeof obj.autoCheckHull !== 'boolean' && obj.autoCheckHull !== undefined) ||
       (typeof obj.registry !== 'string' && obj.registry !== undefined) ||
       (typeof obj.theme !== 'string' && obj.theme !== undefined) ||
+      (obj.extraPath !== undefined && !Array.isArray(obj.extraPath)) ||
+      (obj.preferExtraPath !== undefined && typeof obj.preferExtraPath !== 'boolean') ||
       // P3：非法 packageManager 值（非 npm/pnpm 的非 undefined 值）→ 告警
       (obj.packageManager !== undefined && !isValidPkgMgr(obj.packageManager))
     ) {
@@ -161,7 +193,7 @@ export class SettingsProvider extends EventEmitter {
     const notifPrefs = normalizeNotifPrefs(obj.notifPrefs);
     // N1：notesDir 读路径缺省补齐（无迁移语义，CON-R-notes-001）
     const notesDir = typeof obj.notesDir === 'string' && obj.notesDir !== '' ? obj.notesDir : join(this.userDataPath, 'notes');
-    return { closeToQuit, schemaVersion, channel, pinnedVersion, autoCheckDsh, autoCheckHull, registry, theme, packageManager, notifPrefs, notesDir };
+    return { closeToQuit, schemaVersion, channel, pinnedVersion, autoCheckDsh, autoCheckHull, registry, theme, packageManager, notifPrefs, notesDir, extraPath, preferExtraPath };
   }
 
   /**
@@ -179,6 +211,9 @@ export class SettingsProvider extends EventEmitter {
     if (!isValidPkgMgr(next.packageManager)) next.packageManager = 'pnpm';
     // V2b：notifPrefs 归一化（非法字段逐项回退默认，与读路径归一对称）
     next.notifPrefs = normalizeNotifPrefs(next.notifPrefs);
+    // 自定义 PATH 归一化（渲染层可能传脏数据，与读路径归一对称）
+    next.extraPath = normalizeExtraPath(next.extraPath);
+    next.preferExtraPath = next.preferExtraPath === true;
     // 校验（SETTINGS_ERRORS）
     if (partial.registry !== undefined && !isValidRegistry(partial.registry)) {
       throw new HullError('registry-invalid', `非法 registry 地址: ${partial.registry}`);
@@ -271,5 +306,8 @@ export function migrateSettingsObject(raw: Record<string, unknown>, userDataPath
     notifPrefs: normalizeNotifPrefs(raw.notifPrefs),
     // N1：旧文件无 notesDir → 默认补齐（schemaVersion 3→4 无迁移语义，不搬数据）
     notesDir: typeof raw.notesDir === 'string' && raw.notesDir !== '' ? raw.notesDir : join(userDataPath, 'notes'),
+    // 自定义 PATH：旧文件无字段 → 默认补齐（同读路径规范化）
+    extraPath: normalizeExtraPath(raw.extraPath),
+    preferExtraPath: typeof raw.preferExtraPath === 'boolean' ? raw.preferExtraPath : DEFAULT_SETTINGS.preferExtraPath,
   };
 }
