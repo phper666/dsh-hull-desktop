@@ -3,6 +3,15 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-11-22 PATH 设置页改版——目录列表 + 生效 PATH 分段视图
+
+- 类型：体验改版（用户反馈「难看/难查/不清楚分隔方式」）
+- **分隔方式明确化**：说明文案写清「一行一个目录，按回车或失焦保存」
+- **目录列表编辑器**（整宽，替代右侧窄栏 textarea）：每行 序号 + 等宽路径（超长省略 + title 全文）+ 删除；行内可编辑，非法值标红不保存；容器 240px 内滚动；空态文案；工具条「已添加 N 个目录 + 添加目录 + 读取系统环境变量 + 批量编辑」；批量编辑切回 textarea（8 行，同一份数据）
+- **生效 PATH 分段视图**（替代 `<pre>`）：新 IPC `hull:getResolvedPath`（白名单 77→78）返回 `segments[{path, source: bundled|custom|system|whitelist, exists}] + raw + preferExtraPath + extraPathCount`；`resolvePathSegments` 与 `augmentPathEnv` 共用同一拼接逻辑（等价性测试守卫）；UI 每行带来源徽标 + 不存在灰显 + 小计 + 复制完整 PATH
+- 验证：tsc 0 · unit **1391/1391**（+7）· integration 40/40 · e2e settings 3/3 · 无头断言 16 项（26 行滚动/删除/非法拦截/批量往返/分段徽标/复制/自动重拉/无溢出）
+- 已知边界：`exists` 标注会对每个唯一分段做一次同步 stat（每次 spawn，量级可忽略）；`raw` 为实际生效 PATH（未存在的白名单段不包含）
+
 ## 2026-11-22 设置页打磨——存储刷新反馈 + 读取系统环境变量（用户实测反馈）
 
 - 类型：功能/体验修复
