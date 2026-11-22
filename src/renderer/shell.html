@@ -366,6 +366,25 @@
   .input.error { border-color: var(--hull-danger); background: var(--hull-danger-soft); }
   .error-text { font-size: var(--text-xs); color: var(--hull-danger); max-width: 240px; text-align: right; }
   .channel-wrap { display: flex; gap: var(--space-2); align-items: center; }
+  /* 设置页：自定义 PATH 输入 + 存储占用表（仅组合既有 token/类，无新视觉语言） */
+  #settings .extra-path-input { width: 340px; font-size: var(--text-sm); font-family: var(--font-mono); resize: vertical; }
+  .st-details { padding: var(--space-3) var(--space-4); }
+  .st-details summary { cursor: pointer; font-size: var(--text-sm); color: var(--hull-text-dim); }
+  .st-hero { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: var(--space-1); }
+  .st-hero b { font-size: var(--text-2xl); font-weight: 700; color: var(--hull-text); font-variant-numeric: tabular-nums; }
+  .st-hero span { font-size: var(--text-xs); color: var(--hull-text-sub); }
+  .st-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+  .st-table th { padding: var(--space-2) var(--space-4); text-align: left; font-size: var(--text-xs); font-weight: 600; color: var(--hull-text-muted); background: var(--hull-bg); border-bottom: 1px solid var(--hull-border); }
+  .st-table td { padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--hull-border); vertical-align: top; color: var(--hull-text-dim); }
+  .st-table tr:last-child td { border-bottom: none; }
+  .st-table th:last-child, .st-table td:last-child { width: 56px; text-align: center; }
+  .st-table td:nth-child(3) { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .st-table input[type="checkbox"] { accent-color: var(--hull-accent); cursor: pointer; }
+  .st-name { color: var(--hull-text); font-weight: 500; }
+  .st-note { font-size: var(--text-xs); color: var(--hull-warning-alt); margin-top: 2px; }
+  .st-path { display: block; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--hull-text-sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .st-path:hover { color: var(--hull-accent-hover); }
+  .st-empty { padding: var(--space-3) var(--space-4); font-size: var(--text-sm); color: var(--hull-text-dim); }
   .select { border: 1px solid var(--hull-border); border-radius: var(--radius-md); padding: 6px 8px; font-size: var(--text-md); background: var(--hull-panel); outline: none; color: var(--hull-text); }
   #settings .version-input { width: 140px; }
   .status-alert { margin: var(--space-2) var(--space-4) var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); font-size: var(--text-sm); background: var(--hull-danger-soft); color: var(--hull-danger); border: 1px solid var(--hull-danger-hover); display: none; }
@@ -689,6 +708,20 @@
             <div class="up-head"><div class="label">最近一次恢复</div><div class="badges" id="backup-result-badge"></div></div>
             <div class="up-body" id="backup-result-body"></div>
           </div>
+          <!-- 存储占用（getStorageInfo / clearStorage；桥未就绪时降级为提示，不报错） -->
+          <div class="srow" style="align-items: flex-start">
+            <div class="info">
+              <div class="label">存储占用</div>
+              <div class="sub">缓存、日志与上一版本 dsh 运行时可回收；未勾选项仅展示，不动</div>
+              <div class="st-hero"><span>可回收</span><b id="storage-clearable">—</b><span id="storage-total"></span></div>
+            </div>
+            <div class="control">
+              <button id="storage-refresh" class="sbtn">重新统计</button>
+              <button id="storage-clear" class="sbtn danger" disabled>清理选中</button>
+            </div>
+          </div>
+          <div id="storage-body"><div class="st-empty">加载中…</div></div>
+          <div id="storage-alert" class="status-alert" role="alert"></div>
         </section>
 
         <section class="scard" aria-labelledby="sec-notif">
@@ -750,6 +783,37 @@
               <div id="channel-error" class="error-text" role="alert"></div>
             </div>
           </div>
+          <div class="srow" style="align-items: flex-start">
+            <div class="info">
+              <div class="label">环境变量 PATH</div>
+              <div class="sub">dsh 内执行命令依赖 PATH；壳默认把内置 node 放在第一位，保证 node / npm 可用</div>
+            </div>
+            <div class="control">
+              <textarea id="extraPath" class="input extra-path-input" rows="4" spellcheck="false" aria-label="自定义 PATH 目录（一行一个）"
+                placeholder="/opt/homebrew/bin&#10;~/.nvm/versions/node/v24.16.0/bin"></textarea>
+              <div id="extraPath-error" class="error-text" role="alert"></div>
+            </div>
+          </div>
+          <div class="srow">
+            <div class="info">
+              <div class="label">优先使用自定义目录</div>
+              <div class="sub">默认关：自定义目录排在壳内置 node 之后；开启后覆盖内置 node，排在最前</div>
+            </div>
+            <button id="preferExtraPath" class="switch" role="switch" aria-checked="false" aria-label="优先使用自定义目录"><span class="sr-only">优先使用自定义目录</span></button>
+          </div>
+          <div id="preferExtraPath-warn" class="up-warn hidden" style="margin: 0; padding: 0 var(--space-4) var(--space-3)">自定义目录里的 node 若与 dsh 内置运行时版本不一致，可能出现命令找不到或依赖安装异常；不确定时保持关闭。</div>
+          <div id="path-restart-row" class="srow hidden">
+            <div class="info">
+              <div class="label">修改后需重启 dsh 生效</div>
+              <div class="sub">重启会中断当前运行中的 dsh 任务</div>
+            </div>
+            <div class="control"><button id="restart-dsh" class="sbtn">重启 dsh</button></div>
+          </div>
+          <details class="st-details">
+            <summary>查看当前生效 PATH</summary>
+            <pre id="path-preview" class="up-output" style="margin: var(--space-2) 0 0"></pre>
+            <div class="hint" style="text-align: left">系统段由主进程拼接，实际以重启 dsh 后为准（此处仅预览自定义段）。</div>
+          </details>
           <div class="srow">
             <div class="info">
               <div class="label">升级与回滚</div>
@@ -831,11 +895,15 @@
   const sections = ['starting', 'installing', 'failed', 'not-installed', 'board', 'notes', 'skills', 'plugin', 'tokens', 'connections', 'workflows', 'notifs', 'settings'];
 
   // 占位视图切换（view 字段驱动；official → 全隐藏）
+  let lastView = '';
   function setView(view) {
     for (const id of sections) document.getElementById(id).classList.add('hidden');
     if (view && view.startsWith(PLACEHOLDER_PREFIX)) {
       document.getElementById(view.slice(PLACEHOLDER_PREFIX.length)).classList.remove('hidden');
     }
+    // 进入设置页（视图切换那一刻）即统计存储；停留期间不重复扫盘，切走再回重新统计
+    if (view !== lastView && view === PLACEHOLDER_PREFIX + 'settings') refreshStorage(true);
+    lastView = view || '';
   }
 
   const phaseNames = { idle: '未运行', starting: '启动中', ready: '运行中', failed: '启动失败' };
@@ -970,7 +1038,7 @@
   }
 
   const sett = {
-    state: { settings: null, dsh: null, hull: null, editing: { registry: false, pinned: false } },
+    state: { settings: null, dsh: null, hull: null, editing: { registry: false, pinned: false, extraPath: false } },
     els: {},
   };
   // camelCase key → kebab-case id 映射（settings.html 原 ID 规约）
@@ -990,6 +1058,12 @@
     backupGateHint: 'backup-gate-hint', backupNotice: 'backup-notice', backupAlert: 'backup-alert',
     backupNotesFallback: 'backup-notes-fallback', backupNotesRelocate: 'backup-notes-relocate',
     backupResult: 'backup-result', backupResultBadge: 'backup-result-badge', backupResultBody: 'backup-result-body',
+    // 自定义 PATH（dsh 区块）+ 存储占用（数据区块）
+    extraPath: 'extraPath', extraPathError: 'extraPath-error', preferExtraPath: 'preferExtraPath',
+    preferExtraPathWarn: 'preferExtraPath-warn', pathRestartRow: 'path-restart-row', restartDsh: 'restart-dsh',
+    pathPreview: 'path-preview',
+    storageRefresh: 'storage-refresh', storageClear: 'storage-clear', storageBody: 'storage-body',
+    storageClearable: 'storage-clearable', storageTotal: 'storage-total', storageAlert: 'storage-alert',
   };
   for (const k of Object.keys(SETT_IDS)) {
     sett.els[k] = document.getElementById(SETT_IDS[k]);
@@ -1296,6 +1370,136 @@
     } catch {}
   }
 
+  // ── 存储占用（数据区块；getStorageInfo / clearStorage 由主进程提供，桥未就绪降级不报错）──
+  const storage = { loaded: false, loading: false, data: null };
+  // 契约格式化：< 1 MB 用 KB（1 位小数）；>= 1 MB 复用 fmtBytes（MB/GB 均 1 位小数）
+  const fmtSize = (b) => (Number(b) < 1048576 ? (Math.max(0, Number(b) || 0) / 1024).toFixed(1) + ' KB' : fmtBytes(Number(b) || 0));
+  function storageBridge(name) {
+    return bridge && typeof bridge[name] === 'function' ? bridge[name].bind(bridge) : null;
+  }
+  function storageAlertMsg(msg) {
+    if (!sett.els.storageAlert) return;
+    sett.els.storageAlert.textContent = msg || '';
+    sett.els.storageAlert.classList.toggle('show', !!msg);
+  }
+  function syncStorageButtons() {
+    const n = sett.els.storageBody ? sett.els.storageBody.querySelectorAll('input[data-st-id]:checked').length : 0;
+    if (sett.els.storageClear) sett.els.storageClear.disabled = n === 0;
+  }
+  function renderStorage(data) {
+    storage.data = data || null;
+    const entries = (data && Array.isArray(data.entries)) ? data.entries : [];
+    if (sett.els.storageClearable) sett.els.storageClearable.textContent = data ? fmtSize(data.clearableBytes) : '—';
+    if (sett.els.storageTotal) sett.els.storageTotal.textContent = data ? `合计 ${fmtSize(data.totalBytes)}` : '';
+    if (!sett.els.storageBody) return;
+    if (!entries.length) {
+      sett.els.storageBody.innerHTML = '<div class="st-empty">没有可统计的存储项</div>';
+      syncStorageButtons();
+      return;
+    }
+    const rows = entries.map((e) => {
+      const paths = (e.paths || []).map((p) => `<span class="st-path" data-st-copy="${esc(p)}" title="${esc(p)}">${esc(p)}</span>`).join('');
+      const note = e.note ? `<div class="st-note">${esc(e.note)}</div>` : '';
+      const box = `<input type="checkbox" data-st-id="${esc(e.id)}" aria-label="清理 ${esc(e.label)}"${e.clearable ? '' : ' disabled'} />`;
+      return `<tr><td><div class="st-name">${esc(e.label)}</div>${note}</td><td>${paths || '—'}</td><td>${fmtSize(e.bytes)}</td><td>${box}</td></tr>`;
+    }).join('');
+    sett.els.storageBody.innerHTML = `<table class="st-table"><thead><tr><th>分类</th><th>路径（点击复制）</th><th>大小</th><th>清理</th></tr></thead><tbody>${rows}</tbody></table>`;
+    syncStorageButtons();
+  }
+  async function refreshStorage(force) {
+    if (!sett.els.storageBody) return;
+    const call = storageBridge('getStorageInfo');
+    if (!call) {
+      sett.els.storageBody.innerHTML = '<div class="st-empty">存储统计暂不可用（主进程未提供该能力）</div>';
+      if (sett.els.storageClearable) sett.els.storageClearable.textContent = '—';
+      if (sett.els.storageTotal) sett.els.storageTotal.textContent = '';
+      return;
+    }
+    if (storage.loading || (storage.loaded && !force)) return;
+    storage.loading = true;
+    storageAlertMsg('');
+    if (!storage.loaded) sett.els.storageBody.innerHTML = '<div class="st-empty">统计中…</div>';
+    try {
+      const r = await call();
+      if (!r || r.ok === false) {
+        storageAlertMsg((r && r.message) || '读取存储占用失败');
+        if (!storage.loaded) sett.els.storageBody.innerHTML = '<div class="st-empty">读取失败</div>';
+        return;
+      }
+      storage.loaded = true;
+      renderStorage(r.data);
+    } catch (err) {
+      storageAlertMsg((err && err.message) || '读取存储占用失败');
+      if (!storage.loaded) sett.els.storageBody.innerHTML = '<div class="st-empty">读取失败</div>';
+    } finally {
+      storage.loading = false;
+    }
+  }
+  function confirmClearStorage(ids) {
+    const all = (storage.data && storage.data.entries) || [];
+    const picked = ids.map((id) => all.find((e) => e.id === id)).filter(Boolean);
+    const total = picked.reduce((s, e) => s + (Number(e.bytes) || 0), 0);
+    const list = picked.map((e) => `<div>· ${esc(e.label)} — ${fmtSize(e.bytes)}</div>`).join('');
+    const paths = picked.flatMap((e) => e.paths || []).slice(0, 8);
+    const notes = picked.map((e) => e.note).filter(Boolean);
+    const wrap = document.createElement('div');
+    wrap.className = 'note-modal';
+    wrap.innerHTML = `<div class="note-modal-box"><h3>确认清理</h3>
+      <p class="note-modal-msg">将清理以下分类，合计 ${fmtSize(total)}：</p>
+      <p class="note-modal-msg">${list}</p>
+      ${paths.length ? `<p class="note-modal-msg" style="word-break: break-all; font-family: var(--font-mono)">${paths.map((p) => esc(p)).join('<br>')}</p>` : ''}
+      ${notes.length ? `<p class="note-modal-msg" style="color: var(--hull-warning-alt)">${notes.map((n) => esc(n)).join('；')}</p>` : ''}
+      <div class="note-modal-ops"><button type="button" class="note-ghost" data-st-x>取消</button><button type="button" class="note-primary danger" data-st-ok>清理</button></div>
+    </div>`;
+    document.body.appendChild(wrap);
+    const close = () => wrap.remove();
+    wrap.querySelector('[data-st-x]').addEventListener('click', close);
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+    wrap.querySelector('[data-st-ok]').addEventListener('click', async () => {
+      close();
+      const call = storageBridge('clearStorage');
+      if (!call) { toast('清理入口未就绪'); return; }
+      if (sett.els.storageClear) { sett.els.storageClear.disabled = true; sett.els.storageClear.textContent = '清理中…'; }
+      try {
+        const r = await call(ids);
+        if (!r || r.ok === false) {
+          storageAlertMsg((r && r.message) || '清理失败');
+          await refreshStorage(true);
+          return;
+        }
+        const d = r.data || {};
+        toast(`已释放 ${fmtSize(d.freedBytes || 0)}`);
+        storageAlertMsg('');
+        if (d.info) renderStorage(d.info);
+        else await refreshStorage(true);
+      } catch (err) {
+        storageAlertMsg((err && err.message) || '清理失败');
+      } finally {
+        if (sett.els.storageClear) sett.els.storageClear.textContent = '清理选中';
+        syncStorageButtons();
+      }
+    });
+  }
+  if (sett.els.storageBody) {
+    sett.els.storageBody.addEventListener('change', syncStorageButtons);
+    sett.els.storageBody.addEventListener('click', async (e) => {
+      const p = e.target instanceof Element ? e.target.closest('[data-st-copy]') : null;
+      if (!p) return;
+      if (!bridge || typeof bridge.copyText !== 'function') { toast('复制入口未就绪'); return; }
+      try {
+        const r = await bridge.copyText(p.dataset.stCopy || '');
+        toast(r && r.ok === false ? (r.message || '复制失败') : '路径已复制');
+      } catch { toast('复制失败'); }
+    });
+  }
+  if (sett.els.storageRefresh) sett.els.storageRefresh.addEventListener('click', () => refreshStorage(true));
+  if (sett.els.storageClear) {
+    sett.els.storageClear.addEventListener('click', () => {
+      const ids = [...sett.els.storageBody.querySelectorAll('input[data-st-id]:checked')].map((n) => n.dataset.stId);
+      if (ids.length) confirmClearStorage(ids);
+    });
+  }
+
   if (sett.els.backupMode) {
     sett.els.backupMode.addEventListener('click', (e) => {
       const btn = e.target.closest('button[data-mode]');
@@ -1346,6 +1550,95 @@
   bindSwitch(sett.els.closeToQuit, 'closeToQuit', null);
   bindSwitch(sett.els.autoCheckDsh, 'autoCheckDsh', null);
   bindSwitch(sett.els.autoCheckHull, 'autoCheckHull', null);
+
+  // ── 自定义 PATH（extraPath / preferExtraPath；dsh 区块，紧跟版本通道）──
+  // 解析规则：一行一个、空行忽略、需以 / 或 ~ 开头、重复去重。
+  // 预览只拼自定义段 + 内置 node 占位；系统段由主进程拼接，不伪造完整值。
+  function parseExtraPath(text) {
+    const dirs = [];
+    const bad = [];
+    for (const line of String(text || '').split(/\r?\n/)) {
+      const p = line.trim();
+      if (!p) continue;
+      if (!p.startsWith('/') && !p.startsWith('~')) { bad.push(p); continue; }
+      if (!dirs.includes(p)) dirs.push(p);
+    }
+    return { dirs, bad };
+  }
+  function preferPathOn() {
+    return !!(sett.els.preferExtraPath && sett.els.preferExtraPath.getAttribute('aria-checked') === 'true');
+  }
+  function renderPathState() {
+    if (!sett.els.extraPath) return;
+    const { dirs } = parseExtraPath(sett.els.extraPath.value);
+    const inner = '<内置 node>/bin';
+    const segs = preferPathOn() ? [...dirs, inner] : [inner, ...dirs];
+    if (sett.els.pathPreview) sett.els.pathPreview.textContent = segs.join(':') + ':…系统 PATH（主进程拼接，重启后为准）';
+    if (sett.els.preferExtraPathWarn) sett.els.preferExtraPathWarn.classList.toggle('hidden', !preferPathOn());
+  }
+  function markPathChanged() {
+    if (sett.els.pathRestartRow) sett.els.pathRestartRow.classList.remove('hidden');
+  }
+  async function commitExtraPath() {
+    if (!sett.els.extraPath) return;
+    const { dirs, bad } = parseExtraPath(sett.els.extraPath.value);
+    if (bad.length) {
+      setError(sett.els.extraPathError, `需以 / 或 ~ 开头：${bad.slice(0, 3).join('、')}${bad.length > 3 ? ' 等' : ''}`);
+      return;
+    }
+    const saved = (sett.state.settings && sett.state.settings.extraPath) || [];
+    if (dirs.join('\n') === saved.join('\n')) { setError(sett.els.extraPathError, ''); return; }
+    const ok = await setSetting({ extraPath: dirs }, sett.els.extraPathError);
+    if (ok) {
+      if (sett.state.settings) sett.state.settings.extraPath = dirs;
+      markPathChanged();
+    } else {
+      sett.els.extraPath.value = saved.join('\n');
+      renderPathState();
+    }
+  }
+  if (sett.els.extraPath) {
+    sett.els.extraPath.addEventListener('focus', () => { sett.state.editing.extraPath = true; });
+    sett.els.extraPath.addEventListener('input', renderPathState);
+    sett.els.extraPath.addEventListener('blur', () => {
+      sett.state.editing.extraPath = false;
+      commitExtraPath();
+    });
+  }
+  if (sett.els.preferExtraPath) {
+    sett.els.preferExtraPath.addEventListener('click', async () => {
+      const next = !preferPathOn();
+      const ok = await setSetting({ preferExtraPath: next }, null);
+      if (!ok) return;
+      sett.els.preferExtraPath.setAttribute('aria-checked', String(next));
+      if (sett.state.settings) sett.state.settings.preferExtraPath = next;
+      renderPathState();
+      markPathChanged();
+    });
+  }
+  if (sett.els.restartDsh) {
+    sett.els.restartDsh.addEventListener('click', () => {
+      // hull:restart 语义 = 重启应用（dsh 随应用一并重启，新 PATH 随之生效）
+      const { dirs } = parseExtraPath(sett.els.extraPath ? sett.els.extraPath.value : '');
+      const wrap = document.createElement('div');
+      wrap.className = 'note-modal';
+      wrap.innerHTML = `<div class="note-modal-box"><h3>重启使 PATH 生效</h3>
+        <p class="note-modal-msg">将重启应用（dsh 一并重启），当前运行中的 dsh 任务会中断。</p>
+        <p class="note-modal-msg">自定义目录：<b style="word-break: break-all">${esc(dirs.length ? dirs.join('、') : '（无）')}</b></p>
+        <div class="note-modal-ops"><button type="button" class="note-ghost" data-path-x>取消</button><button type="button" class="note-primary" data-path-ok>立即重启</button></div>
+      </div>`;
+      document.body.appendChild(wrap);
+      const close = () => wrap.remove();
+      wrap.querySelector('[data-path-x]').addEventListener('click', close);
+      wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+      wrap.querySelector('[data-path-ok]').addEventListener('click', async () => {
+        close();
+        if (!bridge || typeof bridge.restart !== 'function') { toast('重启入口未就绪'); return; }
+        try { await bridge.restart(); } catch { toast('重启失败，请手动重启'); }
+      });
+    });
+  }
+  renderPathState();
 
   // ── V2b 通知偏好（notifPrefs 子字段 patch；每次以当前完整子对象提交） ──
   function notifPatch(sub) {
@@ -1428,6 +1721,13 @@
     renderNotifPrefs(s.notifPrefs);
     // N4：笔记存储目录显示（生效路径——SettingsProvider 读路径已做默认解析 <userData>/notes）
     if (sett.els.notesDirPath) sett.els.notesDirPath.textContent = s.notesDir || '—';
+    // 自定义 PATH：编辑中不覆盖输入框（失焦时提交）；开关/预览始终跟随当前态
+    if (sett.els.extraPath && !sett.state.editing.extraPath) {
+      const txt = (s.extraPath || []).join('\n');
+      if (sett.els.extraPath.value !== txt) sett.els.extraPath.value = txt;
+    }
+    if (sett.els.preferExtraPath) sett.els.preferExtraPath.setAttribute('aria-checked', String(s.preferExtraPath === true));
+    renderPathState();
     if (!sett.state.editing.pinned) {
       sett.els.channel.value = s.channel;
       sett.els.pinnedVersion.value = s.pinnedVersion || '';
