@@ -3,6 +3,14 @@
 > Hull 模块（架构/升级/数据/平台/运行时等通用规则 + M1 子需求 S1~S8）变更详情。每条 ≤200 字，delta-only、编号驱动、取代链、反哺 Q-items。最新在前。
 > L1 索引：docs/spec/变更摘要.md · 共识：docs/spec/共识-Hull桌面壳-M1.md · 规则索引：docs/spec/规则索引.md
 
+## 2026-11-22 子进程 PATH 补全——修复打包版内 node/npm 不可用（PR #23）
+
+- 类型：缺陷修复（运行时环境）
+- 根因：Finder 启动的 Electron PATH = `/usr/bin:/bin:/usr/sbin:/sbin`，Hull 原样透传给 dsh；dsh 命令工具走 **no-shell `execFile`**（`@deepseek-ai/dsh-native-command`），不吃 shell profile → `node`/`npm` ENOENT（dev 终端启动正常，故长期被掩盖）
+- 修复：`augmentPathEnv()` —— 捆绑 node 目录首位 → 原 PATH 保序 → 常见用户工具目录（存在才加：`/opt/homebrew/bin`、`/usr/local/bin`、`~/.local/bin`、`~/.cargo/bin`、`~/.bun/bin`）→ 去重；`RuntimeManager.sanitizeSpawnEnv` 与 `ACPProvider.spawnEnv` 两条通道同源；Windows 处理 `Path`/`PATH` 双键
+- 验证：tsc 0 · unit **1364/1364** · integration 40/40 · 最小 PATH 下 no-shell execFile：`node v24.10.0` / `npm 11.6.1`（修复前均 ENOENT）· 真实 dsh 冒烟 ready 正常
+- 已知边界：白名单制，nvm/asdf/fnm/volta 的 node 不在 PATH 内（按需扩）；Windows 仅单测
+
 ## 2026-11-07 v0.1.9 发布——插件市场 + 备份恢复 + Token 修复
 
 - 类型：发版（CI 发布链 `.github/workflows/release.yml`，run `42251874174`）
