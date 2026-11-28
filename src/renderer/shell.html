@@ -873,6 +873,46 @@
             <div id="path-segments" class="path-segments" role="list" aria-label="生效 PATH 分段"><div class="path-empty">展开后加载…</div></div>
             <div class="hint" style="text-align: left">系统段由主进程拼接，实际以重启 dsh 后为准；此处展示当前解析结果。</div>
           </details>
+          <!-- 外部 Agent（ACP）：托管独立开发的 ACP 协议 agent；契约 docs/api/external-acp-agent-contract.md -->
+          <div class="srow">
+            <div class="info">
+              <div class="label">外部 Agent（ACP）</div>
+              <div class="sub">托管你独立开发的 ACP 协议 agent，看板派单可与 dsh 并列选择。对接契约：<code style="font-family: var(--font-mono); font-size: var(--text-xs)">docs/api/external-acp-agent-contract.md</code></div>
+            </div>
+            <div class="control"><button id="ext-copy-contract" class="sbtn" title="复制契约路径">复制路径</button></div>
+          </div>
+          <div class="srow">
+            <div class="info">
+              <div class="label">启用外部 Agent</div>
+              <div class="sub">关闭时不注册该执行引擎，看板派单不显示</div>
+            </div>
+            <button id="ext-enabled" class="switch" role="switch" aria-checked="false" aria-label="启用外部 Agent"><span class="sr-only">启用外部 Agent</span></button>
+          </div>
+          <div class="srow">
+            <div class="info">
+              <div class="label">名称</div>
+              <div class="sub">看板「执行引擎」下拉里的显示名；留空显示为「外部 Agent」</div>
+            </div>
+            <div class="control"><input id="ext-name" class="input" type="text" placeholder="例如：我的 Spring AI Agent" aria-label="外部 Agent 名称" /></div>
+          </div>
+          <div class="srow">
+            <div class="info">
+              <div class="label">启动命令</div>
+              <div class="sub">写法和终端一致；含空格的路径用引号包裹</div>
+            </div>
+            <div class="control">
+              <input id="ext-command" class="input" type="text" spellcheck="false" style="width: 320px; font-family: var(--font-mono)" placeholder="/usr/local/bin/my-agent --port 0 或 java -jar ~/agents/my-agent.jar" aria-label="外部 Agent 启动命令" />
+              <div id="ext-hint" class="hint">启用并填写启动命令后，看板派单可选此 Agent</div>
+              <div id="ext-error" class="error-text" role="alert"></div>
+            </div>
+          </div>
+          <div id="ext-restart-row" class="srow hidden">
+            <div class="info">
+              <div class="label">修改后需重启 dsh 生效</div>
+              <div class="sub">重启会中断当前运行中的 dsh 任务</div>
+            </div>
+            <div class="control"><button id="ext-restart-btn" class="sbtn">重启 dsh</button></div>
+          </div>
           <div class="srow">
             <div class="info">
               <div class="label">升级与回滚</div>
@@ -1123,6 +1163,10 @@
     pathReadEnv: 'path-read-env', pathReadEnvMsg: 'path-read-env-msg',
     pathCount: 'path-count', pathAdd: 'path-add', pathBatchToggle: 'path-batch-toggle',
     pathList: 'path-list', pathEmpty: 'path-empty',
+    // 外部 Agent（ACP）
+    extCopyContract: 'ext-copy-contract', extEnabled: 'ext-enabled', extName: 'ext-name',
+    extCommand: 'ext-command', extHint: 'ext-hint', extError: 'ext-error',
+    extRestartRow: 'ext-restart-row', extRestartBtn: 'ext-restart-btn',
     pathDetails: 'path-details', pathSummary: 'path-summary', pathCopy: 'path-copy', pathSegments: 'path-segments',
     storageRefresh: 'storage-refresh', storageClear: 'storage-clear', storageBody: 'storage-body',
     storageHero: 'storage-hero', storageUpdated: 'storage-updated',
@@ -1962,6 +2006,91 @@
   renderPathState();
   renderPathList();
 
+  // ── 外部 Agent（ACP；settings.externalAgent: { enabled, name, command }）──
+  // 三字段整体提交（每次合并当前值）；provider 注册在 dsh 启动侧 → 保存后展示重启行
+  let extMode = bridge && typeof bridge.getSettings === 'function' && typeof bridge.setSettings === 'function' ? 'ok' : 'nobridge';
+  function extCur() {
+    return (sett.state.settings && sett.state.settings.externalAgent) || { enabled: false, name: '', command: '' };
+  }
+  function extOn() { return !!(sett.els.extEnabled && sett.els.extEnabled.getAttribute('aria-checked') === 'true'); }
+  // 三态：桥缺失 / 主进程无 externalAgent 字段 → 禁用 + 降级文案；正常 → 按「启用 + 有命令」提示
+  function renderExtState() {
+    const { extHint, extEnabled, extName, extCommand } = sett.els;
+    if (!extHint) return;
+    if (extMode !== 'ok') {
+      extHint.textContent = extMode === 'nobridge'
+        ? '设置桥未就绪，重启应用后可配置外部 Agent'
+        : '当前主进程版本不支持外部 Agent，升级壳后可用';
+      extHint.classList.remove('hidden');
+      for (const el of [extEnabled, extName, extCommand]) if (el) el.disabled = true;
+      return;
+    }
+    const ready = extOn() && !!(extCommand && extCommand.value.trim());
+    extHint.textContent = ready ? '' : '启用并填写启动命令后，看板派单可选此 Agent';
+    extHint.classList.toggle('hidden', ready);
+  }
+  async function saveExt(sub) {
+    const next = { ...extCur(), ...sub };
+    const ok = await setSetting({ externalAgent: { enabled: !!next.enabled, name: next.name || '', command: next.command || '' } }, sett.els.extError);
+    if (ok) {
+      if (sett.state.settings) sett.state.settings.externalAgent = { enabled: !!next.enabled, name: next.name || '', command: next.command || '' };
+      if (sett.els.extRestartRow) sett.els.extRestartRow.classList.remove('hidden');
+      renderExtState();
+    }
+    return ok;
+  }
+  if (sett.els.extEnabled) sett.els.extEnabled.addEventListener('click', async () => {
+    if (extMode !== 'ok') return;
+    const next = !extOn();
+    if (await saveExt({ enabled: next })) sett.els.extEnabled.setAttribute('aria-checked', String(next));
+  });
+  // 名称/命令：失焦或回车保存（编辑中不被轮询覆盖）
+  for (const [el, key] of [[sett.els.extName, 'name'], [sett.els.extCommand, 'command']]) {
+    if (!el) continue;
+    el.addEventListener('focus', () => { sett.state.editing[key] = true; });
+    el.addEventListener('input', renderExtState);
+    el.addEventListener('blur', async () => {
+      sett.state.editing[key] = false;
+      if (extMode !== 'ok') return;
+      const value = el.value.trim();
+      if (value === (extCur()[key] || '')) { renderExtState(); return; }
+      if (!(await saveExt({ [key]: value }))) el.value = extCur()[key] || '';
+    });
+    el.addEventListener('keydown', (e) => { if (e.key === 'Enter') el.blur(); });
+  }
+  if (sett.els.extCopyContract) {
+    sett.els.extCopyContract.addEventListener('click', async () => {
+      if (!bridge || typeof bridge.copyText !== 'function') { toast('复制入口未就绪'); return; }
+      try {
+        const r = await bridge.copyText('docs/api/external-acp-agent-contract.md');
+        toast(r && r.ok === false ? (r.message || '复制失败') : '契约路径已复制');
+      } catch { toast('复制失败'); }
+    });
+  }
+  if (sett.els.extRestartBtn) {
+    // hull:restart 语义 = 重启应用（dsh 随之重启，provider 注册按新配置生效）
+    sett.els.extRestartBtn.addEventListener('click', () => {
+      const cur = extCur();
+      const wrap = document.createElement('div');
+      wrap.className = 'note-modal';
+      wrap.innerHTML = `<div class="note-modal-box"><h3>重启使外部 Agent 配置生效</h3>
+        <p class="note-modal-msg">将重启应用（dsh 一并重启），当前运行中的 dsh 任务会中断。</p>
+        <p class="note-modal-msg">外部 Agent：<b style="word-break: break-all">${esc(cur.name || '外部 Agent')}${cur.command ? '（' + esc(cur.command) + '）' : ''}</b></p>
+        <div class="note-modal-ops"><button type="button" class="note-ghost" data-ext-x>取消</button><button type="button" class="note-primary" data-ext-ok>立即重启</button></div>
+      </div>`;
+      document.body.appendChild(wrap);
+      const close = () => wrap.remove();
+      wrap.querySelector('[data-ext-x]').addEventListener('click', close);
+      wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+      wrap.querySelector('[data-ext-ok]').addEventListener('click', async () => {
+        close();
+        if (!bridge || typeof bridge.restart !== 'function') { toast('重启入口未就绪'); return; }
+        try { await bridge.restart(); } catch { toast('重启失败，请手动重启'); }
+      });
+    });
+  }
+  renderExtState();
+
   // ── V2b 通知偏好（notifPrefs 子字段 patch；每次以当前完整子对象提交） ──
   function notifPatch(sub) {
     const cur = (sett.state.settings && sett.state.settings.notifPrefs) || {};
@@ -2056,6 +2185,13 @@
       sett.els.pinnedVersion.value = s.pinnedVersion || '';
       sett.els.pinnedVersion.disabled = s.channel !== 'pinned';
     }
+    // 外部 Agent：编辑中的输入框不覆盖；主进程缺字段 → 降级（三态之一）
+    if (extMode === 'ok' && !('externalAgent' in s)) extMode = 'unsupported';
+    const ext = s.externalAgent || { enabled: false, name: '', command: '' };
+    if (sett.els.extEnabled && extMode === 'ok') sett.els.extEnabled.setAttribute('aria-checked', String(ext.enabled === true));
+    if (sett.els.extName && extMode === 'ok' && !sett.state.editing.name) sett.els.extName.value = ext.name || '';
+    if (sett.els.extCommand && extMode === 'ok' && !sett.state.editing.command) sett.els.extCommand.value = ext.command || '';
+    renderExtState();
   }
 
   function renderDsh(ds) {
