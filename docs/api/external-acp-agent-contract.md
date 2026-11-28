@@ -193,3 +193,30 @@ Hull 回（用户在弹窗点允许/拒绝）：
 | 日期 | 版本 | 说明 |
 |:---|:---|:---|
 | 2026-11-28 | v1.0 | 首次冻结：帧格式/握手/七方法/错误码/验收，基于 dsh 0.2.2-rc.1 实测 + ACP 标准（tool_call 段为标准参考，未实测） |
+
+## 9. 附录：dsh-agent v0.1.0 实测对照（2026-11-28）
+
+> 对象：`~/AI/dsh-agent`（Java 17 / Spring AI 2.1.0，fat jar `dsh-agent-acp.jar`）
+> 方法：裸协议探测 + **Hull 真实 `ACPProvider`** 集成（launch = `java -jar`，`DSH_AGENT_FAKE_MODEL=1`）
+
+**可用性**：✅ 端到端跑通——initialize → session/new → prompt → 流式 `agent_message_chunk` → `stopReason:end_turn`；Hull 侧 `text_chunk` 正常、`succeeded`、全链 ~1.5s。
+
+| 契约项 | 实现状态 | 影响/说明 |
+|:---|:---|:---|
+| NDJSON（stdout 仅协议，日志走 stderr） | ✅ | — |
+| `initialize` | ⚠️ `protocolVersion` 为**字符串** `"1"`；能力放在 `capabilities.loadSession` | Hull 当前不读能力声明 → 不阻塞；标准客户端/未来 UI 需修正 |
+| `session/new` | ⚠️ 仅 `sessionId`，无 `configOptions` | Hull 不显示模型选择（M1 由 agent 自管，符合设计） |
+| `session/set_config_option` | ❌ 未实现（-32601） | 外部任务 `model=null` 时 Hull 不会调用 → 暂不阻塞 |
+| `session/prompt` + chunk | ✅ | 流式正常 |
+| `tool_call` / `tool_call_update` | ✅ 会发 | Hull 目前忽略（只渲染文本），后续可做活动日志 |
+| `session/request_permission` | ✅ 有 `AcpApprovalGate` | 未触发实测（fake 模型不调用需审批的工具） |
+| `session/cancel` | ✅ | — |
+| `usage_update` | ❌ 未发 | 壳内上下文用量条为空 |
+| `session/resume` | ❌（`loadSession:false`） | Hull 第二次执行会先试 resume 失败再降级 newSession（Q-025）：可用但多一次往返 |
+
+**P0 待修（实测发现）**
+1. **会话目录污染**：`DSH_AGENT_SESSIONS_DIR` 默认相对路径 `sessions`，Hull 以任务 cwd 启动 → 实测在项目目录生成 `sessions/s1.json`。应改默认绝对路径（如 `~/.dsh-agent/sessions`）或强制显式配置。
+2. **initialize 形状**：`protocolVersion: 1`（number）+ `agentCapabilities.sessionCapabilities`（按契约 §3.1）。
+3. **凭证注入方式**：Hull 从 Finder 启动时 `process.env` 不含用户 shell 导出 → `AGENT_API_KEY` 需通过包装脚本（`#!/bin/sh` + `exec`）提供；或 Hull 后续为外部 Agent 增加「环境变量」设置项。
+
+**P1 建议**：`usage_update`、`session/resume`、`set_config_option`（若希望壳内可选模型）。
