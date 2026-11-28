@@ -62,8 +62,9 @@ export type PlaceholderView =
   | 'placeholder:workflows'
   | 'placeholder:notifs'
   | 'placeholder:notes'
+  | 'placeholder:agent'
   | 'placeholder:settings';
-export type PlaceholderMode = 'starting' | 'installing' | 'failed' | 'not-installed' | 'board' | 'skills' | 'plugin' | 'tokens' | 'connections' | 'workflows' | 'notifs' | 'notes' | 'settings';
+export type PlaceholderMode = 'starting' | 'installing' | 'failed' | 'not-installed' | 'board' | 'skills' | 'plugin' | 'tokens' | 'connections' | 'workflows' | 'notifs' | 'notes' | 'agent' | 'settings';
 
 /**
  * 主窗口壳框架（S8 D1-D7 唯一实现依据）：
@@ -290,6 +291,12 @@ export class WindowManager {
   showPlugin(): void {
     this.webIntent = false; // 用户主动离开 web
     this.showPlaceholder('plugin', '');
+  }
+
+  /** Agent 对话入口 → 切 agent 视图（镜像 showNotes；渲染层 section#agent 显示） */
+  showAgent(): void {
+    this.webIntent = false; // 用户主动离开 web
+    this.showPlaceholder('agent', '');
   }
 
   /** V2a：通知存储变更推送（渲染层即时刷新角标/列表） */

@@ -40,7 +40,7 @@ function replyError(id, code, message) {
   send({ id, error: { code, message } });
 }
 
-/** sessionId → { configOptions } */
+/** sessionId → { configOptions, promptCount }（promptCount 供多轮会话断言：第 N 轮回复带 TURN_N） */
 const sessions = new Map();
 /** sessionId → 当前进行中的 prompt turn */
 const activePrompts = new Map();
@@ -165,8 +165,13 @@ function handlePrompt(msg) {
     .join('\n');
   const turn = { id: msg.id, sessionId, done: false };
   activePrompts.set(sessionId, turn);
-  log(`prompt start ${sessionId}`);
-  emitChunk(sessionId, 'FAKE_AGENT_REPLY: 已收到任务');
+  session.promptCount = (session.promptCount || 0) + 1;
+  log(`prompt start ${sessionId} turn=${session.promptCount}`);
+  // 多轮断言锚点：同一会话第 N 轮（N≥2）回复带 TURN_N
+  emitChunk(
+    sessionId,
+    session.promptCount >= 2 ? `FAKE_AGENT_REPLY: TURN_${session.promptCount} 已收到任务` : 'FAKE_AGENT_REPLY: 已收到任务',
+  );
   if (text.includes('ASK_PERMISSION')) {
     void requestPermission(sessionId).then((result) => {
       if (turn.done) return;

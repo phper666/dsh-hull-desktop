@@ -51,6 +51,9 @@ import { ProviderManager } from '../exec/provider/ProviderManager';
 import { ProviderRegistry, DEFAULT_PROVIDER } from '../exec/provider/ProviderRegistry';
 import type { ExecutionProvider } from '../exec/provider/ExecutionProvider';
 import { ApprovalManager } from '../exec/approval/ApprovalManager';
+import { AgentChatService } from '../exec/agent/AgentChatService';
+import { AGENT_PUSH_CHANNEL, registerAgentChatIpc } from '../exec/agent/AgentChatIpc';
+import { parseLaunchCommand } from '../exec/provider/launchCommand';
 import { AcEditor } from '../exec/approval/AcEditor';
 import { registerExecIpc } from '../exec/ipc/ExecIpc';
 import { SkillsScanner } from '../skills/SkillsScanner';
@@ -518,6 +521,47 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   winMgrRef = winMgr; // §8.1：工作流通知点击跳转的晚绑定引用回填
   notifsWinRef = winMgr; // V2a：通知存储推送/系统通知点击的窗口引用回填
 
+  // ─────── Agent 对话（M1）：长驻外部 ACP agent 会话（内存态，不落库） ───────
+  // 未启用/命令解析失败 → 不创建（IPC 回 chat-not-configured）；命令或启用态变化 → 关旧，
+  // 下次 start 用新命令（在跑的会话被优雅关闭，不静默切换）。
+  let agentChat: AgentChatService | null = null;
+  let agentChatKey: string | null = null;
+  const closeAgentChat = (): void => {
+    if (!agentChat) return;
+    void agentChat.close();
+    agentChat = null;
+    agentChatKey = null;
+  };
+  const agentLaunchKey = (): string | null => {
+    const ext = settings.getSettings().externalAgent;
+    const launch = ext.enabled ? parseLaunchCommand(ext.command) : null;
+    return launch ? JSON.stringify([launch.command, launch.args]) : null;
+  };
+  const resolveAgentChat = (): AgentChatService | null => {
+    const ext = settings.getSettings().externalAgent;
+    const launch = ext.enabled ? parseLaunchCommand(ext.command) : null;
+    if (!launch) {
+      closeAgentChat(); // 关闭启用/命令已失效的旧会话
+      return null;
+    }
+    const key = JSON.stringify([launch.command, launch.args]);
+    if (agentChat && agentChatKey === key) return agentChat;
+    closeAgentChat();
+    const service = new AgentChatService({ launch, logger });
+    service.on('event', (ev) => {
+      const w = winMgr.getWindow();
+      if (w) w.webContents.send(AGENT_PUSH_CHANNEL, ev);
+    });
+    agentChat = service;
+    agentChatKey = key;
+    return service;
+  };
+  registerAgentChatIpc({ getService: resolveAgentChat });
+  // 设置变更：命令/启用态变化 → 关闭旧会话（下次 start 按新设置重开）
+  settings.on('changed', () => {
+    if (agentLaunchKey() !== agentChatKey) closeAgentChat();
+  });
+
   // ─────── B4：备份/恢复装配（设计 §1.5 装配点 + §5 门控；B1/B2 服务就绪后注册） ───────
   // gateDeps 五项接入点：执行快照（ExecutionEngine）/ dsh 首装（overlay）/ dsh 升级（Updater）/
   // skills 升级在途（UpgradeExecutor 模块计数，CON-R-backup-005 v1.1）/ Hull 自更新（HullUpdater）
@@ -743,6 +787,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     // E2E-05 修复：ACP 探测/会话子进程不随 runtime.stop 的进程组被杀 → 退出编排统一 kill（防孤儿）
     if (acpProvider) await acpProvider.killAllChildren();
     await externalAgent.killAllChildren();
+    await agentChat?.close(); // Agent 对话会话子进程（SIGTERM → 5s → SIGKILL）不随 runtime.stop 结束
     await new Promise((r) => setTimeout(r, 500)); // SIGKILL 后短延时，防 zombie（T1-02）
     quitProceeding = true; // 🟡-A：最终 quit 发出前标记，before-quit 据此放行
     winMgr.setQuitting(); // 退出编排收尾：close 事件放行（防 closeToQuit=false 阻断最终退出）
@@ -1184,6 +1229,12 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   ipcMain.handle('hull:showPlugin', async () => {
     if (quitting) return { ok: false, message: '正在退出' };
     winMgr.showPlugin();
+    return { ok: true };
+  });
+  // Agent 对话入口 → 切 agent 视图（镜像 showPlugin；渲染侧 section#agent 显示）
+  ipcMain.handle('hull:showAgent', async () => {
+    if (quitting) return { ok: false, message: '正在退出' };
+    winMgr.showAgent();
     return { ok: true };
   });
   // B2 补丁：壳导航 dsh web 入口 → 恢复官方 view（与 showBoard 对称；无新通道）
