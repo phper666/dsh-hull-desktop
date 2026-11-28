@@ -305,3 +305,26 @@ contextBridge.exposeInMainWorld('exec', {
   },
   getPendingApprovals: () => invoke('kanban:getPendingApprovals'),
 });
+
+// ─────────────────────────── Agent 对话桥（M1：长驻会话 + 流式 + 审批） ───────────────────────────
+/** window.agent 7 方法（agent:* 通道；流式全部走 onEvent 推送，invoke 只回 ack） */
+contextBridge.exposeInMainWorld('agent', {
+  /** 开启会话（spawn + initialize + session/new；已连接 → 返回当前会话） */
+  start: () => invoke('agent:start'),
+  /** 同一会话提交一轮（busy/未连接 → {ok:false,code,message}；回复走 onEvent） */
+  send: (text: string) => invoke('agent:send', text),
+  /** 取消当前回合（session/cancel 通知；agent 回 stopReason cancelled） */
+  cancel: () => invoke('agent:cancel'),
+  /** 关闭会话（SIGTERM → 5s → SIGKILL） */
+  close: () => invoke('agent:close'),
+  /** 审批响应（requestId 来自 permission_request 事件） */
+  approve: (requestId: string, approved: boolean, reason?: string) => invoke('agent:approve', requestId, approved, reason),
+  /** 状态快照（connected/busy/sessionId?/agentName?/lastError?） */
+  status: () => invoke('agent:status'),
+  /** 会话事件推送（status/message_chunk/tool_call/tool_call_update/permission_request/turn_end/error；返回取消订阅） */
+  onEvent: (cb: (ev: unknown) => void) => {
+    const listener = (_e: unknown, ev: unknown) => cb(ev);
+    ipcRenderer.on('agent:onEvent', listener);
+    return () => ipcRenderer.removeListener('agent:onEvent', listener);
+  },
+});
