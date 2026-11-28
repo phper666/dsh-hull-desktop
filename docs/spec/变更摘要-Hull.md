@@ -10,6 +10,16 @@
 - 验证：unit 1391/1391 · integration 40/40 · e2e 设置页 3/3 · 三端构建全绿
 - 已知边界：Windows PowerShell PATH 读取未做；`-ilc` 加载 shell rc（1–2s）
 
+## 2026-11-28 外部 ACP Agent provider 接入（U-002 第二平台，先搭底盘）
+
+- 类型：功能（执行链），契约 `docs/api/external-acp-agent-contract.md` v1.0
+- **后端**：设置 `externalAgent{enabled,name,command}` + 引号感知命令解析（`launchCommand`）+ `ACPProvider` 注入 `launch`（dsh 默认路径零变化；外部无 DSH_HOME、跳过 dsh settings 合并）+ `ProviderRegistry` 注册/注销（未启用不出现）+ **`ExecutionEngine/Scheduler` 按任务 `resolveProvider` 分发**（缺省单 provider 行为不变）+ `acpSessionProvider` 会话归属（防跨 provider resume 串会话）
+- **UI**：设置页「外部 Agent」区（开关/名称/命令/契约路径复制/重启提示）；看板表单 provider 下拉仅 ≥2 可用 provider 出现，选 external 时模型/推理力度由 Agent 自管，dsh 缺省不带 provider（存量语义不变）
+- **测试替身**：`tests/fixtures/fake-acp-agent.js`（契约 §1–§4 参考实现，兼给 Java 侧参照）
+- 验证：tsc 0 · unit **1421/1421**（+30）· integration **45/45**（+5）· e2e kanban+settings+cold-start **15/15** · 端到端分发冒烟（dsh→mock / external→FAKE_AGENT_REPLY）
+- 已知行为变化：dsh 任务经 `registry.resolve` 就绪门控（runtime 非 ready → exec-provider-unavailable 直接失败，不再尝试 spawn）
+- 未做：外部 agent 模型清单进表单（M1 模型由 Agent 自管）；Electron 冷启动 + queued 任务人工复核建议
+
 ## 2026-11-22 PATH 设置页改版——目录列表 + 生效 PATH 分段视图
 
 - 类型：体验改版（用户反馈「难看/难查/不清楚分隔方式」）
