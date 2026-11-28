@@ -10,6 +10,15 @@
 - 验证：unit 1391/1391 · integration 40/40 · e2e 设置页 3/3 · 三端构建全绿
 - 已知边界：Windows PowerShell PATH 读取未做；`-ilc` 加载 shell rc（1–2s）
 
+## 2026-11-28 Agent 页——壳内直连外部 ACP Agent 对话（nav + 流式 + 审批）
+
+- 类型：功能（新页面 + 长驻会话后端）
+- **后端**：`AgentChatService`（`src/exec/agent/`）——spawn 一次 → initialize → session/new 一次 → **多轮 session/prompt**；事件 status/message_chunk/tool_call(`toolKind`)/tool_call_update/permission_request/turn_end/error；审批回帧 `{requestId,approved,reason}`；崩溃 → error 事件 + 可重开；SIGTERM→5s→SIGKILL
+- **IPC**：7 invoke + 1 push（白名单 78→**86**）+ `hull:showAgent` + preload `window.agent`
+- **UI**：nav「Agent」（任务看板后）+ `agent.js`——气泡流（chunk 累积同气泡、turn_end 收口）、工具调用折叠行、审批弹窗（仅显式批准，遮罩/Esc 不关闭）、连接/停止/新建会话/错误横幅重连、三态降级；**不做假用量条**（agent 未发 usage_update）
+- 验证：tsc 0 · unit **1422/1422** · integration **52/52**（+7，含同会话两轮/chat-busy/cancel/审批/close/ENOENT）· e2e cold-start+kanban+settings **15/15** · 真实 jar 冒烟（同会话 s1 两轮一致）
+- 已知边界：会话**不持久化**（壳重启=新会话）；无自动重连；agent 未声明 `sessionCapabilities` 时无恢复能力（dsh-agent 当前 `loadSession:false`）
+
 ## 2026-11-28 外部 ACP Agent provider 接入（U-002 第二平台，先搭底盘）
 
 - 类型：功能（执行链），契约 `docs/api/external-acp-agent-contract.md` v1.0
