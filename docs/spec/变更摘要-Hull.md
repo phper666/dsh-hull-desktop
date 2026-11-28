@@ -18,6 +18,7 @@
 - **UI**：nav「Agent」（任务看板后）+ `agent.js`——气泡流（chunk 累积同气泡、turn_end 收口）、工具调用折叠行、审批弹窗（仅显式批准，遮罩/Esc 不关闭）、连接/停止/新建会话/错误横幅重连、三态降级；**不做假用量条**（agent 未发 usage_update）
 - 验证：tsc 0 · unit **1422/1422** · integration **52/52**（+7，含同会话两轮/chat-busy/cancel/审批/close/ENOENT）· e2e cold-start+kanban+settings **15/15** · 真实 jar 冒烟（同会话 s1 两轮一致）
 - 已知边界：会话**不持久化**（壳重启=新会话）；无自动重连；agent 未声明 `sessionCapabilities` 时无恢复能力（dsh-agent 当前 `loadSession:false`）
+- **后续（同日）**：UI 参照 agent 原版重做（顶栏/欢迎建议卡/工具卡/思考动画/导出/Markdown）；补真实 Electron e2e（`tests/e2e/agent.spec.ts`，连接/流式/多轮/审批/新会话）；修 `sendText` 竞态（busy 先置后发，防快 agent 下 turn_end 早于 ack 造成假「思考中」）
 
 ## 2026-11-28 外部 ACP Agent provider 接入（U-002 第二平台，先搭底盘）
 
