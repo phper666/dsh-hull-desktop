@@ -60,6 +60,8 @@ contextBridge.exposeInMainWorld('hull', {
   showNotifs: () => invoke('hull:showNotifs'),
   /** N1：壳导航笔记入口 → main 切 view 到 placeholder:notes（镜像 showNotifs） */
   showNotes: () => invoke('hull:showNotes'),
+  /** Agent 页：壳导航入口 → main 切 view 到 placeholder:agent（镜像 showNotes/showBoard） */
+  showAgent: () => invoke('hull:showAgent'),
   /** P4：壳导航插件入口 → main 切 view 到 placeholder:plugin（镜像 showNotes，设计 §1.8/§1.9） */
   showPlugin: () => invoke('hull:showPlugin'),
 

@@ -66,6 +66,11 @@ test.describe('E2E-01 冷启动', () => {
       const navOrder = await shell.locator('#nav-items .nav-item').evaluateAll((els) => els.map((e) => e.id));
       expect(navOrder).toEqual(['nav-web', 'nav-board', 'nav-agent', 'nav-notes', 'nav-skills', 'nav-plugin', 'nav-tokens', 'nav-connections', 'nav-workflows', 'nav-notifs', 'nav-settings']);
       await expect(shell.locator('#nav-upgrade')).toHaveCount(0);
+      // Agent 页导航：点击必须真正切视图（回归守卫——曾因 preload 漏 showAgent 导致只高亮不切换）
+      await shell.locator('#nav-agent').click();
+      await expect(shell.locator('#agent')).toBeVisible();
+      await shell.locator('#nav-board').click();
+      await expect(shell.locator('#board')).toBeVisible();
       // 占位区块：official 时全隐藏
       await expect(shell.locator('#starting')).toBeHidden();
       await expect(shell.locator('#installing')).toBeHidden();
