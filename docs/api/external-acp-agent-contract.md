@@ -198,7 +198,14 @@ Hull 回（用户在弹窗点允许/拒绝）：
 
 > 对象：`~/AI/keel`（原 `dsh-agent`；Java 17 / Spring AI 2.1.0）
 > **架构变更（改名同期）**：`keel-acp` 变为「ACP→HTTP 适配器」，必须先起共享服务 `keel-http`（默认 `http://127.0.0.1:8787`，单服务多客户端，网页与 Hull 共享会话）。Hull 侧通过包装脚本 `~/.local/bin/keel-acp.sh` 接入：服务未起则拉起，再 exec ACP。实测：服务就绪 ~2s，ACP 任务 exitCode 0、正常回复。
-> 方法：裸协议探测 + **Hull 真实 `ACPProvider`** 集成（launch = `java -jar`，`DSH_AGENT_FAKE_MODEL=1`）
+> 方法：裸协议探测 + **Hull 真实 `ACPProvider`** 集成（launch = `~/.local/bin/keel-acp.sh`）
+
+**2026-11-29 修复复核（keel 侧，已由 Hull 侧代改并重建 jar）**：
+- ✅ `initialize`：`protocolVersion: 1`（number）+ 标准 `agentCapabilities{promptCapabilities, sessionCapabilities}`（sessionCapabilities 诚实为空——未实现 resume/list/close）
+- ✅ 会话目录默认 `~/.keel/sessions`（不再污染任务 cwd）
+- ✅ `KEEL_ACP_EMBEDDED=1`：ACP 单进程内拉起 `keel-http`，服务随 ACP 退出（stdin EOF 显式 `System.exit(0)` 防非 daemon 线程挂住）
+- ✅ 真实模型实测：`text_chunk: 收到`（opencode-go / deepseek-v4.1-flash）
+- ⚠️ 坑：`~/.keel/sessions/channels.json` 的渠道（baseUrl/apiKey）**优先于环境变量**；换 key 后仍 401 → 删该文件让它按 env 重新播种
 
 **可用性**：✅ 端到端跑通——initialize → session/new → prompt → 流式 `agent_message_chunk` → `stopReason:end_turn`；Hull 侧 `text_chunk` 正常、`succeeded`、全链 ~1.5s。
 

@@ -16,7 +16,8 @@
 - **架构变更**：`keel-acp` 变为「ACP→HTTP 适配器」，必须先起共享服务 `keel-http`（:8787，单服务多客户端，网页与 Hull 共享会话）。单独 spawn `keel-acp.jar` 会 exit 2（其 README「hull 零改动 spawn」表述与实际不符）
 - Hull 接入方式：包装脚本 `~/.local/bin/keel-acp.sh`（服务未起→拉起 `bin/agent-http.sh`（真实模型）或 `KEEL_FAKE_MODEL=1` 直起 jar；就绪后 exec ACP）；`settings.externalAgent.command` 指向该脚本
 - 实测：`initialize` 正常（agentInfo `keel`）、ACP 任务 exitCode 0 + 正常回复；服务就绪 ~2s
-- P0 仍未修（复核）：`protocolVersion` 仍为字符串 `"1"`、能力仍为非标准 `capabilities.loadSession`、`KEEL_SESSIONS_DIR` 默认仍为相对 `sessions`（会污染任务 cwd）
+- **P0 已修（同日，由 Hull 侧代改 keel 源码并重建 jar）**：① `protocolVersion` 改数字 + 标准 `agentCapabilities`；② `KEEL_SESSIONS_DIR` 默认 `~/.keel/sessions`（不再污染 cwd）；③ 新增 `KEEL_ACP_EMBEDDED=1` 单进程内嵌服务（服务随 ACP 退出，EOF 显式 exit 防挂住）
+- **真实模型已通**：opencode-go / deepseek-v4.1-flash，实测 `text_chunk: 收到`；坑：`~/.keel/sessions/channels.json` 渠道配置优先于 env（401 时删文件重播种）
 - 环境变量前缀 `DSH_AGENT_*` → `KEEL_*`（旧前缀保留兼容回退）
 
 ## 2026-11-28 Agent 页——壳内直连外部 ACP Agent 对话（nav + 流式 + 审批）
