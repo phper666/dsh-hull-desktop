@@ -10,6 +10,15 @@
 - 验证：unit 1391/1391 · integration 40/40 · e2e 设置页 3/3 · 三端构建全绿
 - 已知边界：Windows PowerShell PATH 读取未做；`-ilc` 加载 shell rc（1–2s）
 
+## 2026-11-29 keel（原 dsh-agent）改名后接入复核
+
+- 用户 agent 项目改名 `dsh-agent` → **keel**（`~/AI/keel`，模块 `keel-core/acp/http/cli`）
+- **架构变更**：`keel-acp` 变为「ACP→HTTP 适配器」，必须先起共享服务 `keel-http`（:8787，单服务多客户端，网页与 Hull 共享会话）。单独 spawn `keel-acp.jar` 会 exit 2（其 README「hull 零改动 spawn」表述与实际不符）
+- Hull 接入方式：包装脚本 `~/.local/bin/keel-acp.sh`（服务未起→拉起 `bin/agent-http.sh`（真实模型）或 `KEEL_FAKE_MODEL=1` 直起 jar；就绪后 exec ACP）；`settings.externalAgent.command` 指向该脚本
+- 实测：`initialize` 正常（agentInfo `keel`）、ACP 任务 exitCode 0 + 正常回复；服务就绪 ~2s
+- P0 仍未修（复核）：`protocolVersion` 仍为字符串 `"1"`、能力仍为非标准 `capabilities.loadSession`、`KEEL_SESSIONS_DIR` 默认仍为相对 `sessions`（会污染任务 cwd）
+- 环境变量前缀 `DSH_AGENT_*` → `KEEL_*`（旧前缀保留兼容回退）
+
 ## 2026-11-28 Agent 页——壳内直连外部 ACP Agent 对话（nav + 流式 + 审批）
 
 - 类型：功能（新页面 + 长驻会话后端）

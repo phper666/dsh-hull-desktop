@@ -194,9 +194,10 @@ Hull 回（用户在弹窗点允许/拒绝）：
 |:---|:---|:---|
 | 2026-11-28 | v1.0 | 首次冻结：帧格式/握手/七方法/错误码/验收，基于 dsh 0.2.2-rc.1 实测 + ACP 标准（tool_call 段为标准参考，未实测） |
 
-## 9. 附录：dsh-agent v0.1.0 实测对照（2026-11-28）
+## 9. 附录：keel（原 dsh-agent）实测对照（2026-11-28，2026-11-29 改名后复核）
 
-> 对象：`~/AI/dsh-agent`（Java 17 / Spring AI 2.1.0，fat jar `dsh-agent-acp.jar`）
+> 对象：`~/AI/keel`（原 `dsh-agent`；Java 17 / Spring AI 2.1.0）
+> **架构变更（改名同期）**：`keel-acp` 变为「ACP→HTTP 适配器」，必须先起共享服务 `keel-http`（默认 `http://127.0.0.1:8787`，单服务多客户端，网页与 Hull 共享会话）。Hull 侧通过包装脚本 `~/.local/bin/keel-acp.sh` 接入：服务未起则拉起，再 exec ACP。实测：服务就绪 ~2s，ACP 任务 exitCode 0、正常回复。
 > 方法：裸协议探测 + **Hull 真实 `ACPProvider`** 集成（launch = `java -jar`，`DSH_AGENT_FAKE_MODEL=1`）
 
 **可用性**：✅ 端到端跑通——initialize → session/new → prompt → 流式 `agent_message_chunk` → `stopReason:end_turn`；Hull 侧 `text_chunk` 正常、`succeeded`、全链 ~1.5s。
