@@ -523,6 +523,41 @@
   /* P4 插件市场视图：占满内容区（同 #skills/#tokens 先例）；内层组件复用 skills.css .sk-* + 壳级 .empty-ico/.modal-wrap */
   #plugin:not(.hidden) { position: absolute; inset: 0; z-index: 10; display: block; }
   #plugin-root { width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; background: var(--hull-bg); color: var(--hull-text); font-size: var(--text-md); }
+
+  /* Agent 页：占满内容区（同 #plugin 先例）；对话流用最小 .ag-* 层，其余沿用壳级令牌/按钮/弹窗 */
+  #agent:not(.hidden) { position: absolute; inset: 0; z-index: 10; display: block; }
+  #agent-root { width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; background: var(--hull-bg); color: var(--hull-text); font-size: var(--text-md); }
+  .ag-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--hull-border); background: var(--hull-panel); flex-wrap: wrap; }
+  .ag-name { font-weight: 600; }
+  .ag-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--hull-text-sub); }
+  .ag-dot[data-state="connected"] { background: var(--hull-success); }
+  .ag-dot[data-state="idle"] { background: var(--hull-info); }
+  .ag-dot[data-state="busy"] { background: var(--hull-warning); }
+  .ag-dot[data-state="error"] { background: var(--hull-danger); }
+  .ag-sid { max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px; border: 1px solid var(--hull-border); border-radius: var(--radius-sm); background: var(--hull-card); color: var(--hull-text-muted); font-family: var(--font-mono); font-size: var(--text-xs); cursor: pointer; }
+  .ag-sid:hover { color: var(--hull-text); border-color: var(--hull-accent); }
+  .ag-spacer { flex: 1; }
+  .ag-banner { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--hull-border); background: var(--hull-danger-faint); color: var(--hull-danger); font-size: var(--text-sm); }
+  .ag-banner span:first-child { min-width: 0; overflow-wrap: anywhere; }
+  .ag-msgs { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .ag-msg { max-width: min(72ch, 82%); padding: 8px 12px; border-radius: var(--radius-lg); font-size: var(--text-md); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .ag-msg.user { align-self: flex-end; background: var(--hull-accent); color: var(--hull-text-inverse); border-bottom-right-radius: var(--radius-xs); }
+  .ag-msg.bot { align-self: flex-start; background: var(--hull-card); border: 1px solid var(--hull-border); border-bottom-left-radius: var(--radius-xs); }
+  .ag-msg.err { align-self: stretch; max-width: none; background: var(--hull-danger-faint); border: 1px solid var(--hull-danger-soft); color: var(--hull-danger); font-size: var(--text-sm); }
+  .ag-tool { align-self: flex-start; max-width: 100%; display: flex; align-items: center; gap: 6px; padding: 2px 8px; border: 1px solid var(--hull-border); border-radius: var(--radius-pill); background: var(--hull-panel); color: var(--hull-text-muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
+  .ag-tool-title { min-width: 0; }
+  .ag-tool-st { flex-shrink: 0; color: var(--hull-text-sub); }
+  .ag-tool[data-status="success"] .ag-tool-st, .ag-tool[data-status="completed"] .ag-tool-st { color: var(--hull-success); }
+  .ag-tool[data-status="error"] .ag-tool-st, .ag-tool[data-status="failed"] .ag-tool-st { color: var(--hull-danger); }
+  .ag-empty { margin: auto; padding: 24px; max-width: 420px; text-align: center; color: var(--hull-text-muted); }
+  .ag-empty h2 { margin: 0 0 var(--space-2); font-size: 18px; font-weight: 600; color: var(--hull-text); }
+  .ag-empty p { margin: 0 0 var(--space-3); font-size: var(--text-md); line-height: 1.6; }
+  .ag-hint { display: flex; align-items: center; gap: 6px; padding: 6px 14px 0; background: var(--hull-panel); color: var(--hull-text-muted); font-size: var(--text-xs); }
+  .ag-hint:empty, .ag-hint span:empty { display: none; }
+  .ag-compose { display: flex; align-items: flex-end; gap: 8px; padding: 8px 14px 10px; background: var(--hull-panel); border-top: 1px solid var(--hull-border); }
+  #ag-input { flex: 1; min-width: 0; resize: none; overflow-y: auto; max-height: 120px; font-family: inherit; font-size: var(--text-md); line-height: 1.5; }
+  .ag-linkbtn { padding: 0; border: none; background: none; color: var(--hull-accent); font-size: var(--text-xs); cursor: pointer; }
+  .ag-linkbtn:hover { color: var(--hull-accent-hover); text-decoration: underline; }
 </style>
 </head>
 <body data-theme="dark">
@@ -531,6 +566,8 @@
     <div id="nav-items">
       <button id="nav-web" class="nav-item active"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 7 4 5-4 5"/><path d="M12 17h8" opacity="0.5"/></svg>dsh web</button>
       <button id="nav-board" class="nav-item"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="4.5" height="15" rx="1"/><rect x="9.75" y="4.5" width="4.5" height="15" rx="1" opacity="0.55"/><rect x="16" y="4.5" width="4.5" height="15" rx="1" opacity="0.55"/></svg>任务看板</button>
+      <!-- Agent（外部 ACP Agent 对话；入口位于任务看板之后） -->
+      <button id="nav-agent" class="nav-item"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="7.5" width="16" height="12" rx="2.5"/><path d="M12 4v3.5"/><circle cx="12" cy="3.2" r="1.1"/><path d="M9 12.5h.01M15 12.5h.01" stroke-width="2.2"/><path d="M9.5 16.5h5" opacity="0.6"/></svg>Agent</button>
       <!-- N2 笔记（共识 v1.0：笔记入口位于任务看板之后，CON-R-notes-011） -->
       <button id="nav-notes" class="nav-item"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5h9.5L19 7v13.5H6a1.5 1.5 0 0 1-1.5-1.5v-14A1.5 1.5 0 0 1 6 3.5z"/><path d="M8 8.5h7M8 12h7M8 15.5h4" opacity="0.6"/></svg>笔记</button>
       <button id="nav-skills" class="nav-item"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5" opacity="0.55"/><rect x="4" y="13" width="7" height="7" rx="1.5" opacity="0.55"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Skills</button>
@@ -596,6 +633,10 @@
     <!-- B2 任务看板：view=placeholder:board 时显示；数据经 window.kanban/window.exec 桥消费 -->
     <section id="board" class="placeholder hidden">
       <div id="board-root"></div>
+    </section>
+    <!-- Agent 页（外部 ACP Agent 对话；view=placeholder:agent 时显示；数据经 window.agent 桥消费） -->
+    <section id="agent" class="placeholder hidden">
+      <div id="agent-root"></div>
     </section>
     <!-- N2 笔记视图：view=placeholder:notes 时显示；数据经 window.notes 桥（N1）消费 -->
     <section id="notes" class="placeholder hidden">
@@ -991,7 +1032,7 @@
   const bridge = window.hull;
   const PLACEHOLDER_PREFIX = 'placeholder:';
   // S8' S8'：sections 扩 1（settings）——view 2→3 态（official/board/settings）
-  const sections = ['starting', 'installing', 'failed', 'not-installed', 'board', 'notes', 'skills', 'plugin', 'tokens', 'connections', 'workflows', 'notifs', 'settings'];
+  const sections = ['starting', 'installing', 'failed', 'not-installed', 'board', 'agent', 'notes', 'skills', 'plugin', 'tokens', 'connections', 'workflows', 'notifs', 'settings'];
 
   // 占位视图切换（view 字段驱动；official → 全隐藏）
   let lastView = '';
@@ -1051,6 +1092,7 @@
   // ── S8' §4.4 nav 高亮回写（view 字段驱动） ──
   const navActiveByView = {
     'placeholder:board': 'nav-board',
+    'placeholder:agent': 'nav-agent',
     'placeholder:notes': 'nav-notes', // N2：view 5 态口径（CON-R-notes-011），笔记入口插于任务看板后
     'placeholder:skills': 'nav-skills',
     'placeholder:plugin': 'nav-plugin',
@@ -2602,6 +2644,12 @@
     setActive('nav-board');
     if (bridge) await bridge.showBoard(); // main 切 view → placeholder:board → section#board 显示
   });
+  // Agent 页（任务看板之后；hull:showAgent 由主进程 lane 提供，桥未就绪时静默跳过）
+  document.getElementById('nav-agent').addEventListener('click', async () => {
+    setActive('nav-agent');
+    if (bridge?.showAgent) await bridge.showAgent(); // main 切 view → placeholder:agent → section#agent 显示
+    window.__agentRefresh?.(); // 进入即取状态（agent.js 注册）
+  });
   // N2 笔记视图（任务看板之后；hull:showNotes 登记随 N1/preload 契约收口——桥未就绪时静默跳过，本地高亮先行）
   document.getElementById('nav-notes').addEventListener('click', async () => {
     setActive('nav-notes');
@@ -2754,6 +2802,7 @@
 <script src="skills.js"></script>
   <script src="tokens.js"></script>
   <script src="plugins.js"></script>
+<script src="agent.js"></script>
   <script src="connections.js"></script>
   <script src="workflows.js"></script>
   <!-- U3 依赖图（kanban.js 之后加载；depgraph-core 供 kanban 摘要计数与单测共用，depgraph.js 挂 window.depgraph） -->
