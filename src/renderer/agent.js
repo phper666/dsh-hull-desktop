@@ -522,13 +522,8 @@
       if (!st.connected) { toast('请先连接 Agent'); return; }
     }
     if (st.busy) return;
-    let r = null;
-    try { r = await agent().send(value); } catch (e) { r = { ok: false, message: (e && e.message) || '发送失败' }; }
-    if (!r || r.ok === false) {
-      appendError((r && r.message) || '发送失败，请检查 Agent 是否仍在运行。');
-      sync();
-      return;
-    }
+    // 先乐观置 busy 再 await：main 可能在 ack 之前就推 turn_end/idle（快 agent），
+    // 若等 ack 后再置 busy 会覆盖已到达的 idle → 假「思考中」卡死。
     lastUserText = value;
     appendUser(value);
     if (input.value.trim() === value) { input.value = ''; resizeInput(); }
@@ -536,6 +531,15 @@
     st.awaiting = true;
     currentBot = null;
     sync();
+    let r = null;
+    try { r = await agent().send(value); } catch (e) { r = { ok: false, message: (e && e.message) || '发送失败' }; }
+    if (!r || r.ok === false) {
+      st.busy = false;
+      st.awaiting = false;
+      appendError((r && r.message) || '发送失败，请检查 Agent 是否仍在运行。');
+      sync();
+      return;
+    }
     input.focus();
   }
 
