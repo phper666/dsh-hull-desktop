@@ -11,7 +11,8 @@ import { join } from 'node:path';
 
 import type { Board, ExecutionStatus, Task } from '../../kanban/types';
 import { NOOP_LOGGER, type RuntimeLogger } from '../../shared/types';
-import type { ExecutionProvider, ExecutionResult } from '../provider/ExecutionProvider';
+import type { ExecutionProvider, ExecutionResult, ExecutionTask } from '../provider/ExecutionProvider';
+import { DEFAULT_PROVIDER } from '../provider/ProviderRegistry';
 import { ExecNotFoundError, ExecStateConflictError, ExecValidationError } from '../errors';
 
 export interface SchedulerReadStore {
@@ -46,6 +47,11 @@ export interface SchedulerOptions {
   maxParallelTasks?: number;
   /** Q-017-C 观测：重启重排入队/跳过留痕（缺省 NOOP） */
   logger?: RuntimeLogger;
+  /**
+   * U-002：每任务 provider 解析钩子（缺省 → 固定 provider，行为不变）。
+   * 在 startBatch 真正 execute 前按 ExecutionTask 解析一次；解析异常走启动失败收尾。
+   */
+  resolveProvider?: (task: ExecutionTask) => ExecutionProvider;
 }
 
 export interface ExecuteTaskResult {
@@ -95,6 +101,8 @@ function expandTilde(p: string): string {
 export class Scheduler extends EventEmitter {
   private readonly store: SchedulerReadStore;
   private readonly provider: ExecutionProvider;
+  /** U-002：每任务解析钩子（undefined → 固定 this.provider） */
+  private readonly resolveProvider?: (task: ExecutionTask) => ExecutionProvider;
   private readonly mutations: SchedulerMutations;
   private readonly maxParallel: number;
   private readonly logger: RuntimeLogger;
@@ -119,6 +127,7 @@ export class Scheduler extends EventEmitter {
     super();
     this.store = store;
     this.provider = provider;
+    this.resolveProvider = options.resolveProvider;
     this.mutations = mutations;
     this.maxParallel = options.maxParallelTasks ?? DEFAULT_MAX_PARALLEL;
     this.logger = options.logger ?? NOOP_LOGGER;
@@ -390,9 +399,27 @@ export class Scheduler extends EventEmitter {
       this.runningCount++;
       // Q-017 次级修复：provider.execute 同步抛错 → 回滚内存池 + 任务置 failed
       //（任务没跑起来 ≠ succeeded；queuedQueue 不还原——任务已终态）
+      // U-002：provider 按任务解析（缺省固定 provider）——resolve 失败同样走启动失败收尾
       let handle: ExecHandleLike;
+      const execTask = this.toExecutionTask(task, q.boardId);
+      let execProvider: ExecutionProvider;
       try {
-        handle = this.provider.execute(this.toExecutionTask(task, q.boardId), {
+        execProvider = this.resolveProvider ? this.resolveProvider(execTask) : this.provider;
+      } catch (err) {
+        this.running.delete(task.id);
+        this.runningCount--;
+        const msg = err instanceof Error ? err.message : String(err);
+        const providerName = execTask.agentSpec?.provider ?? DEFAULT_PROVIDER;
+        const code = (err as { code?: string }).code;
+        const detail =
+          code === 'exec-provider-unavailable'
+            ? `exec-provider-unavailable (provider=${providerName})：${msg}`
+            : `provider.resolve 异常 (provider=${providerName})：${msg}`;
+        this.mutations.failQueuedTask?.(task.id, '启动失败', detail);
+        continue;
+      }
+      try {
+        handle = execProvider.execute(execTask, {
           onEvent: (ev) => this.mutations.onStreamEvent?.(task.id, ev),
           onStatus: (s) => this.handleStatus(task.id, s),
           onResult: (r) => this.handleResult(task.id, r),
@@ -558,6 +585,9 @@ export class Scheduler extends EventEmitter {
     // Q-021 推理力度：task.agentSpec.reasoningEffort > board.defaultReasoningEffort > 终端兜底 'low'
     //（Q-021 修订：去掉「dsh 决定」选项——dsh 默认 off 对 glm 系渠道 400）
     const reasoningEffort = task.agentSpec.reasoningEffort ?? board?.defaultReasoningEffort ?? 'low';
+    // U-002：会话归属 provider —— acpSessionId 只回同 provider（跨 dsh/external 复用必坏）
+    const providerName = task.agentSpec.provider ?? DEFAULT_PROVIDER;
+    const sessionProvider = task.acpSessionProvider ?? DEFAULT_PROVIDER;
     return {
       taskId: task.id,
       title: task.title,
@@ -567,7 +597,8 @@ export class Scheduler extends EventEmitter {
       ...(reasoningEffort ? { reasoningEffort } : {}),
       ...(model ? { model } : {}),
       // Q-022 会话复用：上次执行建立的 acp 会话 id → provider 先 session/resume 续用
-      ...(task.acpSessionId ? { resumeSessionId: task.acpSessionId } : {}),
+      // U-002：仅当会话归属 provider 与本次 provider 一致才带（不匹配 → 开新会话，无副作用）
+      ...(task.acpSessionId && sessionProvider === providerName ? { resumeSessionId: task.acpSessionId } : {}),
       ac: task.acceptanceCriteria ?? undefined,
       agentSpec: task.agentSpec
         ? {

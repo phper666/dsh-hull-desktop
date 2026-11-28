@@ -79,6 +79,7 @@ function settings(base: string, over: Partial<HullSettings> = {}): HullSettings 
     notesDir: join(base, 'notes'),
     extraPath: [],
     preferExtraPath: false,
+    externalAgent: { enabled: false, name: '', command: '' },
     ...over,
   };
 }

@@ -21,7 +21,7 @@ import { test } from 'node:test';
 import { deepEqual, equal, ok, rejects } from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 
 import { ACPProvider, buildPromptText } from './ACPProvider';
@@ -1066,4 +1066,117 @@ test('fetchModels spawn 异步失败（ENOENT）→ 吸收为 reject 不炸主�
     }) as never,
   });
   await rejects(() => provider.listModels(), /dsh ACP 探测子进程启动失败: spawn node ENOENT/);
+});
+
+// ─────────────────── U-002 外部 ACP agent（launch 注入） ───────────────────
+
+test('U-002 launch：connect spawn 用户命令（cwd=task.cwd），不拼 dsh argv', () => {
+  const h = new Harness();
+  const spawnLog: { cmd: string; args: string[]; opts: { cwd?: string } }[] = [];
+  const provider = new ACPProvider({
+    launch: { command: '/opt/my agent/agent', args: ['--port', '8080'] },
+    spawnFn: ((cmd: string, args: string[], opts: never) => {
+      spawnLog.push({ cmd, args, opts: opts as { cwd?: string } });
+      h.child = new FakeChild();
+      return h.child;
+    }) as never,
+  });
+  provider.execute(TASK, h.handlers);
+  equal(spawnLog.length, 1);
+  equal(spawnLog[0].cmd, '/opt/my agent/agent');
+  deepEqual(spawnLog[0].args, ['--port', '8080']);
+  equal(spawnLog[0].opts.cwd, TASK_CWD, '外部 agent cwd = task.cwd（契约 §5）');
+});
+
+test('U-002 launch：spawn 失败文案带「外部 agent」区分', async () => {
+  const h = new Harness();
+  const provider = new ACPProvider({
+    launch: { command: '/nope/agent', args: [] },
+    spawnFn: (() => {
+      throw new Error('spawn /nope/agent ENOENT');
+    }) as never,
+  });
+  provider.execute(TASK, h.handlers);
+  await sleep(5);
+  equal(h.statuses.includes('failed'), true);
+  equal(h.resultCount, 1);
+  ok(h.results[0].summary.includes('外部 agent 子进程启动失败'), '文案区分外部 agent');
+});
+
+test('U-002 launch：listModels 走用户命令 + 不注入 DSH_HOME 临时 home + 跳过 dsh settings 合并', async () => {
+  const prev = process.env.DSH_HOME;
+  delete process.env.DSH_HOME;
+  try {
+    const settingsDir = mkdtempSync(join(tmpdir(), 'hull-ext-settings-'));
+    const settingsPath = join(settingsDir, 'settings.yaml');
+    writeFileSync(
+      settingsPath,
+      'llm-pi-ai:\n  providers:\n    custom:\n      models:\n        - id: should-not-merge\n',
+      'utf8',
+    );
+    const h = new Harness();
+    const spawnLog: { cmd: string; args: string[]; opts: { cwd?: string; env?: NodeJS.ProcessEnv } }[] = [];
+    const provider = new ACPProvider({
+      launch: { command: '/opt/ext-agent', args: ['--stdio'] },
+      settingsPath,
+      spawnFn: ((cmd: string, args: string[], opts: never) => {
+        spawnLog.push({ cmd, args, opts: opts as { cwd?: string; env?: NodeJS.ProcessEnv } });
+        h.child = new FakeChild();
+        return h.child;
+      }) as never,
+    });
+    const p = provider.listModels();
+    const init = sentRequest(h, 0);
+    respond(h.child!, init.id!, { protocolVersion: 1 });
+    await sleep(5);
+    const ns = sentRequest(h, 1);
+    equal((ns.params as { cwd: string }).cwd, homedir(), 'launch 探测 session/new cwd = home');
+    const group = { group: 'ext-route', name: 'Ext Route', options: [{ value: '["ext-route","ext-model"]', name: 'ext-model' }] };
+    respond(h.child!, ns.id!, { sessionId: 's_ext', configOptions: [{ id: 'model', options: [group] }] });
+    const result = (await p) as unknown[];
+    deepEqual(result, [group], '只回外部 agent 自身 configOptions（dsh settings.yaml 不合并）');
+    equal(spawnLog[0].cmd, '/opt/ext-agent');
+    deepEqual(spawnLog[0].args, ['--stdio']);
+    equal(spawnLog[0].opts.cwd, homedir(), 'spawn cwd = home（探测无任务目录）');
+    equal(spawnLog[0].opts.env?.DSH_HOME, undefined, '不注入 DSH_HOME 临时 home');
+  } finally {
+    if (prev === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = prev;
+  }
+});
+
+test('U-002 launch：permission 契约响应 {requestId,approved,reason} + message.content 文案提取', async () => {
+  const h = new Harness();
+  const provider = new ACPProvider({
+    launch: { command: 'ext-agent', args: [] },
+    spawnFn: (() => {
+      h.child = new FakeChild();
+      return h.child;
+    }) as never,
+  });
+  const handle = provider.execute(TASK, h.handlers);
+  await handshake(h);
+  serverRequest(h.child!, 99, 'session/request_permission', {
+    sessionId: 's_1',
+    requestId: 'req-1',
+    message: { role: 'user', content: [{ type: 'text', text: '允许写文件？' }] },
+    options: [],
+  });
+  await sleep(5);
+  equal(h.events[0].kind, 'permission_request');
+  if (h.events[0].kind === 'permission_request') {
+    equal(h.events[0].id, '99');
+    equal(h.events[0].message, '允许写文件？', '契约 message.content 提取为文案');
+  }
+  (handle as { respondPermission?: (a: string, b: boolean, c?: string) => void }).respondPermission?.(
+    '99',
+    true,
+    '用户批准',
+  );
+  const resp = h.child!.stdin.lines.map((l) => JSON.parse(l)).find((f) => f.id === 99 && f.method === undefined);
+  ok(resp, '有 response 帧');
+  deepEqual(resp.result, { requestId: 'req-1', approved: true, reason: '用户批准' });
+  const pt = sentRequest(h, 2);
+  if (pt.method === 'session/prompt') respond(h.child!, pt.id!, { stopReason: 'end_turn' });
+  await sleep(5);
 });

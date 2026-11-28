@@ -508,3 +508,76 @@ test('extraPath：migrate 旧文件无字段 → 默认补齐', () => {
   deepEqual(parsed.extraPath, []);
   equal(parsed.preferExtraPath, false);
 });
+
+// ── 外部 ACP agent（externalAgent，U-002 第二平台；字段级扩展不 bump schemaVersion） ──
+test('externalAgent：缺省 {enabled:false,name:"",command:""}，schemaVersion 仍 4', () => {
+  const { provider } = makeProvider({ 'settings.json': JSON.stringify({ closeToQuit: true }) });
+  const s = provider.getSettings();
+  deepEqual(s.externalAgent, { enabled: false, name: '', command: '' });
+  equal(s.schemaVersion, 4);
+});
+
+test('externalAgent：读取规范化——enabled 非 boolean→false、name trim 截断 40、command 去换行', () => {
+  const longName = '  ' + 'A'.repeat(50) + '  ';
+  const { provider } = makeProvider({
+    'settings.json': JSON.stringify({
+      externalAgent: { enabled: 'yes', name: longName, command: '  /opt/my-agent\n--port 8080\n' },
+    }),
+  });
+  const s = provider.getSettings();
+  deepEqual(s.externalAgent, {
+    enabled: false,
+    name: 'A'.repeat(40),
+    command: '/opt/my-agent --port 8080',
+  });
+});
+
+test('externalAgent：坏值容错——非对象 → 默认，name/command 非字符串 → 空串', () => {
+  const { provider } = makeProvider({
+    'settings.json': JSON.stringify({ externalAgent: 'on' }),
+  });
+  deepEqual(provider.getSettings().externalAgent, { enabled: false, name: '', command: '' });
+
+  const { provider: provider2 } = makeProvider({
+    'settings.json': JSON.stringify({ externalAgent: { enabled: 1, name: 42, command: ['a'] } }),
+  });
+  deepEqual(provider2.getSettings().externalAgent, { enabled: false, name: '', command: '' });
+});
+
+test('externalAgent：set 写路径同样规范化落盘（防渲染层脏数据）', () => {
+  const { provider, dir } = makeProvider({});
+  provider.set({
+    externalAgent: {
+      enabled: true,
+      name: '  外部 Agent  ',
+      command: '/bin/agent\n--flag',
+    } as unknown as { enabled: boolean; name: string; command: string },
+  });
+  const onDisk = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as {
+    externalAgent: { enabled: boolean; name: string; command: string };
+    schemaVersion: number;
+  };
+  deepEqual(onDisk.externalAgent, { enabled: true, name: '外部 Agent', command: '/bin/agent --flag' });
+  equal(onDisk.schemaVersion, 4);
+});
+
+test('externalAgent：migrate 旧文件缺字段 → 默认补齐；已有值保留并规范化', () => {
+  const { provider, dir } = makeProvider({ 'settings.json': JSON.stringify({ closeToQuit: true, schemaVersion: 3 }) });
+  provider.migrate();
+  const parsed = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as {
+    externalAgent: { enabled: boolean; name: string; command: string };
+  };
+  deepEqual(parsed.externalAgent, { enabled: false, name: '', command: '' });
+
+  const { provider: provider2, dir: dir2 } = makeProvider({
+    'settings.json': JSON.stringify({
+      schemaVersion: 3,
+      externalAgent: { enabled: true, name: '  My Agent  ', command: ' agent\n--x ' },
+    }),
+  });
+  provider2.migrate();
+  const parsed2 = JSON.parse(readFileSync(join(dir2, 'settings.json'), 'utf8')) as {
+    externalAgent: { enabled: boolean; name: string; command: string };
+  };
+  deepEqual(parsed2.externalAgent, { enabled: true, name: 'My Agent', command: 'agent --x' });
+});

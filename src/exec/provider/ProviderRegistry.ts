@@ -72,6 +72,14 @@ export class ProviderRegistry {
   }
 
   /**
+   * 注销 provider（U-002：外部 agent 设置关闭时移除注册——getAgentProviders 不再出现该平台）。
+   * 未注册 → false（幂等，不抛错）。
+   */
+  unregister(provider: string): boolean {
+    return this.registrations.delete(provider);
+  }
+
+  /**
    * 解析 agentSpec.provider → 对应执行实现。双重判定（P1-B4-2）：
    * ① 未注册 → ExecProviderUnavailableError；② 已注册但 isReady() 失败 → 同样错误。
    */

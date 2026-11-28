@@ -60,6 +60,15 @@ test('register 缺省 supportsSubagent/isReady 有默认值', () => {
   deepEqual(reg.list(), [{ provider: 'dsh', displayName: 'DeepSeek Harness', available: true, supportsSubagent: true }]);
 });
 
+test('unregister：移除注册（list 不再出现，resolve 抛未注册）；未注册 → false 幂等', () => {
+  const reg = new ProviderRegistry();
+  reg.register({ provider: 'external-agent', displayName: '外部 Agent', factory: () => ({}) });
+  equal(reg.unregister('external-agent'), true);
+  deepEqual(reg.list(), []);
+  throws(() => reg.resolve('external-agent'), ExecProviderUnavailableError);
+  equal(reg.unregister('external-agent'), false, '未注册 → false（幂等）');
+});
+
 test('DEFAULT_PROVIDER = dsh', () => {
   equal(DEFAULT_PROVIDER, 'dsh');
 });

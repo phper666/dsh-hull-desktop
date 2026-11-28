@@ -118,6 +118,8 @@ export interface Task {
   timeline: TimelineItem[];
   /** Q-022 会话复用：最近一次执行的 acp 会话 id（运行时状态非用户意图配置，与 agentSpec 分离；结算回写，重跑 resume 续用） */
   acpSessionId?: string;
+  /** U-002：acpSessionId 归属的 provider（缺省视为 'dsh'；跨 provider 不复用会话，结算与 id 同步落盘） */
+  acpSessionProvider?: string;
 }
 
 export interface Column {

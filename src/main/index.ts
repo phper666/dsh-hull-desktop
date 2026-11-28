@@ -46,8 +46,10 @@ import { KanbanStore } from '../kanban/KanbanStore';
 import { registerKanbanIpc } from '../kanban/KanbanIpc';
 import { ExecutionEngine } from '../exec/ExecutionEngine';
 import { ACPProvider } from '../exec/provider/ACPProvider';
+import { ExternalAgentProviderManager } from '../exec/provider/ExternalAgentProviderManager';
 import { ProviderManager } from '../exec/provider/ProviderManager';
-import { ProviderRegistry } from '../exec/provider/ProviderRegistry';
+import { ProviderRegistry, DEFAULT_PROVIDER } from '../exec/provider/ProviderRegistry';
+import type { ExecutionProvider } from '../exec/provider/ExecutionProvider';
 import { ApprovalManager } from '../exec/approval/ApprovalManager';
 import { AcEditor } from '../exec/approval/AcEditor';
 import { registerExecIpc } from '../exec/ipc/ExecIpc';
@@ -188,6 +190,19 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   // 仅 HULL_EXEC_PROVIDER=mock 时回落 ProviderManager 的 MockProvider，不接 permission 事件）
   const acpProvider: ACPProvider | undefined =
     providerManager.getProvider() instanceof ACPProvider ? (providerManager.getProvider() as ACPProvider) : undefined;
+  // U-002：执行平台注册表（dsh 在前；外部 agent 在 ApprovalManager 就绪后注册）。
+  // 早于 ExecutionEngine 创建：resolveProvider 在 execEngine.start 重启重排（同步 drain）时即被调用。
+  // RuntimeManager 由后续启动编排段创建——装配前视 dsh 就绪（保持 Q-017 重排任务原行为），装配后按真实 phase 判定。
+  let runtimeRef: RuntimeManager | undefined;
+  const registry = new ProviderRegistry();
+  registry.register({
+    provider: DEFAULT_PROVIDER,
+    displayName: 'DeepSeek Harness',
+    supportsSubagent: true,
+    factory: () => providerManager.getProvider(),
+    // isReady = dsh 运行时就绪（RuntimeManager.phase==='ready'）；与 executeTask 实际可用口径一致（P1-B4-2）
+    isReady: () => runtimeRef === undefined || runtimeRef.snapshot().phase === 'ready',
+  });
   const execEngine = new ExecutionEngine({
     store: kanbanStore,
     providerManager,
@@ -195,6 +210,8 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     logger, // Q-017-C：重启 sweep/重排留痕 → hull.log
     // Q-回复落盘（2026-09-05）：流式输出日志目录 <userData>/kanban/executions（getExecutionLog 消费）
     executionsDir: join(kanbanStore.getDataDir(), 'executions'),
+    // U-002：每任务按 agentSpec.provider 分发（registry.resolve 双判 + exec-provider-unavailable）
+    resolveProvider: (task) => registry.resolve(task.agentSpec?.provider ?? DEFAULT_PROVIDER).factory() as ExecutionProvider,
     // V2a §3.2：看板执行结算/级联 emit 进中心；error 级推系统通知（点击跳任务详情）
     emitNotif: (input) => {
       const row = notifService.emit(input);
@@ -264,7 +281,6 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   });
   registerWorkflowIpc(workflowStore, workflowEngine, workflowScheduler);
   workflowScheduler.reschedule();
-  execEngine.start(); // 壳重启收敛（Q-017）：running/paused/interrupted → failed + queued 重排
   // B1 store 内部 system 事件写原语（B4 审批/AC 修订 timeline 写权，P1-1：B4 经 store 原语直调，不经 IPC）
   const appendSystem = (boardId: string, taskId: string, content: string): void => {
     const b = (kanbanStore as unknown as { data: { boards: Array<{ id: string; tasks: Array<{ id: string; timeline: unknown[] }> }> } }).data.boards.find((x) => x.id === boardId);
@@ -280,16 +296,6 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
       execution: null,
     });
   };
-  // RuntimeManager 由后续启动编排段创建（isReady 闭包延迟执行时已初始化）
-  const registry = new ProviderRegistry();
-  registry.register({
-    provider: 'dsh',
-    displayName: 'DeepSeek Harness',
-    supportsSubagent: true,
-    factory: () => providerManager.getProvider(),
-    // isReady = dsh 运行时就绪（RuntimeManager.phase==='ready'）；与 executeTask 实际可用口径一致（P1-B4-2）
-    isReady: () => runtime.snapshot().phase === 'ready',
-  });
   // 审批流：respondApproval 回 ACP（经 engine 转发到当前执行句柄 permission_response 帧）+ timeline 写
   const approval = new ApprovalManager({
     respondApproval: (ctx, decision, reason) => {
@@ -301,6 +307,44 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
   // B4 收口：ACPProvider permission_request 通知 → ApprovalManager 入队（生产审批链路）
   // （仅真实 ACP provider 接线；HULL_EXEC_PROVIDER=mock 无 permission 事件源，跳过）
   if (acpProvider) acpProvider.on('permission', (ctx) => void approval.handlePermission(ctx));
+  // U-002：外部 ACP agent（独立项目 agent，NDJSON JSON-RPC over stdio）——未启用 → 不注册（UI 自动隐藏）。
+  // 命令解析失败（空/坏引号）等同未启用；设置变化时重建实例（下次 resolve 生效，不打断在跑任务）。
+  const externalAgent = new ExternalAgentProviderManager({
+    getExternalAgent: () => settings.getSettings().externalAgent,
+    getPathSettings: () => {
+      const s = settings.getSettings();
+      return { extraPath: s.extraPath, preferExtraPath: s.preferExtraPath };
+    },
+    logger,
+    onPermission: (ctx) => void approval.handlePermission(ctx),
+    nodePath: resolveNodePath(userDataPath),
+  });
+  let registeredExternalName: string | null = null;
+  /** 注册表按设置同步：启用且命令可解析 → 注册；关闭/坏命令 → 注销（getAgentProviders 不再出现） */
+  const syncExternalRegistration = (): void => {
+    const nextName = externalAgent.getProvider() ? settings.getSettings().externalAgent.name || '外部 Agent' : null;
+    if (nextName === registeredExternalName) return;
+    registeredExternalName = nextName;
+    if (nextName === null) {
+      registry.unregister('external-agent');
+      return;
+    }
+    registry.register(
+      {
+        provider: 'external-agent',
+        displayName: nextName,
+        supportsSubagent: false,
+        factory: () => externalAgent.getProvider(),
+        isReady: () => externalAgent.isReady(),
+      },
+      logger,
+    );
+  };
+  externalAgent.sync();
+  syncExternalRegistration();
+  // U-002：重启收敛/重排放在 registry（dsh + 外部 agent）与 resolveProvider 装配完成后——
+  // 重排任务在同步 drain 中即可按 agentSpec.provider 解析到正确执行通道。
+  execEngine.start(); // 壳重启收敛（Q-017）：running/paused/interrupted → failed + queued 重排
   const acEditor = new AcEditor({
     readStore: {
       getExecutionStatus: (boardId, taskId) => kanbanStore.getBoard(boardId).tasks.find((t) => t.id === taskId)?.executionStatus ?? 'idle',
@@ -343,10 +387,14 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     extraPath: settings.getSettings().extraPath,
     preferExtraPath: settings.getSettings().preferExtraPath,
   });
+  runtimeRef = runtime; // U-002：registry dsh isReady 晚绑定（装配后按真实 phase 判定）
   // 自定义 PATH 设置变更：只更新内存值供下次 spawn 使用（不自动重启 dsh；UI 用 hull:restart 生效）
   settings.on('changed', (s) => {
     runtime.setPathSettings(s.extraPath, s.preferExtraPath);
     acpProvider?.setPathSettings(s.extraPath, s.preferExtraPath);
+    // U-002：外部 agent 设置变更 → 按新命令重建实例（关闭/坏命令注销 provider）
+    externalAgent.sync();
+    syncExternalRegistration();
   });
   // S2：overlay 管理栈（首装自动触发 / ensure 三态 / 取消）
   const bundledNode = join(userDataPath, 'node', 'bin', 'node');
@@ -694,6 +742,7 @@ async function bootstrap(lock: { onSecondInstance(cb: () => void): void }): Prom
     }
     // E2E-05 修复：ACP 探测/会话子进程不随 runtime.stop 的进程组被杀 → 退出编排统一 kill（防孤儿）
     if (acpProvider) await acpProvider.killAllChildren();
+    await externalAgent.killAllChildren();
     await new Promise((r) => setTimeout(r, 500)); // SIGKILL 后短延时，防 zombie（T1-02）
     quitProceeding = true; // 🟡-A：最终 quit 发出前标记，before-quit 据此放行
     winMgr.setQuitting(); // 退出编排收尾：close 事件放行（防 closeToQuit=false 阻断最终退出）

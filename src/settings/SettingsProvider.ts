@@ -22,6 +22,16 @@ export type ThemeName = 'dark' | 'light' | 'system';
 /** 默认 registry（S6 契约 schema：任意 npm registry，CON-R013） */
 export const DEFAULT_REGISTRY = 'https://registry.npmjs.org';
 
+/** 外部 ACP agent 设置（U-002 第二平台插槽；字段级扩展不 bump schemaVersion） */
+export interface ExternalAgentSettings {
+  /** 是否注册外部 agent provider（默认 false = 不注册，UI 不出现该平台） */
+  enabled: boolean;
+  /** 平台展示名（缺省「外部 Agent」；trim 截断 40 字符） */
+  name: string;
+  /** 启动命令（shell 风格单行；空白分隔 + 引号包裹，见 launchCommand.parseLaunchCommand） */
+  command: string;
+}
+
 /** 壳设置 schema（S1 冻结面 + S4/S5/S6 变更传播扩展） */
 export interface HullSettings {
   /** 点关闭按钮 = 退出（默认 false = 隐藏到托盘） */
@@ -50,6 +60,8 @@ export interface HullSettings {
   extraPath: string[];
   /** 自定义 PATH 目录是否优先于捆绑 node 目录（默认 false；字段级扩展不 bump schemaVersion） */
   preferExtraPath: boolean;
+  /** 外部 ACP agent（U-002：独立项目 agent，NDJSON JSON-RPC over stdio；默认禁用） */
+  externalAgent: ExternalAgentSettings;
 }
 
 /** 当前 schema 版本（S4 bump 1→2，S5 两字段再 bump 2→3，N1 notesDir bump 3→4——无迁移语义，读路径缺省补齐） */
@@ -68,7 +80,11 @@ const DEFAULT_SETTINGS: Omit<HullSettings, 'notesDir'> = {
   notifPrefs: DEFAULT_NOTIF_PREFS,
   extraPath: [],
   preferExtraPath: false,
+  externalAgent: { enabled: false, name: '', command: '' },
 };
+
+/** 外部 agent 展示名最大长度（设置页输入截断；防异常超长串进 UI/IPC） */
+const EXTERNAL_NAME_MAX = 40;
 
 export interface SettingsProviderOptions {
   /** Electron userData 目录（settings.json 落点 <userData>/settings.json） */
@@ -111,6 +127,19 @@ export function normalizeExtraPath(value: unknown, home: string = homedir()): st
     out.push(entry);
   }
   return out;
+}
+
+/**
+ * 外部 ACP agent 设置归一化（读写同源，防渲染层脏数据）：
+ * 非对象 → 默认；enabled 非 boolean → false；name trim 截断 40 字符；command trim 单行（去换行）。
+ */
+export function normalizeExternalAgent(value: unknown): ExternalAgentSettings {
+  const raw = value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  const enabled = typeof raw.enabled === 'boolean' ? raw.enabled : false;
+  const name = typeof raw.name === 'string' ? raw.name.trim().slice(0, EXTERNAL_NAME_MAX) : '';
+  const command =
+    typeof raw.command === 'string' ? raw.command.replace(/[\r\n]+/g, ' ').trim() : '';
+  return { enabled, name, command };
 }
 
 /**
@@ -174,6 +203,7 @@ export class SettingsProvider extends EventEmitter {
       obj.packageManager === 'npm' || obj.packageManager === 'pnpm' ? obj.packageManager : DEFAULT_SETTINGS.packageManager;
     const extraPath = normalizeExtraPath(obj.extraPath);
     const preferExtraPath = typeof obj.preferExtraPath === 'boolean' ? obj.preferExtraPath : DEFAULT_SETTINGS.preferExtraPath;
+    const externalAgent = normalizeExternalAgent(obj.externalAgent);
     if (
       typeof obj.closeToQuit !== 'boolean' ||
       typeof obj.schemaVersion !== 'number' ||
@@ -193,7 +223,7 @@ export class SettingsProvider extends EventEmitter {
     const notifPrefs = normalizeNotifPrefs(obj.notifPrefs);
     // N1：notesDir 读路径缺省补齐（无迁移语义，CON-R-notes-001）
     const notesDir = typeof obj.notesDir === 'string' && obj.notesDir !== '' ? obj.notesDir : join(this.userDataPath, 'notes');
-    return { closeToQuit, schemaVersion, channel, pinnedVersion, autoCheckDsh, autoCheckHull, registry, theme, packageManager, notifPrefs, notesDir, extraPath, preferExtraPath };
+    return { closeToQuit, schemaVersion, channel, pinnedVersion, autoCheckDsh, autoCheckHull, registry, theme, packageManager, notifPrefs, notesDir, extraPath, preferExtraPath, externalAgent };
   }
 
   /**
@@ -214,6 +244,8 @@ export class SettingsProvider extends EventEmitter {
     // 自定义 PATH 归一化（渲染层可能传脏数据，与读路径归一对称）
     next.extraPath = normalizeExtraPath(next.extraPath);
     next.preferExtraPath = next.preferExtraPath === true;
+    // U-002：外部 agent 归一化（非对象/坏字段逐项回退默认，与读路径归一对称）
+    next.externalAgent = normalizeExternalAgent(next.externalAgent);
     // 校验（SETTINGS_ERRORS）
     if (partial.registry !== undefined && !isValidRegistry(partial.registry)) {
       throw new HullError('registry-invalid', `非法 registry 地址: ${partial.registry}`);
@@ -309,5 +341,7 @@ export function migrateSettingsObject(raw: Record<string, unknown>, userDataPath
     // 自定义 PATH：旧文件无字段 → 默认补齐（同读路径规范化）
     extraPath: normalizeExtraPath(raw.extraPath),
     preferExtraPath: typeof raw.preferExtraPath === 'boolean' ? raw.preferExtraPath : DEFAULT_SETTINGS.preferExtraPath,
+    // U-002：旧文件无 externalAgent → 默认补齐（同读路径规范化）
+    externalAgent: normalizeExternalAgent(raw.externalAgent),
   };
 }

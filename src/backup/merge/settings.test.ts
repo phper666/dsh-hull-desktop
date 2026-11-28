@@ -34,6 +34,7 @@ function makeLocal(userDataPath: string): HullSettings {
     notesDir: join(userDataPath, 'local-notes'),
     extraPath: [],
     preferExtraPath: false,
+    externalAgent: { enabled: false, name: '', command: '' },
   };
 }
 

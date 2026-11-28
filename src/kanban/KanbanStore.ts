@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto';
 
 import { HullError } from '../shared/errors';
 import { NOOP_LOGGER, type RuntimeLogger } from '../shared/types';
+import { DEFAULT_PROVIDER } from '../exec/provider/ProviderRegistry';
 import {
   DEFAULT_COLUMNS,
   DEFAULT_MAX_ATTACHMENT_SIZE_MB,
@@ -78,6 +79,20 @@ function normalizeAgentCwd(cwd: string | null | undefined): string | null {
 const REASONING_EFFORTS = ['off', 'low', 'medium', 'high', 'max'] as const;
 
 /**
+ * U-002：agentSpec.provider 白名单——'dsh'（默认）或 'external-agent'（外部 ACP agent 插槽）。
+ * 白名单外值来自渲染层脏数据 → 回退 'dsh' + 告警；registry 未注册的 provider 由 Scheduler
+ * resolve 阶段报 exec-provider-unavailable 兜底（本层不判注册状态）。
+ */
+const AGENT_PROVIDER_IDS: readonly string[] = [DEFAULT_PROVIDER, 'external-agent'];
+
+/** U-002：provider 入参归一化——白名单外 → 'dsh' + 告警（create） */
+function normalizeAgentProvider(provider: string, logger: RuntimeLogger): string {
+  if (AGENT_PROVIDER_IDS.includes(provider)) return provider;
+  logger.warn(`agentSpec.provider 非法值 '${provider}'，回退 '${DEFAULT_PROVIDER}'`);
+  return DEFAULT_PROVIDER;
+}
+
+/**
  * Q-021：reasoningEffort 入参归一化——null/undefined/'' → null（清除回落 dsh 默认）；
  * 白名单枚举校验（effort 是枚举非自由串，与 cwd 的「任意路径」不同）；
  * trim（容错 ' low '）；非法值 → validation 拒绝（create/update/updateBoard 同规）。
@@ -106,8 +121,10 @@ export interface CreateTaskInput {
   startDate?: string | null;
   labels?: string[];
   description?: string | null;
-  /** Q-018 模型选择 + Q-019 工作目录 + Q-021 推理力度：只收 model/cwd/reasoningEffort（provider/agent/subagentPolicy 保持默认不开放） */
-  agentSpec?: { model?: string | null; cwd?: string | null; reasoningEffort?: string | null };
+  /** Q-018 模型选择 + Q-019 工作目录 + Q-021 推理力度 + U-002 执行平台：provider 缺省 'dsh'，可选 'external-agent' */
+  agentSpec?: { provider?: string; model?: string | null; cwd?: string | null; reasoningEffort?: string | null };
+  /** U-002：会话归属 provider（运行时状态；缺省不写 = 视为 'dsh'） */
+  acpSessionProvider?: string | null;
 }
 
 /** 任务部分更新字段（updateTask 白名单；系统管理字段不在内） */
@@ -122,8 +139,10 @@ export interface UpdateTaskPatch {
   acceptanceCriteria?: AcceptanceCriteria | null;
   executionMode?: ExecutionMode;
   dependencies?: string[];
-  /** Q-018 模型选择 + Q-019 工作目录 + Q-021 推理力度：merge 语义——非空更新 / 显式 null|'' 清除（回看板默认）/ 不提供不动 */
-  agentSpec?: { model?: string | null; cwd?: string | null; reasoningEffort?: string | null };
+  /** Q-018 模型选择 + Q-019 工作目录 + Q-021 推理力度 + U-002 provider：不提供不动 / provider 白名单外回退 'dsh' */
+  agentSpec?: { provider?: string; model?: string | null; cwd?: string | null; reasoningEffort?: string | null };
+  /** U-002：会话归属 provider（运行时状态；null/'' 清除，不提供不动） */
+  acpSessionProvider?: string | null;
 }
 /** 评论/附件入参（addComment） */
 export interface AddCommentInput {
@@ -451,9 +470,13 @@ export class KanbanStore {
       executionStatus: 'idle',
       currentExecutionId: null,
       acceptanceCriteria: input.acceptanceCriteria ?? null,
-      // Q-018：ticket 级模型 merge 到默认 agentSpec（只收 model；provider/agent/subagentPolicy 保持默认）
+      // Q-018：ticket 级模型 merge 到默认 agentSpec（应收 model/cwd/reasoningEffort；agent/subagentPolicy 保持默认）
+      // U-002：provider 透传（缺省 'dsh'；白名单外回退 'dsh' + 告警）
       agentSpec: {
-        provider: 'dsh',
+        provider:
+          input.agentSpec?.provider !== undefined && input.agentSpec.provider !== null
+            ? normalizeAgentProvider(input.agentSpec.provider, this.logger)
+            : DEFAULT_PROVIDER,
         agent: null,
         model: normalizeAgentModel(input.agentSpec?.model),
         cwd: normalizeAgentCwd(input.agentSpec?.cwd),
@@ -474,6 +497,8 @@ export class KanbanStore {
       createdAt: now,
       updatedAt: now,
       timeline: [this.systemEvent(`任务创建`)],
+      // U-002：会话归属 provider 透传（运行时状态；缺省不写 = 视为 'dsh'）
+      ...(input.acpSessionProvider ? { acpSessionProvider: input.acpSessionProvider } : {}),
     };
     board.tasks.push(task);
     this.scheduleFlush();
@@ -499,11 +524,20 @@ export class KanbanStore {
       task.executionMode = patch.executionMode;
     }
     if (patch.acceptanceCriteria !== undefined) task.acceptanceCriteria = patch.acceptanceCriteria;
-    // Q-018 模型选择 merge 语义：agentSpec 提供 → 非空更新 / 显式 null|'' 清除；不提供 → 不动
+    // Q-018 模型选择 merge 语义：agentSpec 提供 → model/cwd/reasoningEffort 归一化；
+    // U-002：provider 只在该 patch 显式提供时透传（不提供 → 保持原值）
     if (patch.agentSpec !== undefined) {
+      if (patch.agentSpec.provider !== undefined && patch.agentSpec.provider !== null) {
+        task.agentSpec.provider = normalizeAgentProvider(patch.agentSpec.provider, this.logger);
+      }
       task.agentSpec.model = normalizeAgentModel(patch.agentSpec.model);
       task.agentSpec.cwd = normalizeAgentCwd(patch.agentSpec.cwd);
       task.agentSpec.reasoningEffort = normalizeReasoningEffort(patch.agentSpec.reasoningEffort);
+    }
+    // U-002：会话归属 provider（运行时状态；null/'' 清除，不提供不动）
+    if (patch.acpSessionProvider !== undefined) {
+      if (patch.acpSessionProvider === null || patch.acpSessionProvider === '') delete task.acpSessionProvider;
+      else task.acpSessionProvider = patch.acpSessionProvider;
     }
     if (patch.dependencies !== undefined) {
       task.dependencies = this.validateDependencies(board, task.parentId, patch.dependencies);
