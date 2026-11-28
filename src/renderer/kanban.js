@@ -144,6 +144,7 @@
       groups = await loadModelGroups();
     } catch { groups = null; }
     if (!sel.isConnected) return false;
+    if (sel.disabled) return true; // 外部 Agent 自管模型：禁用的下拉不再被异步填充覆盖
     if (!groups) { (wrapSel ? sel.closest(wrapSel) : sel).style.display = 'none'; return true; }
     sel.innerHTML = modelOptionsHtml(groups, emptyLabel);
     sel.value = selected || '';
@@ -154,6 +155,64 @@
     return fillModelSelect(getSel(), selected, emptyLabel, wrapSel).then((done) => {
       if (!done) requestAnimationFrame(() => { void fillModelSelect(getSel(), selected, emptyLabel, wrapSel, true); });
     });
+  }
+
+  // ── 执行引擎（provider）选择（window.exec.getAgentProviders 桥由主进程提供）──
+  // 仅 ≥2 个可用 provider 才显示该行：现状只有 dsh → 零视觉噪音（回归安全）。
+  // 外部 Agent（external-agent）的模型/推理力度由其自身 configOptions 决定（M1 不透传）→ 模型下拉换单选项并禁用。
+  const EXT_PROVIDER = 'external-agent';
+  const EXT_MODEL_LABEL = '默认（由 Agent 决定）';
+  async function loadProviders() {
+    try {
+      const r = await window.exec?.getAgentProviders?.();
+      if (r && r.ok === false) return null;
+      const list = Array.isArray(r) ? r : r && Array.isArray(r.data) ? r.data : null;
+      if (!list) return null;
+      const avail = list.filter((p) => p && p.available !== false); // 主进程已按启用+命令合法过滤，这里再兜一层
+      return avail.length ? avail : null;
+    } catch { return null; } // 桥缺失/异常 → 不显示该行（与现状一致）
+  }
+  /**
+   * 绑定表单的「执行引擎」行（创建/编辑共用）。返回 { provider() }：提交时取生效 provider id
+   * （仅 external-agent 返回；dsh 返回 null → 不带字段，存量语义不变）。model 为回显值。
+   */
+  function setupTaskEngine(w, provider, model, emptyLabel) {
+    const wrap = $('#kb-provider-wrap', w);
+    const sel = $('#kb-provider', w);
+    const modelEl = $('#kb-model', w);
+    const effortEl = $('#kb-effort', w);
+    let prevModel = model || '';
+    const restoreModel = () => fillModelSelectWithRetry(() => $('#kb-model', w), prevModel, emptyLabel, '#kb-model-wrap');
+    restoreModel();
+    if (!wrap || !sel) return { provider: () => null };
+    let live = false; // 行已显示且选项就绪
+    const applyEngine = (isExt) => {
+      if (!modelEl) return;
+      // 模型行的 dsh 渠道说明对外部 Agent 不适用 → 外部时隐藏
+      const modelHint = modelEl.closest('.kb-f')?.querySelector('.kb-hint');
+      if (modelHint) modelHint.style.display = isExt ? 'none' : '';
+      if (isExt) {
+        prevModel = modelEl.value; // 切回 dsh 时恢复原选择
+        modelEl.innerHTML = `<option value="">${esc(EXT_MODEL_LABEL)}</option>`;
+        modelEl.value = '';
+        modelEl.disabled = true;
+        if (effortEl) effortEl.disabled = true;
+      } else {
+        modelEl.disabled = false;
+        if (effortEl) effortEl.disabled = false;
+        restoreModel();
+      }
+    };
+    sel.addEventListener('change', () => applyEngine(sel.value === EXT_PROVIDER));
+    loadProviders().then((list) => {
+      if (!sel.isConnected || !list || list.length < 2) return;
+      sel.innerHTML = list.map((p) => `<option value="${esc(p.provider)}" title="${esc(p.provider)}">${esc(p.displayName || p.provider)}</option>`).join('');
+      sel.value = list.some((p) => p.provider === provider) ? provider : list[0].provider; // 默认第一个（dsh）
+      wrap.style.display = '';
+      live = true;
+      applyEngine(sel.value === EXT_PROVIDER);
+    }).catch(() => {});
+    return { provider: () => (live && sel.value === EXT_PROVIDER ? EXT_PROVIDER : null) };
   }
 
   // ── 原生目录选择器（hull:pickDirectory 桥，dialog:pickDirectory 通道）──
@@ -1132,6 +1191,7 @@
     modal('新建卡片', `
       <div class="kb-f"><label>标题</label><input id="kb-tt" class="kb-input" /></div>
       <div class="kb-f"><label>模式</label><select id="kb-mode" class="kb-input"><option value="manual">手动</option><option value="auto">自动（需 AC）</option></select></div>
+      <div class="kb-f" id="kb-provider-wrap" style="display:none"><label>执行引擎</label><select id="kb-provider" class="kb-input"></select><span class="kb-hint">外部 Agent 的模型与推理力度由其自身配置决定</span></div>
       <div class="kb-f" id="kb-model-wrap"><label>模型</label><select id="kb-model" class="kb-input" title="${MODEL_PRIORITY_HINT}"><option value="">加载模型中…</option></select><span class="kb-hint">用于本票执行；自定义渠道来自 dsh 设置</span></div>
       <div class="kb-f"><label>工作目录</label><input id="kb-cwd" class="kb-input" placeholder="默认 ~（主目录）" title="ticket 所选 → 看板默认 → ~（主目录）；目录不存在时执行会失败并提示" /><button class="kb-btn" id="kb-cwd-browse">浏览…</button><span class="kb-hint">仅 kanban 任务执行生效（dsh web 聊天工作区不在此设置）</span></div>
       <div class="kb-f"><label>推理力度</label><select id="kb-effort" class="kb-input" title="${REASONING_TICKET_HINT}">${reasoningOptionsHtml('')}</select></div>
@@ -1144,13 +1204,16 @@
         const p = await pickDirectory();
         if (p) $('#kb-cwd', w).value = p; // 对话框仅填值（DOM 属性赋值，无 HTML 注入面），随保存提交
       });
-      fillModelSelectWithRetry(() => $('#kb-model', w), '', '默认（跟随看板）', '#kb-model-wrap');
+      const engine = setupTaskEngine(w, null, '', '默认（跟随看板）'); // 引擎行默认隐藏；≥2 个可用 provider 才出现
       // E1：描述 textarea → EasyMDE（Q-041 新实例；关闭随 kbOnClose destroy）
       const descEditor = createEditor($('#kb-desc', w));
       w.kbOnClose.push(() => destroyEditor(descEditor));
       descEditor?.codemirror.focus(); // Q-046：初始化后编辑器获得焦点
       const ok = async () => {
-        const input = { title: $('#kb-tt', w).value.trim(), columnId: colId, priority: $('#kb-pri', w).value, description: (descEditor ? descEditor.value() : $('#kb-desc', w).value).trim() || null, executionMode: $('#kb-mode', w).value, agentSpec: { model: $('#kb-model', w)?.value || null, cwd: $('#kb-cwd', w)?.value.trim() || null, reasoningEffort: $('#kb-effort', w)?.value || null } }; // agentSpec.model/cwd/reasoningEffort：执行链 lane 补 store/IPC 透传
+        const agentSpec = { model: $('#kb-model', w)?.value || null, cwd: $('#kb-cwd', w)?.value.trim() || null, reasoningEffort: $('#kb-effort', w)?.value || null }; // agentSpec.model/cwd/reasoningEffort：执行链 lane 补 store/IPC 透传
+        const prov = engine.provider();
+        if (prov) { agentSpec.provider = prov; agentSpec.reasoningEffort = null; } // 外部 Agent 自管模型/力度；dsh 不带 provider（存量语义不变）
+        const input = { title: $('#kb-tt', w).value.trim(), columnId: colId, priority: $('#kb-pri', w).value, description: (descEditor ? descEditor.value() : $('#kb-desc', w).value).trim() || null, executionMode: $('#kb-mode', w).value, agentSpec };
         if (!input.title) return;
         if (input.executionMode === 'auto') {
           input.acceptanceCriteria = { what: $('#kb-ac-what', w).value.trim(), expected: $('#kb-ac-exp', w).value.trim(), verify: $('#kb-ac-ver', w).value.trim() };
@@ -1276,6 +1339,7 @@
       <div class="kb-f"><label>标题</label><input id="kb-tt" class="kb-input" value="${esc(t.title)}" /></div>
       <div class="kb-f"><label>描述</label><textarea id="kb-desc" class="kb-input">${esc(t.description || '')}</textarea></div>
       <div class="kb-f"><label>优先级</label><select id="kb-pri" class="kb-input">${['P0', 'P1', 'P2', '无'].map((p) => `<option ${t.priority === p ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
+      <div class="kb-f" id="kb-provider-wrap" style="display:none"><label>执行引擎</label><select id="kb-provider" class="kb-input"></select><span class="kb-hint">外部 Agent 的模型与推理力度由其自身配置决定</span></div>
       <div class="kb-f" id="kb-model-wrap"><label>模型</label><select id="kb-model" class="kb-input" title="${MODEL_PRIORITY_HINT}"><option value="">加载模型中…</option></select><span class="kb-hint">用于本票执行；自定义渠道来自 dsh 设置</span></div>
       <div class="kb-f"><label>工作目录</label><input id="kb-cwd" class="kb-input" placeholder="默认 ~（主目录）" title="ticket 所选 → 看板默认 → ~（主目录）；目录不存在时执行会失败并提示" value="${esc(t.agentSpec?.cwd || '')}" /><button class="kb-btn" id="kb-cwd-browse">浏览…</button><span class="kb-hint">仅 kanban 任务执行生效（dsh web 聊天工作区不在此设置）</span></div>
       <div class="kb-f"><label>推理力度</label><select id="kb-effort" class="kb-input" title="${REASONING_TICKET_HINT}">${reasoningOptionsHtml(t.agentSpec?.reasoningEffort || '')}</select></div>
@@ -1285,14 +1349,17 @@
       const descEditor = createEditor($('#kb-desc', w), t.description ?? '');
       w.kbOnClose.push(() => destroyEditor(descEditor));
       descEditor?.codemirror.focus(); // Q-046/E19：编辑弹窗初始 focus 在编辑器
-      fillModelSelectWithRetry(() => $('#kb-model', w), t.agentSpec?.model, '默认（跟随看板）', '#kb-model-wrap'); // 回显 task.agentSpec.model（Q-023 disconnected 重试）
+      const engine = setupTaskEngine(w, t.agentSpec?.provider || null, t.agentSpec?.model, '默认（跟随看板）'); // 回显 provider/model（Q-023 disconnected 重试）
       $('#kb-cwd-browse', w)?.addEventListener('click', async () => {
         const p = await pickDirectory();
         if (p) $('#kb-cwd', w).value = p; // 对话框仅填值（DOM 属性赋值，无 HTML 注入面），随保存提交
       });
       $('[data-ok]', w).addEventListener('click', async () => {
         // U3：子任务保存附带 dependencies（同父兄弟勾选；顶层任务不可声明，store 校验兜底）
-        const patch = { title: $('#kb-tt', w).value.trim(), description: (descEditor ? descEditor.value() : $('#kb-desc', w).value).trim() || null, priority: $('#kb-pri', w).value, agentSpec: { model: $('#kb-model', w)?.value || null, cwd: $('#kb-cwd', w)?.value.trim() || null, reasoningEffort: $('#kb-effort', w)?.value || null } }; // agentSpec.model/cwd/reasoningEffort：执行链 lane 补 store/IPC 透传
+        const agentSpec = { model: $('#kb-model', w)?.value || null, cwd: $('#kb-cwd', w)?.value.trim() || null, reasoningEffort: $('#kb-effort', w)?.value || null }; // agentSpec.model/cwd/reasoningEffort：执行链 lane 补 store/IPC 透传
+        const prov = engine.provider();
+        if (prov) { agentSpec.provider = prov; agentSpec.reasoningEffort = null; } // 外部 Agent 自管模型/力度；dsh 不带 provider（存量语义不变）
+        const patch = { title: $('#kb-tt', w).value.trim(), description: (descEditor ? descEditor.value() : $('#kb-desc', w).value).trim() || null, priority: $('#kb-pri', w).value, agentSpec };
         if (t.parentId) patch.dependencies = [...w.querySelectorAll('#kb-deps input:checked')].map((c) => c.value);
         const r = await kanban.updateTask(currentBoard.id, t.id, patch);
         if (r.ok) { close(); await loadBoard(currentBoard.id); } else alert('保存失败：' + (r.message || r.code));
