@@ -156,12 +156,12 @@ function makeBoard(id: string, tasks: Task[]): Board {
   };
 }
 
-function setup(board: Board, opts: { maxParallelTasks?: number; delayMs?: number } = {}) {
+function setup(board: Board, opts: { maxParallelTasks?: number; delayMs?: number; provider?: ExecutionProvider } = {}) {
   const store = new FakeStore();
   store.register(board);
   const mutations = new SpyMutations();
   mutations.setStatus = (taskId, s) => store.setStatus(taskId, s);
-  const provider = new MockProvider({ delayMs: opts.delayMs ?? 0 });
+  const provider = opts.provider ?? new MockProvider({ delayMs: opts.delayMs ?? 0 });
   const sched = new Scheduler(store, provider, mutations, { maxParallelTasks: opts.maxParallelTasks ?? 3 });
   return { store, mutations, provider, sched };
 }
@@ -710,4 +710,25 @@ test('Q-022 会话复用：task.acpSessionId 无 → ExecutionTask 不带 resume
   sched.executeTask('b1', 'T');
   await waitFor(() => mutations.settled.size === 1);
   equal('resumeSessionId' in provider.captured[0], false, '不带 resumeSessionId');
+});
+
+// ─────────────────── U-002 会话归属 provider（防跨 provider 串会话） ───────────────────
+
+test('U-002 resumeSessionId：仅当 acpSessionProvider 与 agentSpec.provider 一致才带（相同/不同/缺省）', async () => {
+  const dshSpec: Task['agentSpec'] = { provider: 'dsh', agent: null, model: null, subagentPolicy: 'auto' };
+  const extSpec: Task['agentSpec'] = { ...dshSpec, provider: 'external-agent' };
+  const board = makeBoard('b_u002', [
+    makeTask('t_same_dsh', { acpSessionId: 's_dsh' }), // 缺省归属 = dsh
+    makeTask('t_same_ext', { acpSessionId: 's_ext', acpSessionProvider: 'external-agent', agentSpec: extSpec }),
+    makeTask('t_mismatch_dsh2ext', { acpSessionId: 's_old', acpSessionProvider: 'dsh', agentSpec: extSpec }),
+    makeTask('t_mismatch_ext2dsh', { acpSessionId: 's_old2', acpSessionProvider: 'external-agent', agentSpec: dshSpec }),
+  ]);
+  const { mutations, provider, sched } = setupRecording(board);
+  for (const t of board.tasks) sched.executeTask('b_u002', t.id);
+  await waitFor(() => mutations.settled.size === 4);
+  const byId = new Map(provider.captured.map((t) => [t.taskId, t]));
+  equal(byId.get('t_same_dsh')!.resumeSessionId, 's_dsh', '缺省归属=dsh 且本次 dsh → 复用');
+  equal(byId.get('t_same_ext')!.resumeSessionId, 's_ext', 'external 同归属 → 复用');
+  equal(byId.get('t_mismatch_dsh2ext')!.resumeSessionId, undefined, 'dsh 会话 → external 不带');
+  equal(byId.get('t_mismatch_ext2dsh')!.resumeSessionId, undefined, 'external 会话 → dsh 不带');
 });

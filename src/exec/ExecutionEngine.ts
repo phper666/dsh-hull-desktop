@@ -25,7 +25,9 @@ import { NOOP_LOGGER, type RuntimeLogger } from '../shared/types';
 import type {
   ExecutionProvider,
   ExecutionResult,
+  ExecutionTask,
 } from './provider/ExecutionProvider';
+import { DEFAULT_PROVIDER } from './provider/ProviderRegistry';
 import type { ProviderManager } from './provider/ProviderManager';
 import { Scheduler, type SchedulerMutations, type SchedulerSettledResult } from './scheduler/Scheduler';
 import { HeartbeatMonitor, type HeartbeatTimeoutEvent } from './heartbeat/HeartbeatMonitor';
@@ -54,6 +56,11 @@ export interface ExecutionEngineOptions {
   providerManager: ProviderManager;
   /** provider 直注（测试 seam；优先于 providerManager，mock outcome 注入用） */
   provider?: ExecutionProvider;
+  /**
+   * U-002：每任务 provider 解析钩子（缺省 → 单 provider，行为与今天完全一致）。
+   * 提供后每个 execution 在调度启动时按 task.agentSpec.provider 解析一次。
+   */
+  resolveProvider?: (task: ExecutionTask) => ExecutionProvider;
   /** 并行上限（默认 3） */
   maxParallelTasks?: number;
   /** 心跳 idle 分钟（默认 30） */
@@ -111,6 +118,7 @@ export class ExecutionEngine extends EventEmitter {
     this.scheduler = new Scheduler(this.store, this.provider, this.mutations, {
       maxParallelTasks: options.maxParallelTasks ?? 3,
       logger: this.logger, // Q-017-C：重排入队/跳过留痕透传
+      ...(options.resolveProvider ? { resolveProvider: options.resolveProvider } : {}), // U-002：按任务解析
     });
 
     // 心跳接线：timeout → 引擎层 failed + kill（HeartbeatMonitor 只 emit，引擎订阅执行）
@@ -358,7 +366,11 @@ export class ExecutionEngine extends EventEmitter {
         // onResult 不带 sessionId（会话未建立，如 cwd 防御失败）→ 不写保持 undefined
         if (result.sessionId) {
           const settled = self.findTaskById(taskId);
-          if (settled) settled.acpSessionId = result.sessionId;
+          if (settled) {
+            settled.acpSessionId = result.sessionId;
+            // U-002：会话归属 provider 与 id 同步落盘（跨 provider 不复用：Scheduler 组任务时校验）
+            settled.acpSessionProvider = settled.agentSpec.provider ?? DEFAULT_PROVIDER;
+          }
           self.flushStore();
         } else if (result.resumeFailed) {
           // Q-025：resume 失败（如损坏会话日志 -32603）且降级 newSession 也失败 → 清空引用——
@@ -367,6 +379,7 @@ export class ExecutionEngine extends EventEmitter {
           const settled = self.findTaskById(taskId);
           if (settled && settled.acpSessionId) {
             settled.acpSessionId = undefined;
+            settled.acpSessionProvider = undefined;
             self.flushStore();
           }
         }

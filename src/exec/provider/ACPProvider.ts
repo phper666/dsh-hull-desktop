@@ -36,6 +36,7 @@ import type {
   ExecutionTask,
 } from './ExecutionProvider';
 import { JsonRpcClient } from './JsonRpcClient';
+import type { LaunchSpec } from './launchCommand';
 
 /**
  * ACP 请求/通知方法名（标准 ACP = Zed Agent Client Protocol；Q-017-C：dsh 0.1.2-rc.1
@@ -200,6 +201,12 @@ export interface ACPProviderOptions {
   extraPath?: string[];
   /** 自定义目录是否优先于捆绑 node 目录（settings.preferExtraPath，默认 false） */
   preferExtraPath?: boolean;
+  /**
+   * U-002：外部 ACP agent 启动命令（设置页 externalAgent.command 解析结果）。
+   * 有 launch → spawn 该命令（cwd=task.cwd；fetchModels 不注入 DSH_HOME 临时 home、
+   * 不合并 dsh settings.yaml 自定义渠道）；无 launch → 现行 dsh ACP argv（行为逐字节不变）。
+   */
+  launch?: LaunchSpec;
 }
 
 /** 权限请求上下文（ApprovalManager 消费；B2 非阻塞弹窗数据源） */
@@ -233,6 +240,8 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
    * → spawn ENOENT；fetchModels 未挂 error handler → unhandled 'error' → 主进程弹框。
    */
   private readonly nodePath: string;
+  /** U-002：外部 agent 启动命令（undefined = dsh ACP 默认路径） */
+  private readonly launch?: LaunchSpec;
   /** 自定义 PATH 目录（settings 变更经 setPathSettings 更新；下次 spawn 生效） */
   private extraPath: string[];
   private preferExtraPath: boolean;
@@ -266,6 +275,7 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
     this.settingsPath = options.settingsPath;
     this.listModelsTimeoutMs = options.listModelsTimeoutMs ?? 45_000;
     this.nodePath = options.nodePath ?? 'node';
+    this.launch = options.launch;
     this.extraPath = options.extraPath ?? [];
     this.preferExtraPath = options.preferExtraPath ?? false;
   }
@@ -293,6 +303,20 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
       preferExtraPath: this.preferExtraPath,
     });
     return { ...env, ...extra };
+  }
+
+  /** 失败文案标签：dsh 默认路径逐字保持，launch 模式区分「外部 agent」 */
+  private agentLabel(): string {
+    return this.launch ? '外部 agent' : 'dsh ACP';
+  }
+
+  /**
+   * U-002：spawn 命令解析（connect 与 fetchModels 共用）：
+   * 有 launch → 用户命令原样；无 → 现行 dsh ACP argv（逐字节不变）。
+   */
+  private launchSpec(dir: string | undefined): { command: string; args: string[] } {
+    if (this.launch) return { command: this.launch.command, args: this.launch.args };
+    return { command: this.nodePath, args: ['--expose-internals', dshBinPath(dir!), '--profile', 'acp'] };
   }
 
   execute(task: ExecutionTask, handlers: ExecutionHandlers): { cancel(): Promise<void> } {
@@ -346,18 +370,24 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
       onCrash: (err: Error) => rejectCrash(err),
       /**
        * 回 ACP 审批响应（契约 §4.2：session/request_permission 响应 { requestId, approved, reason? }）。
-       * 经 JsonRpcClient 发通知帧到 dsh 子进程；通道已断/无会话 → 静默（超时兜底由 ApprovalManager deny）。
+       * 经 JsonRpcClient 发响应帧到子进程；通道已断/无会话 → 静默（超时兜底由 ApprovalManager deny）。
+       * U-002：launch（外部 agent）按冻结契约回 { requestId, approved, reason }；
+       * 无 launch（dsh）保持标准 ACP outcome 形态（逐字节不变）。
        */
       respondPermission: (requestId: string, approved: boolean, reason?: string) => {
-        void reason; // 标准 ACP 响应帧无 reason 字段（审批文案留在壳侧 ApprovalManager 记录）
         if (state.settled) return;
         const client = state.client;
         if (!client) return;
         // Q-017-C：标准 ACP permission 是 server→client REQUEST——按业务 requestId
-        //（= JSON-RPC id 字符串）找在途请求，回 response 帧 selected outcome
+        //（= JSON-RPC id 字符串）找在途请求，回 response 帧
         const rec = state.pendingPermissions.get(requestId);
         if (!rec) return;
         state.pendingPermissions.delete(requestId);
+        if (this.launch) {
+          // 外部 ACP Agent 契约 §3.6：{ requestId, approved, reason }（agent 阻塞等待此帧再继续）
+          client.sendResponse(rec.id, { requestId: rec.businessRequestId ?? requestId, approved, reason: reason ?? '' });
+          return;
+        }
         client.sendResponse(rec.id, { outcome: { outcome: 'selected', optionId: pickOptionId(rec.options, approved) } });
       },
     };
@@ -373,20 +403,26 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
   async listModels(overlayDir?: string): Promise<ModelOption[]> {
     const dir =
       overlayDir ?? this.overlayDir ?? (process.env.DSH_HOME ? `${process.env.DSH_HOME}/dsh` : undefined);
-    if (!dir) throw new Error('无法定位 dsh ACP 子进程（DSH_HOME 未设置且未注入 overlayDir）');
-    const cached = this.modelsCache.get(dir);
+    // U-002：launch 模式不依赖 overlay（外部 agent 自带可执行文件），也不注入 DSH_HOME 临时 home
+    if (!this.launch && !dir) throw new Error('无法定位 dsh ACP 子进程（DSH_HOME 未设置且未注入 overlayDir）');
+    const cacheKey = this.launch
+      ? `external:${JSON.stringify([this.launch.command, this.launch.args])}`
+      : dir!;
+    const cached = this.modelsCache.get(cacheKey);
     if (cached && Date.now() - cached.at < MODEL_CACHE_TTL_MS) return cached.data;
     // Q-023 探测子进程隔离：DSH_HOME 指向临时 home——探测会话落临时 sessions，不污染真实 ~/.dsh/sessions
-    const tmpHome = mkdtempSync(join(tmpdir(), 'hull-probe-'));
+    // （U-002：外部 agent 无 dsh 会话目录，不建临时 home）
+    const tmpHome = this.launch ? undefined : mkdtempSync(join(tmpdir(), 'hull-probe-'));
     try {
       // Q-018 收尾：清单 = acp configOptions 内置分组 ⊕ settings.yaml llm-pi-ai.providers 自定义分组
       //（acp 会话 configOptions 实测不含自定义渠道，但 set_config_option 接受其 value——执行链路已通）
+      // U-002：外部 agent 清单只取自身 configOptions（dsh settings.yaml 与其无关，跳过合并）
       const acpGroups = await this.fetchModels(dir, tmpHome);
-      const data = this.mergeSettingsModelGroups(acpGroups);
-      this.modelsCache.set(dir, { at: Date.now(), data });
+      const data = this.launch ? acpGroups : this.mergeSettingsModelGroups(acpGroups);
+      this.modelsCache.set(cacheKey, { at: Date.now(), data });
       return data;
     } finally {
-      rmSync(tmpHome, { recursive: true, force: true }); // 探测结束清理（返回/超时/异常三路径）
+      if (tmpHome) rmSync(tmpHome, { recursive: true, force: true }); // 探测结束清理（返回/超时/异常三路径）
     }
   }
 
@@ -425,14 +461,17 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
   }
 
   /** 轻量会话：握手 + session/new 读 configOptions[model]（用完即弃，kill 子进程） */
-  private async fetchModels(dir: string, tmpHome: string): Promise<ModelOption[]> {
-    const bin = dshBinPath(dir);
+  private async fetchModels(dir: string | undefined, tmpHome?: string): Promise<ModelOption[]> {
+    // U-002：launch 模式 spawn 用户命令（cwd = home，探测会话无任务目录）；无 launch 保持 dsh argv
+    const spec = this.launchSpec(dir);
+    const probeCwd = this.launch ? homedir() : dir!;
     // Q-023：DSH_HOME=临时 home（会话落临时 sessions）；bin 仍 overlayDir——内置分组来自 dsh 安装本身，
     // 不受隔离影响，清单完整性不变；自定义渠道本来走 settings.yaml 合并
-    const child = this.spawnFn(this.nodePath, ['--expose-internals', bin, '--profile', 'acp'], {
-      cwd: dir,
+    // （U-002：外部 agent 直接继承补全后的 PATH 环境，不注入 DSH_HOME）
+    const child = this.spawnFn(spec.command, spec.args, {
+      cwd: probeCwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: this.spawnEnv({ DSH_HOME: tmpHome }),
+      env: tmpHome ? this.spawnEnv({ DSH_HOME: tmpHome }) : this.spawnEnv(),
     });
     this.logger.info(`[Q-023] 模型清单探测子进程已启动 pid=${child.pid ?? '?'}`);
     this.activeChildren.add(child);
@@ -440,7 +479,7 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
     // spawn 异步失败（ENOENT 等）必须就地吸收：不挂 handler 会变 unhandled 'error'
     // → uncaughtException → 主进程弹框（0.1.7 实测缺陷）；转 reject 走既有失败路径
     const spawnError = new Promise<never>((_, reject) => {
-      child.on('error', (err: Error) => reject(new Error(`dsh ACP 探测子进程启动失败: ${err.message}`)));
+      child.on('error', (err: Error) => reject(new Error(`${this.agentLabel()} 探测子进程启动失败: ${err.message}`)));
     });
     const client = new JsonRpcClient({ stdin: child.stdin, stdout: child.stdout, logger: this.logger });
     // Q-023 整体硬超时兜底：spawn→initialize→session/new 任一环节挂起 → reject「模型清单获取超时」
@@ -458,7 +497,7 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
           this.logger.info('[Q-023] 探测 initialize ok');
           const ns = await client.sendRequest<{ configOptions?: Array<{ id?: string; options?: ModelOption[] }> }>(
             ACP_METHODS.newSession,
-            { cwd: dir, mcpServers: [] },
+            { cwd: probeCwd, mcpServers: [] },
             HANDSHAKE_STEP_TIMEOUT_MS,
           );
           this.logger.info('[Q-023] 探测 session/new ok');
@@ -494,8 +533,11 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
     registerCrashReject: (reject: (err: Error) => void) => void,
   ): Promise<string | undefined> {
     // Q-017-B：注入 overlayDir 优先（壳自管 <userData>/dsh），回退 env.DSH_HOME（兼容保留）
-    const overlayDir = this.overlayDir ?? (process.env.DSH_HOME ? `${process.env.DSH_HOME}/dsh` : undefined);
-    if (!overlayDir) {
+    // U-002：launch 模式（外部 agent）不需要 overlay/dsh bin——命令自带
+    const overlayDir = this.launch
+      ? undefined
+      : this.overlayDir ?? (process.env.DSH_HOME ? `${process.env.DSH_HOME}/dsh` : undefined);
+    if (!this.launch && !overlayDir) {
       this.settleFailure(task, handlers, state, '无法定位 dsh ACP 子进程（DSH_HOME 未设置且未注入 overlayDir）');
       return undefined;
     }
@@ -505,19 +547,20 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
       this.settleFailure(task, handlers, state, `工作目录不存在: ${task.cwd}`);
       return undefined;
     }
-    const bin = dshBinPath(overlayDir);
+    const spec = this.launchSpec(overlayDir);
     let child: ReturnType<typeof spawn>;
     try {
       // spawn 参数与 M1 web 子命令同构：node --expose-internals <bin> acp
       // dsh CLI 契约（0.1.2 README「入口模式」）：ACP 是 profile 不是子命令——
       // `dsh acp` 会被当成 profile args，缺 --profile 直接 exit 1（实测 0.1.1-rc.2/0.1.2-rc.1）
-      child = this.spawnFn(this.nodePath, ['--expose-internals', bin, '--profile', 'acp'], {
-        cwd: overlayDir,
+      // U-002：外部 agent 的 cwd = 任务目录（契约 §5「Hull spawn 时传入 cwd（任务目录）」）
+      child = this.spawnFn(spec.command, spec.args, {
+        cwd: this.launch ? task.cwd : overlayDir!,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: this.spawnEnv(),
       });
     } catch (err) {
-      this.settleFailure(task, handlers, state, `dsh ACP 子进程启动失败: ${(err as Error).message}`);
+      this.settleFailure(task, handlers, state, `${this.agentLabel()} 子进程启动失败: ${(err as Error).message}`);
       return undefined;
     }
     state.child = child;
@@ -526,12 +569,12 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
 
     // 崩溃拒绝：任意错误（spawn error / exit 非 0 / 流断开）→ failed（exec-provider-unavailable，P2-B4-2）
     const crashPromise = new Promise<Error>((resolve) => {
-      const onError = (err: Error) => resolve(new Error(`dsh ACP 通道异常: ${err.message}`));
+      const onError = (err: Error) => resolve(new Error(`${this.agentLabel()} 通道异常: ${err.message}`));
       const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
         // 正常取消 kill 后退出不判崩溃
         if (state.cancelled) return;
         if (code === 0 && state.sessionId === undefined) return; // 未建会话前正常退出 → 走 newSession 失败路径
-        resolve(new Error(`dsh ACP 子进程意外退出 (code=${code ?? 'null'}, signal=${signal ?? 'null'})`));
+        resolve(new Error(`${this.agentLabel()} 子进程意外退出 (code=${code ?? 'null'}, signal=${signal ?? 'null'})`));
       };
       registerCrashReject(resolve);
       child.on('error', onError);
@@ -572,13 +615,20 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
       // 业务 requestId 形态废弃，业务 requestId = JSON-RPC id 字符串
       client.onRequest(ACP_METHODS.requestPermission, (params, id) => {
         if (state.settled) return;
-        const p = params as { question?: string; options?: Array<{ optionId?: string; id?: string; kind?: string; name?: string }> } | undefined;
+        const p = params as {
+          question?: string;
+          requestId?: string;
+          message?: { content?: Array<{ type?: string; text?: string }> };
+          options?: Array<{ optionId?: string; id?: string; kind?: string; name?: string }>;
+        } | undefined;
         const requestId = String(id);
         state.pendingPermissions.set(requestId, {
           id,
           options: Array.isArray(p?.options) ? p.options : [],
+          // 外部 ACP Agent 契约 §3.6：响应 result.requestId 回显请求 params.requestId
+          businessRequestId: typeof p?.requestId === 'string' ? p.requestId : requestId,
         });
-        const message = typeof p?.question === 'string' ? p.question : '';
+        const message = permissionRequestText(p);
         handlers.onEvent({ kind: 'permission_request', id: requestId, message });
         // 审批链路收口（B4）：permission 事件 → main 装配 → ApprovalManager.handlePermission 入队
         this.emit('permission', { taskId: task.taskId, title: task.title, requestId, message } satisfies PermissionRequestContext);
@@ -800,7 +850,7 @@ export class ACPProvider extends EventEmitter implements ExecutionProvider {
       // Q-017-C：session/update 流式文本聚合（结算 summary 用）
       summaryText: '',
       // Q-017-C：在途审批请求（业务 requestId=String(jsonrpcId) → jsonrpc id + 选项表）
-      pendingPermissions: new Map<string, { id: number; options: Array<{ optionId?: string; id?: string; kind?: string; name?: string }> }>(),
+      pendingPermissions: new Map<string, { id: number; options: Array<{ optionId?: string; id?: string; kind?: string; name?: string }>; businessRequestId?: string }>(),
       // Q-025：resume 失败已降级（结算侧据此清/覆盖 task.acpSessionId，损坏 id 不留）
       resumeFailed: false,
     };
@@ -818,6 +868,21 @@ export function buildPromptText(task: ExecutionTask): string {
     if (ac.context) text += `\n- context: ${ac.context}`;
   }
   return text;
+}
+
+/**
+ * permission 请求文案提取：
+ * - dsh 真实形态：params.question（字符串）
+ * - 外部 ACP Agent 契约 §3.6：params.message.content = [{type:'text',text}]
+ */
+function permissionRequestText(p: { question?: string; message?: { content?: Array<{ type?: string; text?: string }> } } | undefined): string {
+  if (typeof p?.question === 'string') return p.question;
+  const blocks = p?.message?.content;
+  if (!Array.isArray(blocks)) return '';
+  return blocks
+    .filter((b) => typeof b?.text === 'string' && (b.type === undefined || b.type === 'text'))
+    .map((b) => b.text)
+    .join('\n');
 }
 
 /**

@@ -17,6 +17,7 @@ import { MockProvider, type MockOutcome } from './provider/MockProvider';
 import type { ExecutionProvider, ExecutionTask, ExecutionHandlers, ExecutionResult } from './provider/ExecutionProvider';
 import { ProviderManager } from './provider/ProviderManager';
 import { ExecutionEngine } from './ExecutionEngine';
+import { ExecProviderUnavailableError } from './errors';
 import type { NotifInput } from '../notifications/types';
 
 function sleep(ms: number): Promise<void> {
@@ -719,6 +720,107 @@ test('Q-025 无 resumeFailed + 无 sessionId → acpSessionId 不动（cwd misma
   await waitFor(() => status(store, board.id, t.id) === 'failed');
   equal(raw.tasks.find((x) => x.id === t.id)!.acpSessionId, 'sess-prev', '引用保留（mismatch 场景下次仍可尝试）');
 });
+
+// ─────────────────── U-002 每任务 provider 解析（resolveProvider） ───────────────────
+
+/** 记账 provider：记录收到的任务并成功完成 */
+class RecordingProvider implements ExecutionProvider {
+  readonly executed: ExecutionTask[] = [];
+  execute(task: ExecutionTask, handlers: ExecutionHandlers): { cancel(): Promise<void> } {
+    this.executed.push(task);
+    handlers.onStatus('running');
+    setTimeout(() => {
+      handlers.onResult({ exitCode: 0, summary: `ok:${task.taskId}`, outputPath: '', selfCheck: { passed: true } });
+      handlers.onStatus('succeeded');
+    }, 5);
+    return { cancel: async () => {} };
+  }
+}
+
+function makeResolveEnv(resolveProvider: (task: ExecutionTask) => ExecutionProvider) {
+  const dir = mkdtempSync(join(tmpdir(), 'hull-engine-resolve-'));
+  cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+  const store = new KanbanStore({ userDataPath: dir });
+  cleanup.push(() => store.dispose());
+  const board = store.createBoard('看板', DEFAULT_COLUMNS.map((c) => ({ ...c })));
+  const engine = new ExecutionEngine({
+    store,
+    providerManager: new ProviderManager({ env: { HULL_EXEC_PROVIDER: 'mock' } }),
+    provider: new MockProvider(), // resolveProvider 覆盖后不参与执行
+    maxParallelTasks: 3,
+    resolveProvider,
+  });
+  cleanup.push(() => engine.dispose());
+  return { store, board, engine };
+}
+
+test('U-002 resolveProvider：task A(dsh)→providerX，task B(external-agent)→providerY', async () => {
+  const x = new RecordingProvider();
+  const y = new RecordingProvider();
+  const { store, board, engine } = makeResolveEnv((task) =>
+    task.agentSpec?.provider === 'external-agent' ? y : x,
+  );
+  const ta = makeTask(store, board.id, { title: 'dsh 任务' });
+  const tb = store.createTask(board.id, {
+    title: '外部任务',
+    executionMode: 'auto',
+    acceptanceCriteria: { what: 'w', expected: 'e', verify: 'v' },
+    agentSpec: { provider: 'external-agent' },
+  });
+  engine.executeTask(board.id, ta.id);
+  engine.executeTask(board.id, tb.id);
+  await waitFor(() => status(store, board.id, ta.id) === 'succeeded' && status(store, board.id, tb.id) === 'succeeded');
+  equal(x.executed.length, 1, 'providerX 只执行 dsh 任务');
+  equal(x.executed[0].taskId, ta.id);
+  equal(y.executed.length, 1, 'providerY 只执行 external 任务');
+  equal(y.executed[0].taskId, tb.id);
+});
+
+test('U-002 resolveProvider 抛 exec-provider-unavailable → 恰好一次失败收尾 + 错误码/provider 名', async () => {
+  const { store, board, engine } = makeResolveEnv(() => {
+    throw new ExecProviderUnavailableError("执行通道未就绪，请检查 dsh：provider 'external-agent' 未注册");
+  });
+  const t = store.createTask(board.id, {
+    title: '外部不可用',
+    executionMode: 'auto',
+    acceptanceCriteria: { what: 'w', expected: 'e', verify: 'v' },
+    agentSpec: { provider: 'external-agent' },
+  });
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'failed');
+  const rec = store.getBoard(board.id).tasks.find((x) => x.id === t.id)!;
+  const codeEvents = rec.timeline.filter((x) => x.type === 'system' && x.content.includes('exec-provider-unavailable'));
+  equal(codeEvents.length, 1, '失败收尾恰好一次');
+  ok(codeEvents[0].content.includes('external-agent'), '含 provider 名');
+  ok(codeEvents[0].content.includes('执行通道未就绪'), '含 registry 原始错误');
+  equal(rec.timeline.filter((x) => x.type === 'system' && x.content.includes('启动失败')).length, 1, '启动失败事件仅一次');
+});
+
+test('U-002 会话归属：结算把 acpSessionId 与 provider 一起落盘', async () => {
+  const provider: ExecutionProvider = {
+    execute: (_task, handlers) => {
+      handlers.onStatus('running');
+      setTimeout(() => {
+        handlers.onResult({ exitCode: 0, summary: 'ok', outputPath: '', sessionId: 'sess-ext', selfCheck: { passed: true } });
+        handlers.onStatus('succeeded');
+      }, 5);
+      return { cancel: async () => {} };
+    },
+  };
+  const { store, board, engine } = makeResolveEnv(() => provider);
+  const t = store.createTask(board.id, {
+    title: '外部会话',
+    executionMode: 'auto',
+    acceptanceCriteria: { what: 'w', expected: 'e', verify: 'v' },
+    agentSpec: { provider: 'external-agent' },
+  });
+  engine.executeTask(board.id, t.id);
+  await waitFor(() => status(store, board.id, t.id) === 'succeeded');
+  const rec = store.getBoard(board.id).tasks.find((x) => x.id === t.id)!;
+  equal(rec.acpSessionId, 'sess-ext', '会话 id 落盘');
+  equal(rec.acpSessionProvider, 'external-agent', 'provider 归属同步落盘');
+});
+
 
 // ─────────────────── Q-026 agent 执行结果 comment 标记（source.type='agent'） ───────────────────
 

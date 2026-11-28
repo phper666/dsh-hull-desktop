@@ -123,6 +123,8 @@ export function mergeSettings(
       // 自定义 PATH 是设备本地路径（换机无意义）→ 备份合并保留本地值
       extraPath: local.extraPath,
       preferExtraPath: local.preferExtraPath,
+      // U-002：外部 agent 启动命令/展示名是设备本地配置（路径+凭证相关，换机无意义且不应被包覆盖）
+      externalAgent: local.externalAgent,
     },
     conflicts,
     notices,

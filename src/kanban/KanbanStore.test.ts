@@ -13,7 +13,7 @@ after(() => {
   for (const d of tempDirs) rmSync(d, { recursive: true, force: true });
 });
 
-function makeStore(files: Record<string, string> = {}, opts: { maxAttachmentSizeMB?: number; onWriteError?: (e: Error) => void; cls?: new (o: ConstructorParameters<typeof KanbanStore>[0]) => KanbanStore } = {}) {
+function makeStore(files: Record<string, string> = {}, opts: { maxAttachmentSizeMB?: number; onWriteError?: (e: Error) => void; cls?: new (o: ConstructorParameters<typeof KanbanStore>[0]) => KanbanStore; warns?: string[] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'hull-kanban-'));
   tempDirs.push(dir);
   for (const [name, content] of Object.entries(files)) {
@@ -27,7 +27,7 @@ function makeStore(files: Record<string, string> = {}, opts: { maxAttachmentSize
     }
     writeFileSync(join(dir, name), content);
   }
-  const logger = { info() {}, warn() {}, error() {}, dshLog() {} };
+  const logger = { info() {}, warn: (m: string) => { opts.warns?.push(m); }, error() {}, dshLog() {} };
   const store = new (opts.cls ?? KanbanStore)({ userDataPath: dir, logger, maxAttachmentSizeMB: opts.maxAttachmentSizeMB, onWriteError: opts.onWriteError });
   cleanup.push(() => store.dispose());
   return { store, dir, filePath: join(dir, 'kanban', 'boards.json') };
@@ -736,6 +736,88 @@ test('Q-019 createTask/updateTask：agentSpec.cwd 存住/清除/不动', () => {
   const t3 = store.createTask(board.id, { title: 't3', agentSpec: { model: '["a","m"]', cwd: '/w' } });
   equal(t3.agentSpec.model, '["a","m"]');
   equal(t3.agentSpec.cwd, '/w');
+});
+
+// ─────────────────── U-002 执行平台 provider（agentSpec.provider 透传） ───────────────────
+
+test('U-002 createTask：agentSpec.provider=external-agent → 存储/读取回显（落盘）', () => {
+  const { store, filePath } = makeStore();
+  const board = store.getBoards()[0];
+  const t = store.createTask(board.id, { title: '外部执行', agentSpec: { provider: 'external-agent' } });
+  equal(t.agentSpec.provider, 'external-agent', 'create 返回 provider');
+  equal(store.getTasks(board.id).find((x) => x.id === t.id)?.agentSpec.provider, 'external-agent', '内存读取回显');
+  store.flushSync();
+  const raw = JSON.parse(readFileSync(filePath, 'utf8')) as {
+    boards: Array<{ tasks: Array<{ id: string; agentSpec: { provider: string } }> }>;
+  };
+  const onDisk = raw.boards.flatMap((b) => b.tasks).find((x) => x.id === t.id);
+  equal(onDisk?.agentSpec.provider, 'external-agent', '落盘回显');
+});
+
+test('U-002 createTask：不带 provider → 默认 dsh（存量语义不变）', () => {
+  const { store } = makeStore();
+  const board = store.getBoards()[0];
+  const t = store.createTask(board.id, { title: '默认 dsh' });
+  equal(t.agentSpec.provider, 'dsh');
+});
+
+test('U-002 updateTask：patch 带 provider → 变更；不带 → 保持原值', () => {
+  const { store } = makeStore();
+  const board = store.getBoards()[0];
+  const t = store.createTask(board.id, { title: 't' });
+  equal(t.agentSpec.provider, 'dsh');
+  const u1 = store.updateTask(board.id, t.id, { agentSpec: { provider: 'external-agent' } });
+  equal(u1.agentSpec.provider, 'external-agent', '带 provider → 变更');
+  const u2 = store.updateTask(board.id, t.id, { title: '改名' });
+  equal(u2.agentSpec.provider, 'external-agent', '不带 agentSpec → 保持');
+  const u3 = store.updateTask(board.id, t.id, { agentSpec: { model: '["a","m"]' } });
+  equal(u3.agentSpec.provider, 'external-agent', 'agentSpec 只带 model → provider 保持');
+  const u4 = store.updateTask(board.id, t.id, { agentSpec: { provider: 'dsh' } });
+  equal(u4.agentSpec.provider, 'dsh', '可切回 dsh');
+});
+
+test('U-002 非法 provider：create/update 均回退 dsh + logger.warn', () => {
+  const warns: string[] = [];
+  const { store } = makeStore({}, { warns });
+  const board = store.getBoards()[0];
+  const t = store.createTask(board.id, { title: '脏值', agentSpec: { provider: 'foo' } });
+  equal(t.agentSpec.provider, 'dsh', 'create 回退 dsh');
+  ok(warns.some((w) => w.includes("provider 非法值 'foo'")), 'create 告警');
+  const u = store.updateTask(board.id, t.id, { agentSpec: { provider: 'bar' } });
+  equal(u.agentSpec.provider, 'dsh', 'update 回退 dsh');
+  ok(warns.some((w) => w.includes("provider 非法值 'bar'")), 'update 告警');
+});
+
+test('U-002 acpSessionProvider：create 透传 + 缺省不写（视为 dsh）+ 落盘回显', () => {
+  const { store, filePath } = makeStore();
+  const board = store.getBoards()[0];
+  const withProvider = store.createTask(board.id, { title: '外部会话', acpSessionProvider: 'external-agent' });
+  equal(withProvider.acpSessionProvider, 'external-agent');
+  const without = store.createTask(board.id, { title: '缺省会话' });
+  equal(without.acpSessionProvider, undefined, '缺省不写字段');
+  store.flushSync();
+  const raw = JSON.parse(readFileSync(filePath, 'utf8')) as {
+    boards: Array<{ tasks: Array<{ id: string; acpSessionProvider?: string }> }>;
+  };
+  const tasks = raw.boards.flatMap((b) => b.tasks);
+  equal(tasks.find((x) => x.id === withProvider.id)?.acpSessionProvider, 'external-agent', '落盘回显');
+  equal(tasks.find((x) => x.id === without.id)?.acpSessionProvider, undefined, '缺省不落字段');
+});
+
+test('U-002 acpSessionProvider：update 提供→变更；null/空串→清除；不提供→保持', () => {
+  const { store } = makeStore();
+  const board = store.getBoards()[0];
+  const t = store.createTask(board.id, { title: 't' });
+  const u1 = store.updateTask(board.id, t.id, { acpSessionProvider: 'external-agent' });
+  equal(u1.acpSessionProvider, 'external-agent', '提供 → 变更');
+  const u2 = store.updateTask(board.id, t.id, { title: '改名' });
+  equal(u2.acpSessionProvider, 'external-agent', '不提供 → 保持');
+  const u3 = store.updateTask(board.id, t.id, { acpSessionProvider: null });
+  equal(u3.acpSessionProvider, undefined, 'null → 清除');
+  const u4 = store.updateTask(board.id, t.id, { acpSessionProvider: 'external-agent' });
+  equal(u4.acpSessionProvider, 'external-agent');
+  const u5 = store.updateTask(board.id, t.id, { acpSessionProvider: '' });
+  equal(u5.acpSessionProvider, undefined, '空串 → 清除');
 });
 
 /** Q-019 board.defaultCwd：updateBoard 设置/清除（对齐 defaultModel 写法） */
